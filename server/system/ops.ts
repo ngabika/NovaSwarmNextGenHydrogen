@@ -629,7 +629,11 @@ export function applyOtaUpdate(): {
 
   try {
     execSync('git pull --ff-only origin main', { cwd: process.cwd(), encoding: 'utf8', timeout: 30000 });
-    execSync('npm install --no-audit --no-fund', { cwd: process.cwd(), encoding: 'utf8', timeout: 90000 });
+    execSync('npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps', {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 90000,
+    });
     execSync('npm run lint && npm run build', { cwd: process.cwd(), encoding: 'utf8', timeout: 90000 });
     const newCommit = execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim();
     const now = new Date().toISOString();

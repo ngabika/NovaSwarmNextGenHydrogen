@@ -3,7 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import express from 'express';
 import { runAutonomousKanbanWorkerTick } from '../server/agents/engine';
-import { createOpenAiProxyRouter } from '../server/gateway/openaiProxy';
+import { createOpenAiProxyRouter, createVirtualKey, revokeVirtualKey } from '../server/gateway/openaiProxy';
 import { callMcpTool, listMcpTools, registerMcpServer } from '../server/mcp/manager';
 import { addPersistentMemoryAsync, searchMemoriesAsync } from '../server/memory/vectorStore';
 import { detectActiveSandboxBackend } from '../server/sandbox/supervisorSandbox';
@@ -180,11 +180,15 @@ test('OpenAI /v1/chat/completions proxy preserves native tool_calls and parses m
   const httpSrv = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => httpSrv.once('listening', resolve));
   const port = (httpSrv.address() as { port: number }).port;
+  const vk = createVirtualKey({ name: 'test-vk-tools', maxBudgetUsd: 5, rpmLimit: 100 });
 
   try {
     const res = await origFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${vk.rawKey}`,
+      },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [
@@ -217,6 +221,7 @@ test('OpenAI /v1/chat/completions proxy preserves native tool_calls and parses m
     const captured = capturedOpenAiPayload as { tools?: unknown[] } | null;
     assert.ok(Array.isArray(captured?.tools));
   } finally {
+    revokeVirtualKey(vk.key.id);
     await new Promise<void>((resolve) => httpSrv.close(() => resolve()));
     updateState((s) => {
       s.settings.providerKeys.openai = prevKeys;

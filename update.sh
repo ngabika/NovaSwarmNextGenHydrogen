@@ -23,7 +23,7 @@ echo "[2/5] Forráskód frissítése..."
 git pull --ff-only origin main || git pull --ff-only
 
 echo "[3/5] Függőségek és típusellenőrzés..."
-npm install --no-audit --no-fund
+npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
 if ! npm run lint || ! npm run build; then
   echo "HIBA: A build sikertelen. Visszaállítás az előző állapotra..."
   if [ -n "${PREV_COMMIT}" ]; then

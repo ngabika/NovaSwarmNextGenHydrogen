@@ -99,18 +99,25 @@ cd "${NOVASWARM_DIR}"
 mkdir -p memory-vault backups skills
 if [ ! -f .env ]; then
   cp .env.example .env
-  sed -i "s/^PORT=.*/PORT=${APP_PORT}/" .env
-  sed -i "s|^APP_URL=.*|APP_URL=\"http://localhost:${APP_PORT}\"|" .env
+  if grep -q '^PORT=' .env; then
+    sed -i "s/^PORT=.*/PORT=${APP_PORT}/" .env
+  else
+    echo "PORT=${APP_PORT}" >> .env
+  fi
+  if grep -q '^APP_URL=' .env; then
+    sed -i "s|^APP_URL=.*|APP_URL=\"http://localhost:${APP_PORT}\"|" .env
+  else
+    echo "APP_URL=\"http://localhost:${APP_PORT}\"" >> .env
+  fi
 fi
 
-npm install --no-audit --no-fund
+npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
 npm run build
 
 # Register systemd service
 echo "[6/6] systemd szolgáltatás létrehozása..."
 RUN_USER="${SUDO_USER:-$(whoami)}"
-NODE_BIN="$(command -v node)"
-NPX_BIN="$(command -v npx)"
+TSX_BIN="${NOVASWARM_DIR}/node_modules/.bin/tsx"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
@@ -128,7 +135,7 @@ WorkingDirectory=${NOVASWARM_DIR}
 Environment=NODE_ENV=production
 Environment=PORT=${APP_PORT}
 Environment=NOVASWARM_RECOMMENDED_MODEL=${RECOMMENDED_MODEL}
-ExecStart=${NPX_BIN} tsx server.ts
+ExecStart=${TSX_BIN} server.ts
 Restart=on-failure
 RestartSec=3
 
