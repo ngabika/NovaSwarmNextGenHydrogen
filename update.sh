@@ -20,7 +20,7 @@ tar -czf "${BACKUP_FILE}" --ignore-failed-read .state.json .config.json memory-v
 PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 echo "[2/5] Forráskód frissítése..."
-git pull --ff-only
+git pull --ff-only origin main || git pull --ff-only
 
 echo "[3/5] Függőségek és típusellenőrzés..."
 npm install --no-audit --no-fund

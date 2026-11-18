@@ -10,6 +10,8 @@ coverage/
 .config.json
 .state.json
 .state.json.tmp
+.secrets.vault.json
 memory-vault/
 backups/
+skills/
 .playwright-cli/

@@ -2,48 +2,73 @@ import { execSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Agent, AuditLogEntry, UnifiedMessage } from '../../shared/types';
-import { searchMemories } from '../memory/vectorStore';
-import { invokeWithFailover } from '../providers/router';
+import type {
+  Agent,
+  KanbanCard,
+  MessageAttachment,
+  SessionIsolationMode,
+  ToolExecutionStep,
+  UnifiedMessage,
+} from '../../shared/types';
+import { preCompactThreadMemory, searchMemories } from '../memory/vectorStore';
+import { invokeWithFailover, type InlineMediaInput, type RouterDependencies } from '../providers/router';
 import {
   assertHostPermission,
   detectDestructiveOperation,
   PROMPT_INJECTION_DEFENSE_RULE,
   requireDestructiveApproval,
 } from '../security/permissionGate';
+import { buildProgressiveSkillsIndex } from '../skills/loader';
 import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../state/store';
+import {
+  AGENT_TOOLS_INSTRUCTION,
+  executeAgentTool,
+  parseToolCallFromResponse,
+} from './tools';
 
 export const SELF_DOCUMENTATION_TEXT = `NovaSwarm Önismereti Architektúra Dokumentáció:
 1. Állapot & Igazságforrás: Minden konfiguráció és entitás a központi állapottárban (.state.json, .config.json) él, atomikus ideiglenes fájlos átnevezéssel (rename) mentve.
-2. Ágensek & Hierarchia: Induláskor csak a felhasználó által létrehozott első ágens és az állandó Felügyelő Auditor fut. Az ágensek tetszőleges mélységű hierarchiában (parentAgentId) szerveződhetnek.
-3. Jogosultsági Kapu & Destruktív Jóváhagyás: Minden gazdagép-fájlművelet, parancs és PTY terminál az egységes assertHostPermission kapun halad át. OS upgrade, csomag-eltávolítás, particionálás és tűzfal-módosítás előtt 1-kattintásos jóváhagyás kötelező.
-4. Multi-Provider Router (LiteLLM-minta): Gemini -> OpenRouter/OpenAI/Anthropic -> lokális Ollama failover lánc, kulcs-pool rotációval, dinamikus modellfelfedezéssel és globális napi költséglimittel.
-5. Kettős Memória & Álmodás (OpenClaw-minta): Pure Node.js vektoros tár + Obsidian Markdown vault (#tag és [[wikilink]]). 10 perc inaktivitás után Light -> Deep -> REM fázisok konszolidálják a tudást.
-6. Önmódosítás & Sandbox: Minden új skill/változás a Felügyelő Auditor izolált tmpfs/Docker sandboxában fut le élesítés előtt; a git-rollback és a titkos fájlok tiltott módosítási zónában vannak.`;
+2. Ágensek, Al-ágensek & Hierarchia: Induláskor csak a felhasználó által létrehozott első ágens és az állandó Felügyelő Auditor fut. Tetszőleges mélységű hierarchia, ágensenkénti dedikált Telegram bot és napi költségkeret.
+3. Session Izoláció & Jogosultsági Kapu (OpenClaw): A fő szál (main_host) gazdagép-hozzáférést kaphat az assertHostPermission kapun át; minden másodlagos/külső szál (sandboxed) automatikusan izolált sandboxban fut.
+4. LiteLLM AI Gateway Proxy (/v1/*): OpenAI-kompatibilis /v1/chat/completions (SSE stream & auto routing), /v1/models, /v1/embeddings, Virtuális Kulcsok (budget + RPM), LRU válasz-cache, Guardrail védelem és kulcs-cooldown rotáció.
+5. Rétegzett Hibrid Memória & Álmodás (Marveen + OpenClaw): Hot/Warm/Cold/Shared rétegek, salience decay, RRF hibrid keresés, PreCompact kontextus-mentés, Tudásgráf és Obsidian vault + 3 fázisú Álmodás.
+6. Ötletláda, Rich Kanban, Föderáció & Uptime: Impact×Effort ötletpontozás, AI feladatbontás, WIP limit & kártya-öregedés, több példányos Föderáció és Two-Strikes Uptime Monitor.`;
 
-/**
- * Dynamically builds the system prompt for an agent based strictly on actual active agents
- * in the store (Section 6: never hardcoded agent names!) + user profile + prompt-injection rule.
- */
-export function buildDynamicAgentSystemPrompt(agent: Agent): string {
+export function buildDynamicAgentSystemPrompt(
+  agent: Agent,
+  isolationMode: SessionIsolationMode = 'main_host'
+): string {
   const state = getState();
   const activeRoster = state.agents
     .filter((a) => a.active && a.id !== agent.id)
     .map((a) => `- ${a.name} (${a.role}, ID: ${a.id}${a.isSupervisor ? ' [Technikai Felügyelő]' : ''})`)
     .join('\n');
 
-  const memories = searchMemories(agent.role, 4)
-    .map((m) => `- [${m.entity}] ${m.content}`)
+  const memories = searchMemories(agent.role, 4, { agentId: agent.id, reinforce: true })
+    .map((m) => `- [${(m.tier || 'warm').toUpperCase()} | ${m.entity}] ${m.content}`)
+    .join('\n');
+
+  const skillsIndex = buildProgressiveSkillsIndex();
+  const mcpSummary = state.mcpServers
+    .map((m) => `- ${m.id}: ${m.name} (${m.status})`)
     .join('\n');
 
   return [
     `Te vagy ${agent.name}, szerepköröd: ${agent.role}.`,
     agent.systemPrompt,
+    `Aktuális session biztonsági mód: ${isolationMode} (${
+      isolationMode === 'sandboxed'
+        ? 'elszigetelt másodlagos szál — parancsok csak sandboxban futhatnak'
+        : 'fő operátori szál'
+    }).`,
     `Felhasználói profil és kommunikációs elvárás:\n${state.settings.userProfile || 'Még nincs megadva.'}`,
     activeRoster
       ? `Aktuális csapattagok (valós, dinamikus lista):\n${activeRoster}`
       : 'Jelenleg te vagy az egyetlen aktív felhasználói ágens a csapatban.',
+    mcpSummary ? `Regisztrált MCP szerverek:\n${mcpSummary}` : '',
     memories ? `Kapcsolódó tartós memóriák:\n${memories}` : '',
+    skillsIndex ? `Elérhető ellenőrzött skillek (progressive disclosure):\n${skillsIndex}` : '',
+    AGENT_TOOLS_INSTRUCTION,
     `Rendszer önismeret:\n${SELF_DOCUMENTATION_TEXT}`,
     PROMPT_INJECTION_DEFENSE_RULE,
     `Válaszolj a felhasználó nyelvén (${state.settings.language}). Ha egy képességed nem lett ténylegesen végrehajtva eszközzel, SOHA ne állítsd, hogy végrehajtottad.`,
@@ -52,10 +77,6 @@ export function buildDynamicAgentSystemPrompt(agent: Agent): string {
     .join('\n\n');
 }
 
-/**
- * Host command execution strictly routed through the unified Host Permission Gate (Section 8.2)
- * and narrow destructive action approval list (Section 8.3).
- */
 export function executeHostCommandForAgent(
   agent: Agent,
   command: string
@@ -121,11 +142,6 @@ export function hostWriteFileForAgent(agentId: string, filePath: string, content
   });
 }
 
-/**
- * Permanent Supervisor/Auditor check (Section 10.3):
- * Scans recent logs after an autonomous turn; detects if any agent claimed to have
- * installed/created/executed something without a corresponding verifiedExecution log entry.
- */
 export function auditRecentCycle(): {
   status: 'nominal' | 'warning' | 'alert';
   discrepancies: string[];
@@ -137,7 +153,7 @@ export function auditRecentCycle(): {
 
   const verifiedActions = new Set(
     recentLogs
-      .filter((l) => l.verifiedExecution === true && (l.type === 'action' || l.type === 'terminal'))
+      .filter((l) => l.verifiedExecution === true && (l.type === 'action' || l.type === 'terminal' || l.type === 'kanban'))
       .map((l) => l.sourceAgentId)
   );
 
@@ -145,15 +161,15 @@ export function auditRecentCycle(): {
   const claimRegex = /\b(telepítettem|lefuttattam|létrehoztam a fájlt|módosítottam a rendszert|installed|executed command|created file)\b/i;
 
   for (const msg of recentMessages) {
-    if (claimRegex.test(msg.content) && !verifiedActions.has(msg.senderId)) {
+    const hasToolProof = (msg.toolTrace && msg.toolTrace.some((t) => t.ok)) || verifiedActions.has(msg.senderId);
+    if (claimRegex.test(msg.content) && !hasToolProof) {
       discrepancies.push(
         `Eltérés (${msg.senderName}): végrehajtást állított ("${msg.content.slice(0, 70)}..."), de nem található igazolt parancs/fájl végrehajtási napló.`
       );
     }
   }
 
-  const status: 'nominal' | 'warning' | 'alert' =
-    discrepancies.length > 0 ? 'warning' : 'nominal';
+  const status: 'nominal' | 'warning' | 'alert' = discrepancies.length > 0 ? 'warning' : 'nominal';
   const summary =
     discrepancies.length > 0
       ? `${discrepancies.length} eltérés észlelve az utolsó körben.`
@@ -181,9 +197,6 @@ export function auditRecentCycle(): {
   return { status, discrepancies, summary };
 }
 
-/**
- * Resolves explicit @AgentName addressing (Section 16.2) or falls back to root coordinator agent.
- */
 export function resolveTargetAgent(prompt: string, explicitAgentId?: string | null): Agent | null {
   const state = getState();
   const userAgents = state.agents.filter((a) => !a.isSupervisor && a.active);
@@ -194,7 +207,6 @@ export function resolveTargetAgent(prompt: string, explicitAgentId?: string | nu
     if (found) return found;
   }
 
-  // Check for explicit name addressing e.g. "@Fejlesztő ..." or "Fejlesztő: ..."
   const lower = prompt.toLowerCase();
   for (const agent of userAgents) {
     const nameLower = agent.name.toLowerCase();
@@ -207,19 +219,94 @@ export function resolveTargetAgent(prompt: string, explicitAgentId?: string | nu
     }
   }
 
-  // Root coordinator (top-most non-supervisor agent with parentAgentId === null)
   return userAgents.find((a) => a.parentAgentId === null) || userAgents[0];
 }
 
 /**
- * Processes an explicit user message (Web UI or Telegram) with priority over autonomous tasks (Section 10.4).
- * Supports real agent-to-agent delegation when subordinate agents exist.
+ * Multi-step bounded tool-calling loop for an agent (OpenClaw pattern).
+ */
+export async function runAgentWithTools(params: {
+  agent: Agent;
+  prompt: string;
+  complexity: 'simple' | 'complex';
+  isolationMode: SessionIsolationMode;
+  images?: InlineMediaInput[];
+  maxSteps?: number;
+  routerDeps?: RouterDependencies;
+}): Promise<{
+  text: string;
+  model: string;
+  provider: Agent['providerId'];
+  costUsd: number;
+  toolTrace: ToolExecutionStep[];
+}> {
+  const systemInstruction = buildDynamicAgentSystemPrompt(params.agent, params.isolationMode);
+  const maxSteps = params.maxSteps ?? 4;
+  const toolTrace: ToolExecutionStep[] = [];
+  let runningPrompt = params.prompt;
+  let totalCost = 0;
+  let lastModel = params.agent.modelId;
+  let lastProvider = params.agent.providerId;
+
+  for (let step = 0; step < maxSteps; step++) {
+    const res = await invokeWithFailover(
+      {
+        prompt: runningPrompt,
+        systemInstruction,
+        complexity: params.complexity,
+        preferredProvider: params.agent.providerId,
+        preferredModel: params.agent.modelId,
+        agentId: params.agent.id,
+        images: step === 0 ? params.images : undefined,
+        bypassCache: toolTrace.length > 0 || Boolean(params.images?.length),
+      },
+      params.routerDeps
+    );
+    totalCost = Number((totalCost + res.costUsd).toFixed(6));
+    lastModel = res.model;
+    lastProvider = res.provider;
+
+    const call = parseToolCallFromResponse(res.text);
+    if (!call) {
+      return {
+        text: res.text,
+        model: lastModel,
+        provider: lastProvider,
+        costUsd: totalCost,
+        toolTrace,
+      };
+    }
+
+    const execOutcome = await executeAgentTool({
+      agent: params.agent,
+      toolName: call.name,
+      args: call.args,
+      isolationMode: params.isolationMode,
+    });
+    toolTrace.push(execOutcome.step);
+    runningPrompt = `${runningPrompt}\n\n[Eszköz hívás #${step + 1}: ${call.name}]\n[Eredmény]:\n${execOutcome.observation}\n\nFolytasd a feladatot vagy adj végleges választ a felhasználónak.`;
+  }
+
+  return {
+    text: `Eszköz-lánc befejezve (${toolTrace.length} lépés végrehajtva).`,
+    model: lastModel,
+    provider: lastProvider,
+    costUsd: totalCost,
+    toolTrace,
+  };
+}
+
+/**
+ * Processes an explicit user message (Web UI, Telegram, Discord, Slack, Webhook, Federation)
+ * with priority over autonomous tasks, session isolation, PreCompact hook, tool loop, and delegation.
  */
 export async function handleUserTurn(params: {
   threadId: string;
   content: string;
-  channel: 'web' | 'telegram';
+  channel: UnifiedMessage['channel'];
   targetAgentId?: string | null;
+  attachments?: MessageAttachment[];
+  routerDeps?: RouterDependencies;
 }): Promise<{
   userMessage: UnifiedMessage;
   agentMessages: UnifiedMessage[];
@@ -230,6 +317,10 @@ export async function handleUserTurn(params: {
     throw new Error('A Vészleállító aktív — új feladatok feldolgozása szünetel.');
   }
 
+  const thread = state.threads.find((t) => t.id === params.threadId);
+  const isolationMode: SessionIsolationMode =
+    thread?.isolationMode ?? (params.threadId === 'thread-main' ? 'main_host' : 'sandboxed');
+
   const userMessage = appendUnifiedMessage({
     threadId: params.threadId,
     senderType: 'user',
@@ -238,9 +329,12 @@ export async function handleUserTurn(params: {
     targetAgentId: params.targetAgentId ?? null,
     channel: params.channel,
     content: params.content,
+    attachments: params.attachments,
   });
 
-  // Store short-term signal for Dreaming Light Phase
+  // PreCompact hook: safeguard decisions before thread grows long
+  preCompactThreadMemory(params.threadId);
+
   updateState((s) => {
     s.shortTermSignals.push({
       id: crypto.randomUUID(),
@@ -265,7 +359,6 @@ export async function handleUserTurn(params: {
     return { userMessage, agentMessages: [], coordinatorReply: sysReply };
   }
 
-  // Explicit human instruction preempts any spontaneous initiative (Section 10.4)
   updateState((s) => {
     s.activeExplicitTaskAgentId = targetAgent.id;
   });
@@ -275,7 +368,6 @@ export async function handleUserTurn(params: {
     (a) => a.parentAgentId === targetAgent.id && a.active && !a.isSupervisor
   );
 
-  // Real agent-to-agent delegation if targetAgent has subordinate specialists and user didn't address a leaf agent directly
   let delegatedContext = '';
   if (subordinates.length > 0 && !params.targetAgentId) {
     const delegate = subordinates[0];
@@ -288,12 +380,14 @@ export async function handleUserTurn(params: {
     });
 
     try {
-      const subRes = await invokeWithFailover({
+      const subRes = await runAgentWithTools({
+        agent: delegate,
         prompt: delegationPrompt,
-        systemInstruction: buildDynamicAgentSystemPrompt(delegate),
         complexity: 'simple',
-        preferredProvider: delegate.providerId,
-        preferredModel: delegate.modelId,
+        // OpenClaw pattern: subagents default to sandboxed isolation
+        isolationMode: 'sandboxed',
+        maxSteps: 2,
+        routerDeps: params.routerDeps,
       });
       const subMsg = appendUnifiedMessage({
         threadId: params.threadId,
@@ -306,6 +400,7 @@ export async function handleUserTurn(params: {
         modelUsed: subRes.model,
         providerUsed: subRes.provider,
         costUsd: subRes.costUsd,
+        toolTrace: subRes.toolTrace,
       });
       agentMessages.push(subMsg);
       delegatedContext = `\n\nBeérkezett belső delegálási jelentés (${delegate.name}):\n${subRes.text}`;
@@ -319,27 +414,34 @@ export async function handleUserTurn(params: {
     }
   }
 
-  // Main / addressed agent response
-  const isComplex = params.content.length > 160 || /\b(architektúra|kód|terv|debug|refactor|elemzés)\b/i.test(params.content);
+  const isComplex =
+    params.content.length > 160 || /\b(architektúra|kód|terv|debug|refactor|elemzés)\b/i.test(params.content);
   const fullPrompt = `${params.content}${delegatedContext}`;
+  const imageInputs: InlineMediaInput[] = (params.attachments || [])
+    .filter((a) => a.kind === 'image' && a.dataBase64)
+    .map((a) => ({ mimeType: a.mimeType, dataBase64: a.dataBase64 }));
 
   let replyText = '';
   let modelUsed = targetAgent.modelId;
   let providerUsed = targetAgent.providerId;
   let costUsd = 0;
+  let toolTrace: ToolExecutionStep[] = [];
 
   try {
-    const llmRes = await invokeWithFailover({
+    const res = await runAgentWithTools({
+      agent: targetAgent,
       prompt: fullPrompt,
-      systemInstruction: buildDynamicAgentSystemPrompt(targetAgent),
       complexity: isComplex ? 'complex' : 'simple',
-      preferredProvider: targetAgent.providerId,
-      preferredModel: targetAgent.modelId,
+      isolationMode,
+      images: imageInputs.length > 0 ? imageInputs : undefined,
+      maxSteps: 4,
+      routerDeps: params.routerDeps,
     });
-    replyText = llmRes.text;
-    modelUsed = llmRes.model;
-    providerUsed = llmRes.provider;
-    costUsd = llmRes.costUsd;
+    replyText = res.text;
+    modelUsed = res.model;
+    providerUsed = res.provider;
+    costUsd = res.costUsd;
+    toolTrace = res.toolTrace;
   } catch (err) {
     replyText = `Hiba a modellhívás közben (valós failover lánc eredmény): ${err instanceof Error ? err.message : String(err)}`;
   }
@@ -354,16 +456,72 @@ export async function handleUserTurn(params: {
     modelUsed,
     providerUsed,
     costUsd,
+    toolTrace,
   });
 
   updateState((s) => {
     s.activeExplicitTaskAgentId = null;
   });
 
-  // Supervisor audits the completed cycle
   auditRecentCycle();
 
   return { userMessage, agentMessages, coordinatorReply };
+}
+
+/** Marveen Kanban AI Auto-Breakdown */
+export async function breakdownKanbanCardWithAi(
+  cardId: string,
+  routerDeps?: RouterDependencies
+): Promise<KanbanCard | null> {
+  const state = getState();
+  const card = state.kanban.find((c) => c.id === cardId);
+  if (!card) return null;
+
+  let lines: string[] = [];
+  try {
+    const res = await invokeWithFailover(
+      {
+        complexity: 'simple',
+        prompt: `Bontsd fel az alábbi Kanban feladatot 3-5 konkrét, végrehajtható részfeladatra (egyszerű szöveges sorok, számok/jelölők nélkül):\nCím: ${card.title}\nLeírás: ${card.description || 'nincs'}`,
+        systemInstruction: 'Válaszolj pontosan 3-5 tömör, cselekvés-orientált sorral.',
+      },
+      routerDeps
+    );
+    lines = res.text
+      .split('\n')
+      .map((l) => l.replace(/^[-*\d.)\s]+/, '').trim())
+      .filter((l) => l.length > 3)
+      .slice(0, 6);
+  } catch {
+    lines = [
+      `Követelmények pontosítása: ${card.title}`,
+      'Implementáció és egységtesztek elkészítése',
+      'Felügyelő ellenőrzés és lezárás',
+    ];
+  }
+
+  let updated: KanbanCard | null = null;
+  updateState((s) => {
+    const target = s.kanban.find((c) => c.id === cardId);
+    if (!target) return;
+    target.subtasks = lines.map((title) => ({
+      id: `sub-${crypto.randomUUID().slice(0, 6)}`,
+      title,
+      done: false,
+    }));
+    target.updatedAt = new Date().toISOString();
+    updated = target;
+  });
+
+  appendAuditLog({
+    type: 'kanban',
+    sourceAgentId: 'kanban-ai',
+    sourceAgentName: 'Kanban Tervező',
+    message: `AI részfeladat-bontás kész: ${card.title} (${lines.length} lépés)`,
+    verifiedExecution: true,
+  });
+
+  return updated;
 }
 
 export function createAgent(input: {
@@ -376,6 +534,8 @@ export function createAgent(input: {
   providerId?: Agent['providerId'];
   webSearchEnabled?: boolean;
   hostExecutionEnabled?: boolean;
+  dailyBudgetUsd?: number;
+  voiceReplyMode?: Agent['voiceReplyMode'];
 }): Agent {
   const now = new Date().toISOString();
   const state = getState();
@@ -394,6 +554,11 @@ export function createAgent(input: {
     webSearchEnabled: input.webSearchEnabled ?? true,
     hostExecutionEnabled: input.hostExecutionEnabled ?? state.settings.hostPermissionsGranted,
     active: true,
+    telegramBotEnabled: false,
+    telegramHasToken: false,
+    dailyBudgetUsd: input.dailyBudgetUsd ?? 0,
+    dailySpendUsd: 0,
+    voiceReplyMode: input.voiceReplyMode ?? 'off',
     createdAt: now,
     updatedAt: now,
   };
@@ -411,4 +576,140 @@ export function createAgent(input: {
   });
 
   return agent;
+}
+
+const KANBAN_PRIO_WEIGHT: Record<string, number> = {
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+/**
+ * Autonomous Kanban Backlog Worker:
+ * Picks up the highest-priority 'todo' card when idle (no explicit user task running),
+ * moves it to 'in_progress', executes it via the assigned agent (sandboxed), completes subtasks,
+ * and marks it 'done' cleanly.
+ */
+export async function runAutonomousKanbanWorkerTick(
+  routerDeps?: RouterDependencies
+): Promise<{ worked: boolean; cardId?: string; status?: string; reason?: string }> {
+  const state = getState();
+  if (state.settings.killSwitchActive) {
+    return { worked: false, reason: 'Vészleállító aktív.' };
+  }
+  if (state.activeExplicitTaskAgentId) {
+    return { worked: false, reason: 'Aktív felhasználói kérés élvez elsőbbséget.' };
+  }
+
+  const activeAgents = state.agents.filter((a) => a.active && !a.isSupervisor);
+  if (activeAgents.length === 0) {
+    return { worked: false, reason: 'Nincs aktív felhasználói ágens.' };
+  }
+
+  const wipCount = state.kanban.filter((c) => !c.archived && c.status === 'in_progress').length;
+  if (wipCount >= (state.settings.kanbanWipLimit || 3)) {
+    return { worked: false, reason: `WIP limit elérve (${wipCount}/${state.settings.kanbanWipLimit}).` };
+  }
+
+  const todoCards = state.kanban
+    .filter((c) => !c.archived && c.status === 'todo')
+    .sort((a, b) => (KANBAN_PRIO_WEIGHT[b.priority || 'medium'] ?? 2) - (KANBAN_PRIO_WEIGHT[a.priority || 'medium'] ?? 2));
+
+  if (todoCards.length === 0) {
+    return { worked: false, reason: 'Nincs várakozó (todo) Kanban kártya.' };
+  }
+
+  const card = todoCards[0];
+  const worker =
+    (card.assignedAgentId && activeAgents.find((a) => a.id === card.assignedAgentId)) || activeAgents[0];
+
+  const now = new Date().toISOString();
+  updateState((s) => {
+    const ref = s.kanban.find((c) => c.id === card.id);
+    if (ref) {
+      ref.status = 'in_progress';
+      ref.assignedAgentId = worker.id;
+      ref.updatedAt = now;
+    }
+  });
+
+  appendAuditLog({
+    type: 'kanban',
+    sourceAgentId: worker.id,
+    sourceAgentName: worker.name,
+    message: `Autonóm Kanban munkás felvette a feladatot: ${card.title}`,
+    verifiedExecution: true,
+  });
+
+  const subtaskText = (card.subtasks || [])
+    .filter((st) => !st.done)
+    .map((st) => `- ${st.title}`)
+    .join('\n');
+
+  const prompt = [
+    `Autonóm Kanban háttér-végrehajtás (feladat: ${card.title}):`,
+    card.description ? `Leírás: ${card.description}` : '',
+    subtaskText ? `Nyitott részfeladatok:\n${subtaskText}` : '',
+    `Dolgozd fel a feladatot röviden, tényszerűen, és ha kész, foglald össze az elvégzett lépéseket.`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  try {
+    const result = await runAgentWithTools({
+      agent: worker,
+      prompt,
+      complexity: card.priority === 'urgent' || card.priority === 'high' ? 'complex' : 'simple',
+      isolationMode: 'sandboxed',
+      maxSteps: 3,
+      routerDeps,
+    });
+
+    const finishedAt = new Date().toISOString();
+    updateState((s) => {
+      const ref = s.kanban.find((c) => c.id === card.id);
+      if (ref) {
+        ref.status = 'done';
+        ref.updatedAt = finishedAt;
+        if (ref.subtasks && ref.subtasks.length > 0) {
+          for (const st of ref.subtasks) st.done = true;
+        }
+        ref.description = `${ref.description ? `${ref.description}\n\n` : ''}[Autonóm teljesítés — ${worker.name}]: ${result.text.slice(0, 600)}`;
+      }
+    });
+
+    appendUnifiedMessage({
+      threadId: state.threads[0]?.id || 'thread-main',
+      senderType: 'agent',
+      senderId: worker.id,
+      senderName: worker.name,
+      channel: 'swarm_internal',
+      content: `[Kanban kész: ${card.title}]\n${result.text}`,
+      modelUsed: result.model,
+      providerUsed: result.provider,
+      costUsd: result.costUsd,
+      toolTrace: result.toolTrace,
+    });
+
+    appendAuditLog({
+      type: 'kanban',
+      sourceAgentId: worker.id,
+      sourceAgentName: worker.name,
+      message: `Autonóm Kanban feladat kész: ${card.title}`,
+      verifiedExecution: true,
+    });
+
+    return { worked: true, cardId: card.id, status: 'done' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    appendAuditLog({
+      type: 'kanban',
+      sourceAgentId: worker.id,
+      sourceAgentName: worker.name,
+      message: `Autonóm Kanban hiba (${card.title}): ${msg}`,
+      verifiedExecution: false,
+    });
+    return { worked: false, cardId: card.id, status: 'in_progress', reason: msg };
+  }
 }

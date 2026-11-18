@@ -26,15 +26,15 @@ if command -v apt-get >/dev/null 2>&1; then
     SUDO="sudo"
   fi
   $SUDO apt-get update -qq
-  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng pciutils lm-sensors >/dev/null || true
+  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng pciutils lm-sensors bubblewrap >/dev/null || true
 elif command -v dnf >/dev/null 2>&1; then
   SUDO=""
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
-  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng pciutils || true
+  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng pciutils bubblewrap || true
 elif command -v pacman >/dev/null 2>&1; then
   SUDO=""
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
-  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng pciutils || true
+  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng pciutils bubblewrap || true
 fi
 
 # Node.js >= 20 check

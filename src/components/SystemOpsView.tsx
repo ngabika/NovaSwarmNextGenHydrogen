@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   Check,
   Clock,
   Cpu,
   Download,
   HardDrive,
+  HeartPulse,
   History,
+  Plus,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
@@ -20,6 +23,8 @@ import type {
   HardwareMetrics,
   LanguageCode,
   OtaVersionStatus,
+  Settings,
+  UptimeTarget,
 } from '../../shared/types';
 import { tr } from '../locales/translations';
 
@@ -30,6 +35,9 @@ interface Props {
   cronTasks: CronTask[];
   backups: BackupPoint[];
   auditLogs: AuditLogEntry[];
+  uptimeTargets: UptimeTarget[];
+  settings: Settings;
+  sandboxBackend?: string;
   onRefreshState: () => Promise<void>;
 }
 
@@ -40,9 +48,14 @@ export const SystemOpsView: React.FC<Props> = ({
   cronTasks,
   backups,
   auditLogs,
+  uptimeTargets,
+  settings,
+  sandboxBackend,
   onRefreshState,
 }) => {
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
+  const [otaDiff, setOtaDiff] = useState<string | null>(null);
+  const [otaApplyMsg, setOtaApplyMsg] = useState<string | null>(null);
   const [docs, setDocs] = useState<string>('');
   const [gitHistory, setGitHistory] = useState<Array<{ hash: string; date: string; message: string }>>([]);
   const [proofResult, setProofResult] = useState<string | null>(null);
@@ -61,13 +74,27 @@ export const SystemOpsView: React.FC<Props> = ({
   const [tgCmd, setTgCmd] = useState('/statusz');
   const [tgReply, setTgReply] = useState<string | null>(null);
 
+  // Heartbeat & Two-Strikes Uptime Monitor
+  const [hbRunning, setHbRunning] = useState(false);
+  const [hbResult, setHbResult] = useState<string | null>(null);
+  const [upName, setUpName] = useState('');
+  const [upUrl, setUpUrl] = useState('');
+  const [upExpect, setUpExpect] = useState('');
+  const [upChecking, setUpChecking] = useState(false);
+
   useEffect(() => {
     void fetch('/api/system/docs')
-      .then((r) => r.json())
-      .then((d: { documentation: string }) => setDocs(d.documentation || ''));
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { documentation?: string } | null) => {
+        if (d?.documentation) setDocs(d.documentation);
+      })
+      .catch(() => {});
     void fetch('/api/selfmod/history')
-      .then((r) => r.json())
-      .then((d: { commits: typeof gitHistory }) => setGitHistory(d.commits || []));
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { commits?: typeof gitHistory } | null) => {
+        if (d?.commits) setGitHistory(d.commits);
+      })
+      .catch(() => {});
   }, []);
 
   const handleResolveApproval = async (id: string, decision: 'approved' | 'rejected') => {
@@ -92,6 +119,21 @@ export const SystemOpsView: React.FC<Props> = ({
   const handleCheckOta = async () => {
     const res = await fetch('/api/system/ota');
     setOta((await res.json()) as OtaVersionStatus);
+  };
+
+  const handleFetchOtaDiff = async () => {
+    const res = await fetch('/api/system/ota/diff');
+    const data = (await res.json()) as { available: boolean; diffText: string; summary: string };
+    setOtaDiff(`${data.summary}\n${data.diffText}`.trim());
+  };
+
+  const handleApplyOta = async () => {
+    setOtaApplyMsg('Frissítés folyamatban...');
+    const res = await fetch('/api/system/ota/apply', { method: 'POST' });
+    const data = (await res.json()) as { ok: boolean; message: string; newCommit?: string };
+    setOtaApplyMsg(data.message);
+    await handleCheckOta();
+    await onRefreshState();
   };
 
   const handleOsUpgrade = async () => {
@@ -153,6 +195,47 @@ export const SystemOpsView: React.FC<Props> = ({
     await onRefreshState();
   };
 
+  const handleRunHeartbeat = async () => {
+    setHbRunning(true);
+    setHbResult(null);
+    try {
+      const res = await fetch('/api/heartbeat/run', { method: 'POST' });
+      const data = (await res.json()) as { summary: string };
+      setHbResult(data.summary);
+      await onRefreshState();
+    } finally {
+      setHbRunning(false);
+    }
+  };
+
+  const handleAddUptimeTarget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!upName.trim() || !upUrl.trim()) return;
+    await fetch('/api/uptime', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: upName.trim(),
+        url: upUrl.trim(),
+        expectedText: upExpect.trim() || undefined,
+      }),
+    });
+    setUpName('');
+    setUpUrl('');
+    setUpExpect('');
+    await onRefreshState();
+  };
+
+  const handleRunUptimeChecks = async () => {
+    setUpChecking(true);
+    try {
+      await fetch('/api/uptime/run', { method: 'POST' });
+      await onRefreshState();
+    } finally {
+      setUpChecking(false);
+    }
+  };
+
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
 
   return (
@@ -207,6 +290,139 @@ export const SystemOpsView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* OpenClaw Autonomous Heartbeat & Marveen Two-Strikes Uptime Monitor */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <HeartPulse className="h-4 w-4 text-slate-700" />
+              Autonóm Heartbeat
+            </h3>
+            <button
+              type="button"
+              disabled={hbRunning}
+              onClick={() => void handleRunHeartbeat()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Heartbeat Futtatása
+            </button>
+          </div>
+          <div className="text-xs text-slate-600 space-y-1">
+            <div>
+              Állapot:{' '}
+              <span className="font-mono font-semibold">
+                {settings.heartbeatEnabled ? `Aktív (${settings.heartbeatIntervalMinutes} percenként)` : 'Kikapcsolva'}
+              </span>
+            </div>
+            {settings.lastHeartbeatAt && (
+              <div className="font-mono tabular-nums text-[11px] text-slate-500">
+                Utolsó ellenőrzés: {new Date(settings.lastHeartbeatAt).toLocaleString()}
+              </div>
+            )}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono text-slate-800">
+              {hbResult || settings.lastHeartbeatSummary || 'Még nem futott heartbeat ciklus.'}
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-slate-700" />
+              Two-Strikes Uptime Monitor (2 hiba = leállás)
+            </h3>
+            <button
+              type="button"
+              disabled={upChecking}
+              onClick={() => void handleRunUptimeChecks()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Ellenőrzés Futtatása
+            </button>
+          </div>
+
+          <form onSubmit={handleAddUptimeTarget} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <input
+              type="text"
+              value={upName}
+              onChange={(e) => setUpName(e.target.value)}
+              placeholder="Szolgáltatás neve"
+              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+            />
+            <input
+              type="url"
+              value={upUrl}
+              onChange={(e) => setUpUrl(e.target.value)}
+              placeholder="http://localhost:3000/v1/models"
+              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+            />
+            <input
+              type="text"
+              value={upExpect}
+              onChange={(e) => setUpExpect(e.target.value)}
+              placeholder="Elvárt szöveg (opc.)"
+              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Célpont felvétel
+            </button>
+          </form>
+
+          <div className="space-y-2 max-h-[190px] overflow-y-auto">
+            {uptimeTargets.length === 0 ? (
+              <p className="text-xs text-slate-500">Nincs felvett uptime célpont.</p>
+            ) : (
+              uptimeTargets.map((u) => {
+                const uptimePct =
+                  u.totalChecks > 0 ? Math.round((u.upChecks / u.totalChecks) * 100) : 100;
+                const statusClass =
+                  u.status === 'up'
+                    ? 'text-emerald-700'
+                    : u.status === 'degraded'
+                    ? 'text-amber-700'
+                    : u.status === 'down'
+                    ? 'text-red-700'
+                    : 'text-slate-500';
+                return (
+                  <div
+                    key={u.id}
+                    className="flex flex-wrap items-center justify-between gap-2 text-xs p-2.5 bg-slate-50 border border-slate-200 rounded"
+                  >
+                    <div className="min-w-0">
+                      <span className={`font-mono font-bold uppercase mr-2 ${statusClass}`}>{u.status}</span>
+                      <span className="font-semibold text-slate-900">{u.name}</span>{' '}
+                      <span className="font-mono text-slate-500">{u.url}</span>
+                      {u.lastError && <div className="text-[11px] font-mono text-red-700">{u.lastError}</div>}
+                    </div>
+                    <div className="flex items-center gap-3 font-mono tabular-nums text-[11px] text-slate-600">
+                      <span>{u.lastLatencyMs !== null ? `${u.lastLatencyMs}ms` : '-'}</span>
+                      <span>{uptimePct}% ({u.upChecks}/{u.totalChecks})</span>
+                      <button
+                        type="button"
+                        aria-label={`Delete uptime target ${u.name}`}
+                        onClick={async () => {
+                          await fetch(`/api/uptime/${u.id}`, { method: 'DELETE' });
+                          await onRefreshState();
+                        }}
+                        className="text-slate-400 hover:text-red-600"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Pending Destructive Approvals + Backups / OS Upgrade / OTA */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -297,12 +513,17 @@ export const SystemOpsView: React.FC<Props> = ({
 
         {/* Supervisor Destructive Proof, Self-Mod Guard & OTA */}
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
-              <ShieldCheck className="h-4 w-4 text-slate-700" />
-              Önfejlesztés, Sandbox & OTA Frissítés
-            </h3>
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4 text-slate-700" />
+                Önfejlesztés, Sandbox & OTA Frissítés
+              </h3>
+              <div className="text-[11px] font-mono text-slate-500 mt-0.5">
+                Aktív Linux Sandbox: <span className="font-semibold text-slate-800">{sandboxBackend || 'isolated_tmpfs_subprocess'}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleDestructiveProof}
@@ -328,10 +549,47 @@ export const SystemOpsView: React.FC<Props> = ({
           )}
 
           {ota && (
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
               <div className="font-mono">
-                Helyi verzió: {ota.currentVersion} · Távoli ({ota.source}): {ota.latestVersion ?? 'N/A'} · Frissítés: {ota.updateAvailable ? 'ELÉRHETŐ' : 'Naprakész'}
+                Helyi: {ota.currentVersion} {ota.localCommit ? `(${ota.localCommit})` : ''} · Távoli ({ota.source}):{' '}
+                {ota.latestVersion ?? 'N/A'} · Lemaradás: {ota.commitsBehind ?? 0} commit · Állapot:{' '}
+                <span className={ota.updateAvailable ? 'font-bold text-amber-800' : 'font-bold text-emerald-700'}>
+                  {ota.updateAvailable ? 'FRISSÍTÉS ELÉRHETŐ' : 'Naprakész'}
+                </span>
               </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleFetchOtaDiff()}
+                  className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
+                >
+                  Git Diff Előnézet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleApplyOta()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-900 text-white rounded hover:bg-slate-800"
+                >
+                  <Download className="h-3 w-3" />
+                  Frissítés Alkalmazása (GitHub OTA)
+                </button>
+                {ota.releaseUrl && (
+                  <a
+                    href={ota.releaseUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 text-[11px] font-mono text-slate-600 underline"
+                  >
+                    GitHub megnyitása
+                  </a>
+                )}
+              </div>
+              {otaApplyMsg && <div className="font-mono text-[11px] text-slate-800">{otaApplyMsg}</div>}
+              {otaDiff && (
+                <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[11px] font-mono max-h-40 overflow-auto whitespace-pre-wrap">
+                  {otaDiff}
+                </pre>
+              )}
               {ota.error && <div className="text-amber-800">{ota.error}</div>}
             </div>
           )}
@@ -434,7 +692,7 @@ export const SystemOpsView: React.FC<Props> = ({
 
           <div className="pt-3 border-t border-slate-200 space-y-2">
             <div className="text-xs font-semibold text-slate-700">
-              Telegram Parancs Paritás (/statusz, /kanban, /memoria, /modell, /keres, /naplo, /update)
+              Telegram Parancs Paritás (/statusz, /kanban, /otlet, /pairing, /memoria, /modell, /keres, /naplo)
             </div>
             <form onSubmit={handleTelegramCmd} className="flex gap-2">
               <input

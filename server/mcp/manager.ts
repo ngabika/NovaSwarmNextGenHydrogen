@@ -202,3 +202,129 @@ export function buildGoogleOAuthUrl(redirectUri: string): { configured: boolean;
     url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
   };
 }
+
+export interface McpToolInfo {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
+function buildMcpAuthHeaders(srv: McpServer, creds: Record<string, string> | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (srv.authType === 'apikey' && creds?.apiKey) {
+    headers['Authorization'] = `Bearer ${creds.apiKey}`;
+  } else if (srv.authType === 'basic' && creds?.username) {
+    const token = Buffer.from(`${creds.username}:${creds.password || ''}`).toString('base64');
+    headers['Authorization'] = `Basic ${token}`;
+  } else if (srv.authType === 'oauth2' && creds?.accessToken) {
+    headers['Authorization'] = `Bearer ${creds.accessToken}`;
+  }
+  return headers;
+}
+
+/**
+ * Queries a registered MCP HTTP/JSON-RPC 2.0 server for available tools (`tools/list`).
+ */
+export async function listMcpTools(
+  mcpId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ mcpId: string; mcpName: string; tools: McpToolInfo[]; raw?: unknown }> {
+  const state = getState();
+  const srv = state.mcpServers.find((m) => m.id === mcpId);
+  if (!srv) throw new Error(`MCP szerver nem található: ${mcpId}`);
+
+  const creds = getMcpCredentialSecret(mcpId);
+  const headers = buildMcpAuthHeaders(srv, creds);
+
+  const res = await fetchImpl(srv.endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) {
+    throw new Error(`MCP tools/list sikertelen (${srv.name}): HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    result?: { tools?: McpToolInfo[] };
+    tools?: McpToolInfo[];
+    error?: { message?: string };
+  };
+  if (data.error?.message) {
+    throw new Error(`MCP hiba (${srv.name}): ${data.error.message}`);
+  }
+  const tools = data.result?.tools ?? data.tools ?? [];
+  return {
+    mcpId: srv.id,
+    mcpName: srv.name,
+    tools: Array.isArray(tools) ? tools : [],
+    raw: data,
+  };
+}
+
+/**
+ * Invokes an arbitrary MCP tool (`tools/call`) via JSON-RPC 2.0 HTTP POST using stored encrypted credentials.
+ */
+export async function callMcpTool(
+  mcpId: string,
+  toolName: string,
+  args: Record<string, unknown> = {},
+  fetchImpl: typeof fetch = fetch
+): Promise<{ ok: boolean; output: string; raw?: unknown }> {
+  const state = getState();
+  const srv = state.mcpServers.find((m) => m.id === mcpId);
+  if (!srv) throw new Error(`MCP szerver nem található: ${mcpId}`);
+  if (!toolName.trim()) throw new Error('MCP toolName kötelező.');
+
+  const creds = getMcpCredentialSecret(mcpId);
+  const headers = buildMcpAuthHeaders(srv, creds);
+
+  const res = await fetchImpl(srv.endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: { name: toolName.trim(), arguments: args },
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    throw new Error(`MCP tools/call sikertelen (${srv.name}/${toolName}): HTTP ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean } | unknown;
+    error?: { message?: string };
+  };
+
+  if (data.error?.message) {
+    return { ok: false, output: `MCP hiba: ${data.error.message}`, raw: data };
+  }
+
+  const resObj = data.result as { content?: Array<{ type?: string; text?: string }>; isError?: boolean } | undefined;
+  let output = '';
+  if (resObj && Array.isArray(resObj.content)) {
+    output = resObj.content
+      .map((c) => (typeof c.text === 'string' ? c.text : JSON.stringify(c)))
+      .join('\n');
+  } else {
+    output = JSON.stringify(data.result ?? data);
+  }
+
+  const ok = !resObj?.isError;
+  appendAuditLog({
+    type: 'action',
+    sourceAgentId: 'mcp-manager',
+    sourceAgentName: 'MCP Eszköz Hívás',
+    message: `MCP [${srv.name}] -> ${toolName}: ${ok ? 'OK' : 'ERR'} (${output.slice(0, 100)})`,
+    verifiedExecution: true,
+  });
+
+  return { ok, output, raw: data };
+}
+

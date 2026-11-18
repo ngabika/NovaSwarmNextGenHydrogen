@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { OctagonAlert, Save } from 'lucide-react';
+import { KeyRound, OctagonAlert, Save } from 'lucide-react';
 import type { LanguageCode, Settings } from '../../shared/types';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
@@ -12,6 +12,8 @@ interface Props {
 export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshState }) => {
   const [form, setForm] = useState<Settings>(settings);
   const [telegramToken, setTelegramToken] = useState('');
+  const [operatorPassword, setOperatorPassword] = useState('');
+  const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
@@ -44,6 +46,40 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active: !settings.killSwitchActive }),
     });
+    await onRefreshState();
+  };
+
+  const handleSaveOperatorAuth = async (enableFlag: boolean) => {
+    setAuthMsg(null);
+    const res = await fetch('/api/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        password: operatorPassword.trim() || undefined,
+        enable: enableFlag,
+      }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      webAuthEnabled?: boolean;
+      webAuthHasPassword?: boolean;
+    };
+    if (!res.ok) {
+      setAuthMsg(data.error || 'Hiba a LAN zár beállításakor');
+      return;
+    }
+    setOperatorPassword('');
+    setForm((prev) => ({
+      ...prev,
+      webAuthEnabled: Boolean(data.webAuthEnabled),
+      webAuthHasPassword: Boolean(data.webAuthHasPassword),
+    }));
+    setAuthMsg(
+      data.webAuthEnabled
+        ? 'Operátori jelszó mentve és LAN jelszózár BEKAPCSOLVA.'
+        : 'Operátori jelszó mentve (LAN jelszózár jelenleg KIKAPCSOLVA).'
+    );
     await onRefreshState();
   };
 
@@ -213,6 +249,133 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
+
+          <div>
+            <label htmlFor="set-instance-name" className="block text-xs font-medium text-slate-700 mb-1">
+              Föderációs Csomópont Neve
+            </label>
+            <input
+              id="set-instance-name"
+              type="text"
+              value={form.instanceName}
+              onChange={(e) => setForm({ ...form, instanceName: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-heartbeat-int" className="block text-xs font-medium text-slate-700 mb-1">
+              Autonóm Heartbeat Intervallum (perc)
+            </label>
+            <input
+              id="set-heartbeat-int"
+              type="number"
+              min="1"
+              value={form.heartbeatIntervalMinutes}
+              onChange={(e) => setForm({ ...form, heartbeatIntervalMinutes: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-kanban-wip" className="block text-xs font-medium text-slate-700 mb-1">
+              Kanban Folyamatban WIP Limit
+            </label>
+            <input
+              id="set-kanban-wip"
+              type="number"
+              min="1"
+              value={form.kanbanWipLimit}
+              onChange={(e) => setForm({ ...form, kanbanWipLimit: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-kanban-aging" className="block text-xs font-medium text-slate-700 mb-1">
+              Kanban Elakadás (Aging) Küszöb (óra)
+            </label>
+            <input
+              id="set-kanban-aging"
+              type="number"
+              min="1"
+              value={form.kanbanAgingHours}
+              onChange={(e) => setForm({ ...form, kanbanAgingHours: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-cache-ttl" className="block text-xs font-medium text-slate-700 mb-1">
+              Gateway Cache TTL (másodperc)
+            </label>
+            <input
+              id="set-cache-ttl"
+              type="number"
+              min="10"
+              value={form.responseCacheTtlSec}
+              onChange={(e) => setForm({ ...form, responseCacheTtlSec: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 mb-1">
+              Memória Embedding Mód
+            </label>
+            <select
+              id="set-emb-mode"
+              value={form.embeddingMode || 'local_ngram'}
+              onChange={(e) =>
+                setForm({ ...form, embeddingMode: e.target.value as Settings['embeddingMode'] })
+              }
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="local_ngram">Helyi n-gram + BM25 (Offline gyors)</option>
+              <option value="ollama">Ollama Neurális Embedding (nomic-embed-text)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 mb-1">
+              Ollama Embedding Modell
+            </label>
+            <input
+              id="set-emb-model"
+              type="text"
+              value={form.ollamaEmbeddingModel || 'nomic-embed-text'}
+              onChange={(e) => setForm({ ...form, ollamaEmbeddingModel: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-ota-repo" className="block text-xs font-medium text-slate-700 mb-1">
+              GitHub OTA Repository (owner/repo)
+            </label>
+            <input
+              id="set-ota-repo"
+              type="text"
+              value={form.otaRepoSlug || 'ngabika/NovaSwarmNextGenHydrogen'}
+              onChange={(e) => setForm({ ...form, otaRepoSlug: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-ota-hours" className="block text-xs font-medium text-slate-700 mb-1">
+              OTA Automatikus Ellenőrzés (óra)
+            </label>
+            <input
+              id="set-ota-hours"
+              type="number"
+              min="1"
+              max="168"
+              value={form.autoUpdateCheckHours || 6}
+              onChange={(e) => setForm({ ...form, autoUpdateCheckHours: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
         </div>
 
         <div className="space-y-2.5 pt-2 border-t border-slate-200">
@@ -243,6 +406,46 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
               type="checkbox"
+              checked={form.heartbeatEnabled}
+              onChange={(e) => setForm({ ...form, heartbeatEnabled: e.target.checked })}
+            />
+            <span>Autonóm Heartbeat (Kanban elakadás + Uptime monitoring) aktív</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.autonomousKanbanWorkerEnabled)}
+              onChange={(e) => setForm({ ...form, autonomousKanbanWorkerEnabled: e.target.checked })}
+            />
+            <span>Autonóm Kanban Backlog Munkás (üresjáratban automatikusan dolgozik a ToDo kártyákon)</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.autoUpdateEnabled)}
+              onChange={(e) => setForm({ ...form, autoUpdateEnabled: e.target.checked })}
+            />
+            <span>GitHub OTA Automatikus Frissítés engedélyezve (git pull + build + rollback védelem)</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.channelPairingRequired}
+              onChange={(e) => setForm({ ...form, channelPairingRequired: e.target.checked })}
+            />
+            <span>OpenClaw Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.federationEnabled}
+              onChange={(e) => setForm({ ...form, federationEnabled: e.target.checked })}
+            />
+            <span>Marveen P2P Föderáció engedélyezve</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
               checked={form.ttsEnabled}
               onChange={(e) => setForm({ ...form, ttsEnabled: e.target.checked })}
             />
@@ -258,6 +461,61 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </label>
         </div>
       </form>
+
+      {/* LAN Operator Auth Lock Section */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-slate-700" />
+            <h3 className="text-base font-semibold text-slate-900">LAN Operátori Jelszó Zár</h3>
+          </div>
+          <span
+            className={`text-xs font-mono font-semibold ${
+              settings.webAuthEnabled ? 'text-emerald-700' : 'text-slate-500'
+            }`}
+          >
+            {settings.webAuthEnabled ? 'VÉDELEM AKTÍV' : 'Nyitott (Helyi mód)'}
+          </span>
+        </div>
+        <p className="text-xs text-slate-600">
+          HttpOnly HMAC munkamenet-sütivel védi a Web UI és API végpontokat (a webhook és OpenAI /v1/* proxy kulcsos végpontok továbbra is működnek).
+        </p>
+        {authMsg && (
+          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800">
+            {authMsg}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="password"
+            value={operatorPassword}
+            onChange={(e) => setOperatorPassword(e.target.value)}
+            placeholder={
+              settings.webAuthHasPassword
+                ? 'Új operátori jelszó (vagy hagyd üresen a kapcsoláshoz)...'
+                : 'Új operátori jelszó (min. 4 karakter)...'
+            }
+            aria-label="New operator password"
+            className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-slate-300 rounded-lg"
+          />
+          <button
+            type="button"
+            onClick={() => void handleSaveOperatorAuth(true)}
+            className="px-3.5 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap"
+          >
+            Jelszó mentése és Zár BE
+          </button>
+          {settings.webAuthEnabled && (
+            <button
+              type="button"
+              onClick={() => void handleSaveOperatorAuth(false)}
+              className="px-3.5 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap"
+            >
+              LAN Zár KI
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Intentionally unobtrusive Emergency Kill Switch at the bottom of Settings (Section 8.4 & 15.4) */}
       <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between bg-slate-50">

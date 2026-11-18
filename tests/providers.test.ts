@@ -6,6 +6,7 @@ import {
   extractQuotaFromHeaders,
   invokeWithFailover,
   resetKeyCursorsForTests,
+  resetProviderCooldowns,
 } from '../server/providers/router';
 import { createInitialState, resetInMemoryStateForTests } from '../server/state/store';
 
@@ -54,6 +55,10 @@ test('Round-robin key pool rotation & failover chain (Gemini -> OpenRouter -> Ol
     'openrouter:secret-or-1',
     'ollama:local',
   ]);
+
+  // 429 errors placed Gemini keys on cooldown; verify cooldown was set then reset before total outage test
+  assert.ok(state.settings.providerKeys.gemini[0].cooldownUntil);
+  resetProviderCooldowns();
 
   // If Ollama also fails, error MUST list ALL tried channels explicitly (Section 11.5)
   await assert.rejects(

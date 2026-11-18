@@ -6,6 +6,10 @@ import type {
   Agent,
   ApprovalRequest,
   AuditLogEntry,
+  ChatThread,
+  GatewayAnalytics,
+  KanbanCard,
+  MemoryEntry,
   NovaSwarmState,
   ProviderId,
   QuotaStatus,
@@ -13,7 +17,7 @@ import type {
   UnifiedMessage,
 } from '../../shared/types';
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -74,8 +78,13 @@ export function atomicWriteFileSync(targetPath: string, content: string): void {
 interface SecretVault {
   providerKeys: Record<string, string>; // keyId -> encrypted apiKey
   mcpCredentials: Record<string, string>; // mcpId -> encrypted JSON string
-  telegramBotToken?: string; // encrypted
+  telegramBotToken?: string; // encrypted coordinator bot
+  agentTelegramTokens?: Record<string, string>; // agentId -> encrypted per-agent bot token
+  channelSecrets?: Record<string, string>; // connectorId -> encrypted bot/signing secret
+  federationTokens?: Record<string, string>; // peerId -> encrypted shared bearer token
   googleOAuthTokens?: string; // encrypted JSON
+  webAuthPasswordHash?: string; // scrypt salt:hash (never sent to UI)
+  webSessionSecret?: string; // encrypted random HMAC key
 }
 
 function loadSecretVault(): SecretVault {
@@ -141,6 +150,101 @@ export function getTelegramTokenSecret(): string {
   return vault.telegramBotToken ? decryptSecret(vault.telegramBotToken) : '';
 }
 
+/** Marveen Parity: Per-Agent Dedicated Telegram Bot Token Vault */
+export function setAgentTelegramTokenSecret(agentId: string, token: string): void {
+  const vault = loadSecretVault();
+  vault.agentTelegramTokens = vault.agentTelegramTokens ?? {};
+  if (token.trim()) {
+    vault.agentTelegramTokens[agentId] = encryptSecret(token.trim());
+  } else {
+    delete vault.agentTelegramTokens[agentId];
+  }
+  saveSecretVault(vault);
+}
+
+export function getAgentTelegramTokenSecret(agentId: string): string {
+  const vault = loadSecretVault();
+  const enc = vault.agentTelegramTokens?.[agentId];
+  return enc ? decryptSecret(enc) : '';
+}
+
+export function setChannelConnectorSecret(connectorId: string, secret: string): void {
+  const vault = loadSecretVault();
+  vault.channelSecrets = vault.channelSecrets ?? {};
+  if (secret.trim()) {
+    vault.channelSecrets[connectorId] = encryptSecret(secret.trim());
+  } else {
+    delete vault.channelSecrets[connectorId];
+  }
+  saveSecretVault(vault);
+}
+
+export function getChannelConnectorSecret(connectorId: string): string {
+  const vault = loadSecretVault();
+  const enc = vault.channelSecrets?.[connectorId];
+  return enc ? decryptSecret(enc) : '';
+}
+
+export function setFederationPeerToken(peerId: string, token: string): void {
+  const vault = loadSecretVault();
+  vault.federationTokens = vault.federationTokens ?? {};
+  if (token.trim()) {
+    vault.federationTokens[peerId] = encryptSecret(token.trim());
+  } else {
+    delete vault.federationTokens[peerId];
+  }
+  saveSecretVault(vault);
+}
+
+export function getFederationPeerToken(peerId: string): string {
+  const vault = loadSecretVault();
+  const enc = vault.federationTokens?.[peerId];
+  return enc ? decryptSecret(enc) : '';
+}
+
+export function setWebAuthPassword(plaintext: string): void {
+  const vault = loadSecretVault();
+  const trimmed = plaintext.trim();
+  if (!trimmed) {
+    delete vault.webAuthPasswordHash;
+    saveSecretVault(vault);
+    return;
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(trimmed, salt, 32).toString('hex');
+  vault.webAuthPasswordHash = `${salt}:${derived}`;
+  saveSecretVault(vault);
+}
+
+export function hasWebAuthPassword(): boolean {
+  const vault = loadSecretVault();
+  return Boolean(vault.webAuthPasswordHash);
+}
+
+export function verifyWebAuthPassword(plaintext: string): boolean {
+  const vault = loadSecretVault();
+  const stored = vault.webAuthPasswordHash;
+  if (!stored) return false;
+  const [salt, expectedHex] = stored.split(':');
+  if (!salt || !expectedHex) return false;
+  const actualBuf = crypto.scryptSync(plaintext, salt, 32);
+  const expectedBuf = Buffer.from(expectedHex, 'hex');
+  if (actualBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(actualBuf, expectedBuf);
+}
+
+export function getWebSessionSecret(): string {
+  const vault = loadSecretVault();
+  if (vault.webSessionSecret) {
+    const dec = decryptSecret(vault.webSessionSecret);
+    if (dec) return dec;
+  }
+  const fresh = crypto.randomBytes(32).toString('hex');
+  vault.webSessionSecret = encryptSecret(fresh);
+  saveSecretVault(vault);
+  return fresh;
+}
+
 export function createDefaultQuotas(): Record<ProviderId, QuotaStatus> {
   return {
     gemini: {
@@ -193,6 +297,24 @@ export function createDefaultQuotas(): Record<ProviderId, QuotaStatus> {
       lastCheckedAt: null,
       sourceNote: 'Lokális hardver-kapacitás (nincs felhős kvóta-korlát)',
     },
+  };
+}
+
+export function createDefaultGatewayAnalytics(): GatewayAnalytics {
+  return {
+    totalProxyRequests: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    savedUsd: 0,
+    guardrailsBlocked: 0,
+    spendByProvider: {
+      gemini: 0,
+      openai: 0,
+      anthropic: 0,
+      openrouter: 0,
+      ollama: 0,
+    },
+    spendByModel: {},
   };
 }
 
@@ -258,6 +380,29 @@ export function createDefaultSettings(): Settings {
     ttsEnabled: false,
     ttsHostSpeakerEnabled: false,
     autoTaskRouting: true,
+    responseCacheEnabled: true,
+    responseCacheTtlSec: 600,
+    guardrailsEnabled: true,
+    guardrailBlockPii: false,
+    guardrailBlockSecrets: true,
+    guardrailBlockPromptInjection: true,
+    heartbeatEnabled: true,
+    heartbeatIntervalMinutes: 5,
+    channelPairingRequired: true,
+    lastHeartbeatAt: null,
+    lastHeartbeatSummary: null,
+    kanbanWipLimit: 3,
+    kanbanAgingHours: 48,
+    federationEnabled: false,
+    instanceName: os.hostname().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'novaswarm-node',
+    webAuthEnabled: false,
+    webAuthHasPassword: hasWebAuthPassword(),
+    autonomousKanbanWorkerEnabled: false,
+    embeddingMode: 'local_ngram',
+    ollamaEmbeddingModel: 'nomic-embed-text',
+    otaRepoSlug: process.env.NOVASWARM_OTA_REPO || 'ngabika/NovaSwarmNextGenHydrogen',
+    autoUpdateEnabled: false,
+    autoUpdateCheckHours: 6,
   };
 }
 
@@ -290,6 +435,7 @@ export function createInitialState(): NovaSwarmState {
     // Zero sample user agents, zero sample Kanban cards, zero fake memories!
     agents: [createSupervisorAgent()],
     kanban: [],
+    ideas: [],
     auditLogs: [],
     mcpServers: [
       {
@@ -316,6 +462,8 @@ export function createInitialState(): NovaSwarmState {
         id: 'thread-main',
         title: 'Fő koordinációs szál',
         folder: 'Általános',
+        isolationMode: 'main_host',
+        channelSource: 'web',
         createdAt: now,
         updatedAt: now,
       },
@@ -334,6 +482,12 @@ export function createInitialState(): NovaSwarmState {
     discoveredModels: [],
     quotas: createDefaultQuotas(),
     backups: [],
+    virtualKeys: [],
+    gatewayAnalytics: createDefaultGatewayAnalytics(),
+    channelConnectors: [],
+    pairingRequests: [],
+    federationPeers: [],
+    uptimeTargets: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -350,6 +504,11 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     ...base.settings,
     ...(source.settings || {}),
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    webAuthHasPassword: hasWebAuthPassword(),
+    otaRepoSlug:
+      source.settings?.otaRepoSlug === 'Szotasz/marveen' || !source.settings?.otaRepoSlug
+        ? 'ngabika/NovaSwarmNextGenHydrogen'
+        : source.settings.otaRepoSlug,
     providerKeys: {
       ...base.settings.providerKeys,
       ...(source.settings?.providerKeys || {}),
@@ -381,16 +540,67 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     });
   }
 
-  const agents: Agent[] = Array.isArray(source.agents) && source.agents.length > 0 ? source.agents : base.agents;
+  const rawAgents: Agent[] = Array.isArray(source.agents) && source.agents.length > 0 ? source.agents : base.agents;
+  const agents: Agent[] = rawAgents.map((a) => ({
+    ...a,
+    dailySpendUsd: a.dailySpendUsd ?? 0,
+    voiceReplyMode: a.voiceReplyMode ?? 'off',
+  }));
   if (!agents.some((a) => a.id === 'supervisor-auditor')) {
     agents.unshift(createSupervisorAgent());
   }
+
+  const threads: ChatThread[] = (
+    Array.isArray(source.threads) && source.threads.length > 0 ? source.threads : base.threads
+  ).map((t: ChatThread) => ({
+    ...t,
+    isolationMode: t.isolationMode ?? (t.id === 'thread-main' ? 'main_host' : 'sandboxed'),
+    channelSource: t.channelSource ?? 'web',
+  }));
+
+  const memories: MemoryEntry[] = Array.isArray(source.memories)
+    ? source.memories.map((m: MemoryEntry) => ({
+        ...m,
+        tier: m.tier ?? 'warm',
+        salience: m.salience ?? m.importanceScore ?? 0.7,
+        lastAccessedAt: m.lastAccessedAt ?? m.createdAt,
+      }))
+    : [];
+
+  const kanban: KanbanCard[] = Array.isArray(source.kanban)
+    ? source.kanban.map((c: KanbanCard) => ({
+        ...c,
+        priority: c.priority ?? 'medium',
+        subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
+        archived: Boolean(c.archived),
+      }))
+    : [];
 
   const migrated: NovaSwarmState = {
     ...base,
     ...source,
     settings: mergedSettings,
     agents,
+    threads,
+    memories,
+    kanban,
+    ideas: Array.isArray(source.ideas) ? source.ideas : [],
+    virtualKeys: Array.isArray(source.virtualKeys) ? source.virtualKeys : [],
+    channelConnectors: Array.isArray(source.channelConnectors) ? source.channelConnectors : [],
+    pairingRequests: Array.isArray(source.pairingRequests) ? source.pairingRequests : [],
+    federationPeers: Array.isArray(source.federationPeers) ? source.federationPeers : [],
+    uptimeTargets: Array.isArray(source.uptimeTargets) ? source.uptimeTargets : [],
+    gatewayAnalytics: {
+      ...base.gatewayAnalytics,
+      ...(source.gatewayAnalytics || {}),
+      spendByProvider: {
+        ...base.gatewayAnalytics.spendByProvider,
+        ...(source.gatewayAnalytics?.spendByProvider || {}),
+      },
+      spendByModel: {
+        ...(source.gatewayAnalytics?.spendByModel || {}),
+      },
+    },
     quotas: {
       ...base.quotas,
       ...(source.quotas || {}),
@@ -411,6 +621,9 @@ export function getState(): NovaSwarmState {
     if (cachedState.settings.dailySpendDate !== todayIsoDate()) {
       cachedState.settings.dailySpendDate = todayIsoDate();
       cachedState.settings.dailySpendUsd = 0;
+      for (const a of cachedState.agents) {
+        a.dailySpendUsd = 0;
+      }
       saveState(cachedState);
     }
     return cachedState;
@@ -457,6 +670,20 @@ export function saveState(state: NovaSwarmState): void {
     ttsEnabled: state.settings.ttsEnabled,
     ttsHostSpeakerEnabled: state.settings.ttsHostSpeakerEnabled,
     autoTaskRouting: state.settings.autoTaskRouting,
+    responseCacheEnabled: state.settings.responseCacheEnabled,
+    guardrailsEnabled: state.settings.guardrailsEnabled,
+    heartbeatEnabled: state.settings.heartbeatEnabled,
+    heartbeatIntervalMinutes: state.settings.heartbeatIntervalMinutes,
+    kanbanWipLimit: state.settings.kanbanWipLimit,
+    federationEnabled: state.settings.federationEnabled,
+    instanceName: state.settings.instanceName,
+    webAuthEnabled: state.settings.webAuthEnabled,
+    autonomousKanbanWorkerEnabled: state.settings.autonomousKanbanWorkerEnabled,
+    embeddingMode: state.settings.embeddingMode,
+    ollamaEmbeddingModel: state.settings.ollamaEmbeddingModel,
+    otaRepoSlug: state.settings.otaRepoSlug,
+    autoUpdateEnabled: state.settings.autoUpdateEnabled,
+    autoUpdateCheckHours: state.settings.autoUpdateCheckHours,
   };
   atomicWriteFileSync(CONFIG_PATH, JSON.stringify(nonSecretConfig, null, 2));
 }
@@ -480,7 +707,6 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): 
     s.auditLogs.push(full);
     const maxEntries = Math.max(100, s.settings.auditLogMaxEntries || 2000);
     if (s.auditLogs.length > maxEntries) {
-      // Only rotate non-chat technical logs
       const overflow = s.auditLogs.length - maxEntries;
       let removed = 0;
       s.auditLogs = s.auditLogs.filter((item) => {
@@ -496,7 +722,7 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): 
   return full;
 }
 
-/** Unified message store shared by both Web UI and Telegram (Section 16.1) */
+/** Unified message store shared by Web UI, Telegram, Discord, Slack, Webhooks, and Federation */
 export function appendUnifiedMessage(
   msg: Omit<UnifiedMessage, 'id' | 'timestamp'>
 ): UnifiedMessage {

@@ -4,9 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { appendAuditLog, updateState } from '../state/store';
 
+export type SandboxIsolationMode =
+  | 'docker_no_network'
+  | 'bwrap_sandbox'
+  | 'unshare_net_sandbox'
+  | 'isolated_tmpfs_subprocess';
+
 export interface SandboxExecutionResult {
   passed: boolean;
-  isolationMode: 'docker_no_network' | 'isolated_tmpfs_subprocess';
+  isolationMode: SandboxIsolationMode;
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -24,11 +30,40 @@ function isDockerAvailable(): boolean {
   }
 }
 
+export function isBwrapAvailable(): boolean {
+  try {
+    const res = spawnSync(
+      'bwrap',
+      ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--', 'true'],
+      { stdio: 'ignore', timeout: 1500 }
+    );
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function isUnshareNetAvailable(): boolean {
+  try {
+    const res = spawnSync('unshare', ['-rn', 'true'], { stdio: 'ignore', timeout: 1500 });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function detectActiveSandboxBackend(): SandboxIsolationMode {
+  if (isDockerAvailable()) return 'docker_no_network';
+  if (isBwrapAvailable()) return 'bwrap_sandbox';
+  if (isUnshareNetAvailable()) return 'unshare_net_sandbox';
+  return 'isolated_tmpfs_subprocess';
+}
+
 /**
  * Supervisor Dry-Run / Sandbox Environment (Section 10.3 & 13.3).
  * Creates an isolated ephemeral copy in OS tmpdir/tmpfs and executes candidate
- * commands/scripts using either Docker (`--network=none`) or a stripped-env subprocess
- * strictly confined to the ephemeral temp copy — NEVER touching the real workspace or DB.
+ * commands/scripts using Docker (`--network=none`), Linux Bubblewrap (`bwrap --unshare-net`),
+ * Linux `unshare -rn`, or a stripped-env subprocess strictly confined to the ephemeral temp copy.
  */
 export function runInSupervisorSandbox(params: {
   scriptOrCommand: string;
@@ -62,13 +97,21 @@ export function runInSupervisorSandbox(params: {
     let exitCode = 1;
     let stdout = '';
     let stderr = '';
-    let isolationMode: SandboxExecutionResult['isolationMode'] = 'isolated_tmpfs_subprocess';
+    const backend = detectActiveSandboxBackend();
+    let isolationMode: SandboxIsolationMode = backend;
+
+    const strippedEnv = {
+      PATH: process.env.PATH || '/usr/bin:/bin',
+      HOME: sandboxDir,
+      PWD: sandboxDir,
+      TMPDIR: sandboxDir,
+      NOVASWARM_SANDBOX: '1',
+    };
 
     if (params.isNodeScript) {
       const candidateFile = path.join(sandboxDir, 'candidate.mjs');
       fs.writeFileSync(candidateFile, params.scriptOrCommand, 'utf8');
-      if (isDockerAvailable()) {
-        isolationMode = 'docker_no_network';
+      if (backend === 'docker_no_network') {
         const res = spawnSync(
           'docker',
           [
@@ -90,26 +133,58 @@ export function runInSupervisorSandbox(params: {
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
-      } else {
-        const res = spawnSync('node', [candidateFile], {
+      } else if (backend === 'bwrap_sandbox') {
+        const res = spawnSync(
+          'bwrap',
+          [
+            '--ro-bind',
+            '/',
+            '/',
+            '--dev',
+            '/dev',
+            '--proc',
+            '/proc',
+            '--tmpfs',
+            '/tmp',
+            '--bind',
+            sandboxDir,
+            sandboxDir,
+            '--chdir',
+            sandboxDir,
+            '--unshare-net',
+            '--die-with-parent',
+            process.execPath,
+            candidateFile,
+          ],
+          { encoding: 'utf8', timeout: timeoutMs, env: strippedEnv }
+        );
+        exitCode = res.status ?? 1;
+        stdout = res.stdout ?? '';
+        stderr = res.stderr ?? '';
+      } else if (backend === 'unshare_net_sandbox') {
+        const res = spawnSync('unshare', ['-rn', process.execPath, candidateFile], {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
-          env: {
-            PATH: process.env.PATH || '/usr/bin:/bin',
-            HOME: sandboxDir,
-            TMPDIR: sandboxDir,
-            NOVASWARM_SANDBOX: '1',
-          },
+          env: strippedEnv,
+        });
+        exitCode = res.status ?? 1;
+        stdout = res.stdout ?? '';
+        stderr = res.stderr ?? '';
+      } else {
+        isolationMode = 'isolated_tmpfs_subprocess';
+        const res = spawnSync(process.execPath, [candidateFile], {
+          cwd: sandboxDir,
+          encoding: 'utf8',
+          timeout: timeoutMs,
+          env: strippedEnv,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
       }
     } else {
-      // Shell command confined to sandboxDir; rewrite absolute references away & restrict HOME/PWD
-      if (isDockerAvailable()) {
-        isolationMode = 'docker_no_network';
+      if (backend === 'docker_no_network') {
         const res = spawnSync(
           'docker',
           [
@@ -132,19 +207,52 @@ export function runInSupervisorSandbox(params: {
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
+      } else if (backend === 'bwrap_sandbox') {
+        const res = spawnSync(
+          'bwrap',
+          [
+            '--ro-bind',
+            '/',
+            '/',
+            '--dev',
+            '/dev',
+            '--proc',
+            '/proc',
+            '--tmpfs',
+            '/tmp',
+            '--bind',
+            sandboxDir,
+            sandboxDir,
+            '--chdir',
+            sandboxDir,
+            '--unshare-net',
+            '--die-with-parent',
+            'sh',
+            '-c',
+            params.scriptOrCommand,
+          ],
+          { encoding: 'utf8', timeout: timeoutMs, env: strippedEnv }
+        );
+        exitCode = res.status ?? 1;
+        stdout = res.stdout ?? '';
+        stderr = res.stderr ?? '';
+      } else if (backend === 'unshare_net_sandbox') {
+        const res = spawnSync('unshare', ['-rn', 'sh', '-c', params.scriptOrCommand], {
+          cwd: sandboxDir,
+          encoding: 'utf8',
+          timeout: timeoutMs,
+          env: strippedEnv,
+        });
+        exitCode = res.status ?? 1;
+        stdout = res.stdout ?? '';
+        stderr = res.stderr ?? '';
       } else {
-        // Confine relative operations strictly inside sandboxDir with stripped env
+        isolationMode = 'isolated_tmpfs_subprocess';
         const res = spawnSync('sh', ['-c', params.scriptOrCommand], {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
-          env: {
-            PATH: '/usr/bin:/bin',
-            HOME: sandboxDir,
-            PWD: sandboxDir,
-            TMPDIR: sandboxDir,
-            NOVASWARM_SANDBOX: '1',
-          },
+          env: { ...strippedEnv, PATH: '/usr/bin:/bin' },
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';

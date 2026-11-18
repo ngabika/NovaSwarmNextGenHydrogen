@@ -5,7 +5,7 @@ import type {
   MemoryEntry,
   ShortTermSignal,
 } from '../../shared/types';
-import { addPersistentMemory } from '../memory/vectorStore';
+import { addPersistentMemory, runSalienceDecayAndTiering } from '../memory/vectorStore';
 import { invokeWithFailover, type RouterDependencies } from '../providers/router';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
@@ -24,7 +24,7 @@ export interface DreamCandidate {
 }
 
 /**
- * Light Phase (Section 14.2):
+ * Light Phase (OpenClaw pattern):
  * Collects fresh short-term signals and recent conversation excerpts, deduplicates them,
  * and builds candidate queues. NEVER performs persistent memory writes!
  */
@@ -106,9 +106,9 @@ export function runLightDreamPhase(signals: ShortTermSignal[], recentChatExcerpt
 }
 
 /**
- * Deep Phase (Section 14.2):
+ * Deep Phase (OpenClaw pattern):
  * Evaluates weighted scores against threshold and promotes qualifying candidates
- * into persistent Vector DB + Obsidian Markdown vault.
+ * into persistent Vector DB + Obsidian Markdown vault (Hot tier).
  * This is the ONLY dreaming phase that writes persistent memory.
  */
 export function runDeepDreamPhase(
@@ -130,6 +130,7 @@ export function runDeepDreamPhase(
       tags: Array.from(new Set([...c.tags, 'dream'])),
       links: ['Álmodási Ciklus', 'Rendszer Tudásbázis'],
       importanceScore: c.score,
+      tier: c.score >= 0.72 ? 'hot' : 'warm',
       vaultBaseDir,
     });
     promoted.push(entry);
@@ -152,12 +153,12 @@ export interface DreamCycleOutcome {
   journalEntry?: DreamJournalEntry;
   lightCount: number;
   deepPromotedCount: number;
+  decayStats?: { decayed: number; cooledToCold: number; warmedToWarm: number };
 }
 
 /**
- * Full Dreaming Cycle (Light -> Deep -> REM) with:
- * - Global Daily Cost Limit protection (Section 14.3)
- * - Hardware thermal/battery throttling awareness (Section 4.3)
+ * Full Dreaming Cycle (Light -> Deep -> REM + Marveen Memory Health/Salience Decay)
+ * with Global Daily Cost Limit protection + Hardware thermal/battery throttling awareness.
  */
 export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<DreamCycleOutcome> {
   const state = getState();
@@ -166,7 +167,6 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
     return { executed: false, skippedReason: 'Kill switch aktív', lightCount: 0, deepPromotedCount: 0 };
   }
 
-  // Thermal & battery protection (Section 4.3)
   if (!opts.forceRun && opts.hardware) {
     if (
       opts.hardware.temperatureCelsius !== null &&
@@ -193,7 +193,6 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
     }
   }
 
-  // Enforce global daily budget before REM synthesis (Section 14.3)
   if (state.settings.dailyCostLimitEnabled && state.settings.dailySpendUsd >= state.settings.dailyCostLimitUsd) {
     appendAuditLog({
       type: 'system',
@@ -220,23 +219,26 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
   // 2. Deep Phase (the ONLY phase writing persistent memories)
   const promoted = runDeepDreamPhase(lightCandidates, 0.45, opts.vaultBaseDir);
 
-  // Clear processed short-term signals
+  // Marveen Dream Bucket: Memory Health & Salience Decay
+  const decayStats = runSalienceDecayAndTiering();
+
   updateState((s) => {
     s.shortTermSignals = [];
   });
 
-  // 3. REM Phase (pattern identification & human-readable Dream Journal synthesis; NOT a prompt source)
+  // 3. REM Phase (pattern identification, skill suggestions & Dream Journal synthesis)
   const themes = Array.from(new Set(lightCandidates.flatMap((c) => c.tags))).slice(0, 5);
-  let narrative = `REM szintézis: ${lightCandidates.length} jelöltelem átnézve, ${promoted.length} tartós emlék rögzítve az Obsidian tudásbázisban.`;
+  const openTodo = state.kanban.filter((c) => c.status === 'todo' && !c.archived).slice(0, 3);
+  let narrative = `REM szintézis: ${lightCandidates.length} jelöltelem átnézve, ${promoted.length} tartós emlék rögzítve (Hot/Warm/Cold frissítve: ${decayStats.decayed} decay).`;
   let costUsd = 0;
   let usedLocalOllama = false;
 
-  if (lightCandidates.length > 0) {
+  if (lightCandidates.length > 0 || openTodo.length > 0) {
     try {
       const llmRes = await invokeWithFailover(
         {
           complexity: 'simple',
-          prompt: `Készíts egy rövid, 2-3 mondatos, ember számára olvasható álomnapló-összefoglalót az alábbi napi emlékekből és témákból (${themes.join(', ')}):\n${lightCandidates
+          prompt: `Készíts egy rövid, 2-3 mondatos, ember számára olvasható álomnapló-összefoglalót az alábbi napi emlékekből, témákból (${themes.join(', ') || 'általános'}) és nyitott Kanban feladatokból (${openTodo.map((c) => c.title).join(', ') || 'nincs'}):\n${lightCandidates
             .slice(0, 6)
             .map((c) => `- ${c.content}`)
             .join('\n')}`,
@@ -251,7 +253,7 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
       costUsd = llmRes.costUsd;
       usedLocalOllama = llmRes.provider === 'ollama';
     } catch {
-      // If no LLM provider is configured yet, keep deterministic narrative summary
+      // Deterministic summary kept when no LLM provider configured
     }
   }
 
@@ -276,7 +278,7 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
     type: 'memory',
     sourceAgentId: 'dreaming-engine',
     sourceAgentName: 'Álmodó Motor',
-    message: `Álmodás kész (Light: ${lightCandidates.length}, Deep: ${promoted.length}, REM témák: ${themes.join(', ') || 'nincs'})`,
+    message: `Álmodás kész (Light: ${lightCandidates.length}, Deep: ${promoted.length}, Decay: ${decayStats.decayed}, REM témák: ${themes.join(', ') || 'nincs'})`,
     verifiedExecution: true,
   });
 
@@ -285,5 +287,6 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
     journalEntry,
     lightCount: lightCandidates.length,
     deepPromotedCount: promoted.length,
+    decayStats,
   };
 }
