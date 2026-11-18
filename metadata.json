@@ -1,0 +1,6 @@
+{
+  "name": "NovaSwarm",
+  "description": "Autonomous, self-improving AI agent swarm and Linux host operations console combining multi-provider routing, memory dreaming, sandboxed auditing, bidirectional Telegram sync, and live PTY terminal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

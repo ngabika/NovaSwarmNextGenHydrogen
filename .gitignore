@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env
+.env*
+!.env.example
+.config.json
+.state.json
+.state.json.tmp
+memory-vault/
+backups/
+.playwright-cli/
