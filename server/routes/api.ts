@@ -426,7 +426,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
   });
 
-  // Multi-provider key pool, cooldowns, cache & LiteLLM Virtual Keys
+  // Multi-provider key pool, cooldowns, cache & Virtual Keys
   router.post('/providers/keys', (req, res) => {
     try {
       const { provider, rawKey, label } = req.body as {
@@ -524,7 +524,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json({ ok: true, cleared });
   });
 
-  // Unified Chat & Threads (with OpenClaw isolationMode)
+  // Unified Chat & Threads (with isolationMode)
   router.post('/threads', (req, res) => {
     const { title, folder, isolationMode } = req.body as {
       title?: string;
@@ -757,7 +757,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
   });
 
-  // Marveen Ötletláda (IdeaBox)
+  // Ötletláda (IdeaBox)
   router.post('/ideas', (req, res) => {
     const { title, description, impact, effort } = req.body as {
       title: string;
@@ -1043,7 +1043,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json(info);
   });
 
-  // OpenClaw Multi-Channel Connectors & Pairing
+  // Multi-Channel Connectors & Pairing
   router.post('/channels', (req, res) => {
     const { type, name, webhookUrl, secret, defaultAgentId } = req.body as {
       type: ChannelConnectorType;
@@ -1114,7 +1114,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json({ pairing: resolved });
   });
 
-  // Marveen Federation
+  // P2P Federation
   router.get('/federation/manifest', (_req, res) => {
     const state = getState();
     res.json({

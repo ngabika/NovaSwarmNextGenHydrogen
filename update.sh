@@ -23,6 +23,10 @@ echo "[2/5] Forráskód frissítése..."
 git pull --ff-only origin main || git pull --ff-only
 
 echo "[3/5] Függőségek és típusellenőrzés..."
+RAM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 4194304)
+if [ "$(( RAM_KB / 1024 ))" -lt 2048 ]; then
+  export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=512"
+fi
 npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
 if ! npm run lint || ! npm run build; then
   echo "HIBA: A build sikertelen. Visszaállítás az előző állapotra..."

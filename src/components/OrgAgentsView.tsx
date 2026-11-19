@@ -430,13 +430,13 @@ export const OrgAgentsView: React.FC<Props> = ({
         </form>
       </div>
 
-      {/* Marveen Federation Section */}
+      {/* P2P Federation Section */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Globe className="h-4 w-4 text-slate-700" />
-              Föderáció — Távoli NovaSwarm/Marveen Példányok Összekötése
+              Föderáció — Távoli NovaSwarm Példányok Összekötése
             </h3>
             <p className="text-xs text-slate-500">
               Állapot: {federationEnabled ? 'Bekapcsolva' : 'Kikapcsolva (engedélyezd a Beállításokban vagy alább)'}

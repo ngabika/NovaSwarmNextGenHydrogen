@@ -52,7 +52,7 @@ function startTestApp(router: express.Router): Promise<{ server: http.Server; ba
   });
 }
 
-test('LiteLLM Parity: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Keys (RPM/budget/allowlist), Cache, Guardrails, and Cooldowns', async () => {
+test('AI Gateway: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Keys (RPM/budget/allowlist), Cache, Guardrails, and Cooldowns', async () => {
   clearResponseCache();
   const state = createInitialState();
   state.settings.primaryProvider = 'openai';
@@ -128,7 +128,7 @@ test('LiteLLM Parity: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Key
       },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: 'Hello LiteLLM proxy' }],
+        messages: [{ role: 'user', content: 'Hello AI Gateway proxy' }],
       }),
     });
     assert.equal(r1.status, 200);
@@ -149,7 +149,7 @@ test('LiteLLM Parity: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Key
       },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: 'Hello LiteLLM proxy' }],
+        messages: [{ role: 'user', content: 'Hello AI Gateway proxy' }],
       }),
     });
     assert.equal(r2.status, 200);
@@ -221,7 +221,7 @@ test('LiteLLM Parity: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Key
   assert.equal(state.settings.providerKeys.openai[0].cooldownUntil, undefined);
 });
 
-test('OpenClaw Parity: Multi-step Agent Tools (sandboxed vs host isolation), Multi-Channel Pairing & /pairing approve', async () => {
+test('Session & Channels: Multi-step Agent Tools (sandboxed vs host isolation), Multi-Channel Pairing & /pairing approve', async () => {
   const state = createInitialState();
   state.settings.hostPermissionsGranted = false;
   state.settings.channelPairingRequired = true;
@@ -302,7 +302,7 @@ test('OpenClaw Parity: Multi-step Agent Tools (sandboxed vs host isolation), Mul
   assert.equal(rejected?.status, 'rejected');
 });
 
-test('Marveen Parity: Tiered Hybrid RRF Memory, Salience Decay, Knowledge Graph, PreCompact, Skill Pitfalls, Federation, and Two-Strikes Uptime', async () => {
+test('Memory, Skills, Federation & Uptime: Tiered Hybrid RRF Memory, Salience Decay, Knowledge Graph, PreCompact, Skill Pitfalls, Federation, and Two-Strikes Uptime', async () => {
   const state = createInitialState();
   state.settings.federationEnabled = true;
   state.settings.kanbanAgingHours = 24;

@@ -9,17 +9,17 @@ Autonóm, önfejlesztő személyi AI-ágens raj (Swarm) és helyi Linux üzemelt
 ## Főbb képességek
 
 - **Zero-Prebuilt-Agents + Induló Varázsló:** Gyárilag nincs előre bedrótozott ágens-csapat (kivéve az állandó Felügyelő Auditor őrt). Az első ágenst te hozod létre a 6 lépéses Setup Wizardban, utána a raj organikus módon növekszik és specializálódik.
-- **LiteLLM-szintű Gateway & OpenAI Kompatibilis `/v1/*` Proxy:**
+- **OpenAI-Kompatibilis AI Gateway & `/v1/*` Proxy:**
   - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`
   - Natív OpenAI `tools` / `tool_calls` (function calling) és multimodális `image_url` támogatás (Gemini, OpenAI, OpenRouter, Anthropic, Ollama felé)
   - Virtuális API kulcsok (`ns-vk-...`) kérésenkénti költségkerettel, RPM limittel és modell-engedélylistával
   - Round-robin API kulcs rotáció és hibatűrő failover + TTL válasz-cache + PII/Secret/Prompt-Injection védőkorlátok
-- **OpenClaw Architektúra-Minták:**
+- **Munkamenet-Elszigetelés, Kernel Sandbox & Csatornák:**
   - Munkamenet-szintű elszigetelés (`main_host` vs `sandboxed` munkaszálak és alágensek)
   - Többcsatornás csatlakozók (Telegram, Discord, Slack, általános Webhook) 6 jegyű párosítási jóváhagyó sorral
   - Valódi Linux kernel sandbox automatikus felderítéssel (`docker --network none` → `bubblewrap / bwrap --unshare-net` → `unshare -rn` → izolált `tmpfs` alfolyamat)
   - Autonóm Heartbeat (Kanban elakadás-figyelés + Two-Strikes Uptime Monitor)
-- **Marveen Architektúra-Minták:**
+- **Autonóm Raj-Koordináció, Kanban & Föderáció:**
   - Ágensenkénti dedikált Telegram bot (saját token + saját karakter + multimodális fotó és hangjegyzet feldolgozás)
   - Ötletláda (`Impact - Effort` pontozással és 1-kattintásos AI Kanban-felbontással)
   - Rich Kanban tábla (WIP limit, prioritások, részfeladatok, swimlane-ek, elakadás-jelzés) + **Autonóm Kanban Backlog Munkás**

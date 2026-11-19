@@ -41,7 +41,7 @@ export const ModelsRouterView: React.FC<Props> = ({
   const [discovering, setDiscovering] = useState(false);
   const [failoverOutput, setFailoverOutput] = useState<string | null>(null);
 
-  // LiteLLM Virtual Key creation
+  // Virtual Key creation
   const [vkName, setVkName] = useState('');
   const [vkBudget, setVkBudget] = useState(5.0);
   const [vkRpm, setVkRpm] = useState(60);
@@ -242,14 +242,14 @@ export const ModelsRouterView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* LiteLLM OpenAI-Compatible AI Gateway, Virtual Keys, Cache & Guardrails */}
+      {/* OpenAI-Compatible AI Gateway, Virtual Keys, Cache & Guardrails */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Key className="h-4 w-4 text-slate-700" />
-                LiteLLM AI Gateway & Virtuális Kulcsok (/v1/*)
+                AI Gateway & Virtuális Kulcsok (/v1/*)
               </h2>
               <p className="text-xs text-slate-500 font-mono mt-0.5">{proxyEndpoint}</p>
             </div>

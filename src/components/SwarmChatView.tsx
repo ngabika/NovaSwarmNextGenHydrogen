@@ -489,7 +489,7 @@ export const SwarmChatView: React.FC<Props> = ({
             aria-label="Session isolation mode"
             className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
           >
-            <option value="sandboxed">Sandboxed (OpenClaw)</option>
+            <option value="sandboxed">Sandboxed (Elszigetelt)</option>
             <option value="main_host">Main Host</option>
           </select>
           <button

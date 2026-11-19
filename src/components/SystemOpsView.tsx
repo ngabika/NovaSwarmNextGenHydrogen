@@ -291,7 +291,7 @@ export const SystemOpsView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* OpenClaw Autonomous Heartbeat & Marveen Two-Strikes Uptime Monitor */}
+      {/* Autonomous Heartbeat & Two-Strikes Uptime Monitor */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between gap-2">

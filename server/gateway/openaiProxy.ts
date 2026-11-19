@@ -46,8 +46,8 @@ export function createVirtualKey(input: {
 
   appendAuditLog({
     type: 'gateway',
-    sourceAgentId: 'litellm-proxy',
-    sourceAgentName: 'LiteLLM Proxy',
+    sourceAgentId: 'ai-gateway',
+    sourceAgentName: 'AI Gateway Proxy',
     message: `Új virtuális API kulcs kibocsátva: ${entry.name} (${entry.maskedKey})`,
     verifiedExecution: true,
   });
@@ -174,7 +174,7 @@ function extractContentTextAndImages(content: string | OpenAiContentPart[] | nul
 }
 
 /**
- * LiteLLM OpenAI-Compatible Gateway Proxy Router (/v1/*):
+ * OpenAI-Compatible AI Gateway Proxy Router (/v1/*):
  * - GET /v1/models
  * - POST /v1/chat/completions (supports stream=false & SSE stream=true, model="auto", native OpenAI tools/tool_calls, multimodal vision)
  * - POST /v1/embeddings
@@ -243,7 +243,7 @@ export function createOpenAiProxyRouter(
 
       const userPrompt = userParts.join('\n');
       const parsed = parseProviderAndModel(requestedModel);
-      // LiteLLM Auto Router heuristic complexity classification when model === "auto"
+      // Auto Router heuristic complexity classification when model === "auto"
       const complexity: 'simple' | 'complex' =
         requestedModel === 'auto'
           ? userPrompt.length > 220 ||

@@ -540,13 +540,13 @@ export const McpSkillsView: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom: OpenClaw Multi-Channel Connectors & Pairing Approval Queue */}
+      {/* Bottom: Multi-Channel Connectors & Pairing Approval Queue */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Radio className="h-4 w-4 text-slate-600" />
-              OpenClaw Csatorna Csatlakozók (Discord · Slack · Webhook)
+              Csatorna Csatlakozók (Discord · Slack · Webhook)
             </h3>
             <span className="text-xs font-mono text-slate-500">Sandboxolt munkamenetek</span>
           </div>

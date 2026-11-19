@@ -120,7 +120,7 @@ export function collectHardwareMetrics(): HardwareMetrics {
 }
 
 /**
- * Marveen Two-Strikes Uptime Monitor
+ * Two-Strikes Uptime Monitor
  */
 export function addUptimeTarget(input: {
   name: string;
@@ -235,7 +235,7 @@ export async function runUptimeChecks(
 }
 
 /**
- * OpenClaw + Marveen Silent Autonomous Heartbeat:
+ * Silent Autonomous Heartbeat:
  * Checks Kanban card aging, Uptime targets, and pending approvals.
  * Quiet when everything is healthy; surfaces actionable alerts cleanly.
  */

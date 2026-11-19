@@ -433,7 +433,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={form.channelPairingRequired}
               onChange={(e) => setForm({ ...form, channelPairingRequired: e.target.checked })}
             />
-            <span>OpenClaw Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
+            <span>Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -441,7 +441,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={form.federationEnabled}
               onChange={(e) => setForm({ ...form, federationEnabled: e.target.checked })}
             />
-            <span>Marveen P2P Föderáció engedélyezve</span>
+            <span>P2P Föderáció engedélyezve</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input

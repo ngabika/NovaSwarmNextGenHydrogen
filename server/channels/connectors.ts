@@ -106,7 +106,7 @@ export async function sendToChannelConnector(
 }
 
 /**
- * OpenClaw Channel Pairing Gate: checks if external sender is paired; if unknown & pairing required,
+ * Channel Pairing Gate: checks if external sender is paired; if unknown & pairing required,
  * issues a 6-character pairing code and queues an approval request.
  */
 export function checkOrCreatePairing(params: {
@@ -149,7 +149,7 @@ export function checkOrCreatePairing(params: {
   appendAuditLog({
     type: 'channel',
     sourceAgentId: 'pairing-gate',
-    sourceAgentName: 'OpenClaw Pairing',
+    sourceAgentName: 'Csatorna Párosítás',
     message: `Új párosítási kérelem (${params.channel}/${req.senderLabel}): kód=${code}`,
     verifiedExecution: true,
   });
@@ -175,7 +175,7 @@ export function resolvePairingRequest(
     appendAuditLog({
       type: 'channel',
       sourceAgentId: 'pairing-gate',
-      sourceAgentName: 'OpenClaw Pairing',
+      sourceAgentName: 'Csatorna Párosítás',
       message: `Párosítás (${(resolved as PairingRequest).channel}/${(resolved as PairingRequest).code}): ${decision}`,
       verifiedExecution: true,
     });
@@ -185,7 +185,7 @@ export function resolvePairingRequest(
 
 /**
  * Handles inbound messages from Discord, Slack, or Generic Webhooks, placing them in an
- * isolated sandboxed session thread (OpenClaw pattern).
+ * isolated sandboxed session thread.
  */
 export async function handleInboundChannelEvent(params: {
   connectorId: string;

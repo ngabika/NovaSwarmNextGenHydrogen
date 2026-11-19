@@ -65,7 +65,7 @@ export function classifyModelPricing(modelId: string, provider: ProviderId): Omi
   return { contextWindow: 128000, inputCostPer1M: 1.0, outputCostPer1M: 3.0, isFree: false, tier: 'standard' };
 }
 
-/** LiteLLM Guardrails */
+/** Gateway Guardrails */
 export class GuardrailBlockedError extends Error {
   code = 'GUARDRAIL_BLOCKED';
   rule: string;
@@ -111,7 +111,7 @@ export function evaluateGuardrails(
   return { ok: true, sanitizedText: text };
 }
 
-/** LiteLLM LRU Response Cache */
+/** Gateway LRU Response Cache */
 interface CacheEntry {
   text: string;
   provider: ProviderId;
@@ -882,7 +882,7 @@ export async function computeOllamaEmbedding(
 }
 
 /**
- * LiteLLM-grade Failover Router:
+ * Failover Router:
  * - Guardrails (input & output secret/PII/injection filter)
  * - LRU Response Cache with hit savings tracking
  * - Per-key Cooldowns (60s backoff on 429/5xx) & Round-Robin rotation
@@ -907,7 +907,7 @@ export async function invokeWithFailover(
     appendAuditLog({
       type: 'gateway',
       sourceAgentId: req.agentId || 'guardrails',
-      sourceAgentName: 'LiteLLM Guardrail',
+      sourceAgentName: 'Gateway Guardrail',
       message: `Bemenet blokkolva guardrail szabály alapján: ${inputGuard.blockedRule}`,
       verifiedExecution: true,
     });
@@ -917,7 +917,7 @@ export async function invokeWithFailover(
     );
   }
 
-  // Per-Agent Daily Budget check (Marveen parity)
+  // Per-Agent Daily Budget check
   if (req.agentId) {
     const ag = state.agents.find((a) => a.id === req.agentId);
     if (ag && ag.dailyBudgetUsd && ag.dailyBudgetUsd > 0 && (ag.dailySpendUsd ?? 0) >= ag.dailyBudgetUsd) {

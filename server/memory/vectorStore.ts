@@ -173,7 +173,7 @@ export async function addPersistentMemoryAsync(params: {
 }
 
 /**
- * Marveen Hybrid Search (Vector Cosine + Lexical/FTS Token Score fused via RRF + Tier & Salience Weight).
+ * Hybrid Search (Vector Cosine + Lexical/FTS Token Score fused via RRF + Tier & Salience Weight).
  * Updates lastAccessedAt & reinforces salience of recalled items without mutating unrelated memories.
  */
 export function searchMemories(
@@ -315,7 +315,7 @@ export async function searchMemoriesAsync(
 }
 
 /**
- * Marveen Salience Decay & Tier Transition (Hot -> Warm -> Cold, NEVER deletes memories).
+ * Salience Decay & Tier Transition (Hot -> Warm -> Cold, NEVER deletes memories).
  */
 export function runSalienceDecayAndTiering(): { decayed: number; cooledToCold: number; warmedToWarm: number } {
   const nowMs = Date.now();
@@ -352,7 +352,7 @@ export function runSalienceDecayAndTiering(): { decayed: number; cooledToCold: n
 }
 
 /**
- * Marveen/OpenClaw PreCompact Hook: before long threads grow past threshold, distills key facts
+ * PreCompact Hook: before long threads grow past threshold, distills key facts
  * into Hot persistent memory so context compaction never loses critical decisions.
  */
 export function preCompactThreadMemory(threadId: string, maxUncompacted = 28): {

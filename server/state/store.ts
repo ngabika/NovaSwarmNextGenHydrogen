@@ -150,7 +150,7 @@ export function getTelegramTokenSecret(): string {
   return vault.telegramBotToken ? decryptSecret(vault.telegramBotToken) : '';
 }
 
-/** Marveen Parity: Per-Agent Dedicated Telegram Bot Token Vault */
+/** Per-Agent Dedicated Telegram Bot Token Vault */
 export function setAgentTelegramTokenSecret(agentId: string, token: string): void {
   const vault = loadSecretVault();
   vault.agentTelegramTokens = vault.agentTelegramTokens ?? {};
@@ -505,10 +505,9 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     ...(source.settings || {}),
     schemaVersion: CURRENT_SCHEMA_VERSION,
     webAuthHasPassword: hasWebAuthPassword(),
-    otaRepoSlug:
-      source.settings?.otaRepoSlug === 'Szotasz/marveen' || !source.settings?.otaRepoSlug
-        ? 'ngabika/NovaSwarmNextGenHydrogen'
-        : source.settings.otaRepoSlug,
+    otaRepoSlug: !source.settings?.otaRepoSlug
+      ? 'ngabika/NovaSwarmNextGenHydrogen'
+      : source.settings.otaRepoSlug,
     providerKeys: {
       ...base.settings.providerKeys,
       ...(source.settings?.providerKeys || {}),

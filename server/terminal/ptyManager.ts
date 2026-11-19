@@ -1,8 +1,86 @@
+import { spawn as cpSpawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import * as pty from 'node-pty';
+import { createRequire } from 'node:module';
 import type { WebSocket } from 'ws';
 import { assertHostPermission } from '../security/permissionGate';
 import { appendAuditLog } from '../state/store';
+
+interface PtyLikeProcess {
+  onData: (cb: (data: string) => void) => void;
+  onExit: (cb: (ev: { exitCode: number }) => void) => void;
+  write: (data: string) => void;
+  resize: (cols: number, rows: number) => void;
+  kill: () => void;
+}
+
+type NodePtyModule = {
+  spawn: (
+    file: string,
+    args: string[],
+    opts: { name: string; cols: number; rows: number; cwd: string; env: Record<string, string> }
+  ) => PtyLikeProcess;
+};
+
+let cachedNodePty: NodePtyModule | null | undefined;
+
+function getNodePty(): NodePtyModule | null {
+  if (cachedNodePty !== undefined) return cachedNodePty;
+  try {
+    const req = createRequire(import.meta.url);
+    cachedNodePty = req('node-pty') as NodePtyModule;
+  } catch (err) {
+    console.warn(
+      '[NovaSwarm PTY] node-pty natív modul nem tölthető be, pipe-shell fallback aktív:',
+      err instanceof Error ? err.message : String(err)
+    );
+    cachedNodePty = null;
+  }
+  return cachedNodePty;
+}
+
+function spawnFallbackShell(shell: string, cwd: string): PtyLikeProcess {
+  const child = cpSpawn(shell, ['-i'], {
+    cwd,
+    env: { ...process.env, TERM: 'xterm-256color' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const dataListeners: Array<(data: string) => void> = [];
+  const exitListeners: Array<(ev: { exitCode: number }) => void> = [];
+
+  const emitData = (chunk: Buffer | string) => {
+    const text = chunk.toString().replace(/\r?\n/g, '\r\n');
+    for (const cb of dataListeners) cb(text);
+  };
+  child.stdout?.on('data', emitData);
+  child.stderr?.on('data', emitData);
+  child.on('exit', (code) => {
+    for (const cb of exitListeners) cb({ exitCode: code ?? 0 });
+  });
+
+  setTimeout(() => {
+    emitData('[NovaSwarm: pipe-shell fallback aktív (node-pty natív modul nélkül)]\n');
+  }, 50);
+
+  return {
+    onData: (cb) => {
+      dataListeners.push(cb);
+    },
+    onExit: (cb) => {
+      exitListeners.push(cb);
+    },
+    write: (data) => {
+      if (child.stdin?.writable) {
+        child.stdin.write(data.replace(/\r/g, '\n'));
+      }
+    },
+    resize: () => {
+      // No-op in pipe fallback mode
+    },
+    kill: () => {
+      child.kill('SIGTERM');
+    },
+  };
+}
 
 export interface TerminalSessionInfo {
   id: string;
@@ -15,7 +93,7 @@ export interface TerminalSessionInfo {
 
 interface InternalPtySession {
   info: TerminalSessionInfo;
-  ptyProcess: pty.IPty;
+  ptyProcess: PtyLikeProcess;
   clients: Set<WebSocket>;
   lineBuffer: string;
 }
@@ -33,21 +111,32 @@ export function createTerminalSession(params: {
   rows?: number;
   cwd?: string;
 }): TerminalSessionInfo {
-  // Enforce the exact same unified Host Permission Gate (Section 8.2 & 9.2)
+  // Enforce the exact same unified Host Permission Gate
   assertHostPermission('terminal_create_session', params.agentId);
 
   const id = `pty-${crypto.randomUUID().slice(0, 8)}`;
   const shell = process.env.SHELL || '/bin/bash';
   const cols = params.cols ?? 100;
   const rows = params.rows ?? 30;
+  const cwd = params.cwd || process.cwd();
 
-  const ptyProcess = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd: params.cwd || process.cwd(),
-    env: process.env as Record<string, string>,
-  });
+  const ptyMod = getNodePty();
+  let ptyProcess: PtyLikeProcess;
+  if (ptyMod) {
+    try {
+      ptyProcess = ptyMod.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env: process.env as Record<string, string>,
+      });
+    } catch {
+      ptyProcess = spawnFallbackShell(shell, cwd);
+    }
+  } else {
+    ptyProcess = spawnFallbackShell(shell, cwd);
+  }
 
   const info: TerminalSessionInfo = {
     id,

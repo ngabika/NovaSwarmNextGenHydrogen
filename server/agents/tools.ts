@@ -21,7 +21,7 @@ import { assertNotForbiddenModificationZone } from '../selfmod/gitGuard';
 import { createAndValidateSkill } from '../skills/loader';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
-export const AGENT_TOOLS_INSTRUCTION = `Eszköz-használati protokoll (OpenClaw multi-step tool loop):
+export const AGENT_TOOLS_INSTRUCTION = `Eszköz-használati protokoll (többlépéses eszköz-hívási lánc):
 Ha egy művelethez valós rendszeradat, fájl, webes tartalom, memória, Kanban kártya vagy al-ágens szükséges, válaszolj KIZÁRÓLAG egy <tool_call>{"name":"...","args":{...}}</tool_call> blokkal, és várd meg az eredményt!
 Elérhető eszközök:
 1. exec_shell: {"command": "..."} — parancs futtatása (main_host szálon host kapuval, sandboxed szálon elszigetelt sandboxban).

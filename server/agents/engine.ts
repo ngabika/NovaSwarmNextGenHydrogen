@@ -29,9 +29,9 @@ import {
 export const SELF_DOCUMENTATION_TEXT = `NovaSwarm Önismereti Architektúra Dokumentáció:
 1. Állapot & Igazságforrás: Minden konfiguráció és entitás a központi állapottárban (.state.json, .config.json) él, atomikus ideiglenes fájlos átnevezéssel (rename) mentve.
 2. Ágensek, Al-ágensek & Hierarchia: Induláskor csak a felhasználó által létrehozott első ágens és az állandó Felügyelő Auditor fut. Tetszőleges mélységű hierarchia, ágensenkénti dedikált Telegram bot és napi költségkeret.
-3. Session Izoláció & Jogosultsági Kapu (OpenClaw): A fő szál (main_host) gazdagép-hozzáférést kaphat az assertHostPermission kapun át; minden másodlagos/külső szál (sandboxed) automatikusan izolált sandboxban fut.
-4. LiteLLM AI Gateway Proxy (/v1/*): OpenAI-kompatibilis /v1/chat/completions (SSE stream & auto routing), /v1/models, /v1/embeddings, Virtuális Kulcsok (budget + RPM), LRU válasz-cache, Guardrail védelem és kulcs-cooldown rotáció.
-5. Rétegzett Hibrid Memória & Álmodás (Marveen + OpenClaw): Hot/Warm/Cold/Shared rétegek, salience decay, RRF hibrid keresés, PreCompact kontextus-mentés, Tudásgráf és Obsidian vault + 3 fázisú Álmodás.
+3. Session Izoláció & Jogosultsági Kapu: A fő szál (main_host) gazdagép-hozzáférést kaphat az assertHostPermission kapun át; minden másodlagos/külső szál (sandboxed) automatikusan izolált sandboxban fut.
+4. AI Gateway Proxy (/v1/*): OpenAI-kompatibilis /v1/chat/completions (SSE stream & auto routing), /v1/models, /v1/embeddings, Virtuális Kulcsok (budget + RPM), LRU válasz-cache, Guardrail védelem és kulcs-cooldown rotáció.
+5. Rétegzett Hibrid Memória & Álmodás: Hot/Warm/Cold/Shared rétegek, salience decay, RRF hibrid keresés, PreCompact kontextus-mentés, Tudásgráf és Obsidian vault + 3 fázisú Álmodás.
 6. Ötletláda, Rich Kanban, Föderáció & Uptime: Impact×Effort ötletpontozás, AI feladatbontás, WIP limit & kártya-öregedés, több példányos Föderáció és Two-Strikes Uptime Monitor.`;
 
 export function buildDynamicAgentSystemPrompt(
@@ -223,7 +223,7 @@ export function resolveTargetAgent(prompt: string, explicitAgentId?: string | nu
 }
 
 /**
- * Multi-step bounded tool-calling loop for an agent (OpenClaw pattern).
+ * Multi-step bounded tool-calling loop for an agent.
  */
 export async function runAgentWithTools(params: {
   agent: Agent;
@@ -384,7 +384,7 @@ export async function handleUserTurn(params: {
         agent: delegate,
         prompt: delegationPrompt,
         complexity: 'simple',
-        // OpenClaw pattern: subagents default to sandboxed isolation
+        // Subagents default to sandboxed isolation
         isolationMode: 'sandboxed',
         maxSteps: 2,
         routerDeps: params.routerDeps,
@@ -468,7 +468,7 @@ export async function handleUserTurn(params: {
   return { userMessage, agentMessages, coordinatorReply };
 }
 
-/** Marveen Kanban AI Auto-Breakdown */
+/** Kanban AI Auto-Breakdown */
 export async function breakdownKanbanCardWithAi(
   cardId: string,
   routerDeps?: RouterDependencies

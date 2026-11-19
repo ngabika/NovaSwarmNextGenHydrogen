@@ -15,26 +15,26 @@ echo "============================================================"
 echo "  NovaSwarm — Autonóm AI Ágens Raj Telepítő"
 echo "============================================================"
 
-# Minimal terminal interaction: only port if user wants non-default
-read -r -p "Web UI port [${DEFAULT_PORT}]: " USER_PORT || true
-APP_PORT="${USER_PORT:-$DEFAULT_PORT}"
+# Minimal terminal interaction: only port if stdin is interactive
+APP_PORT="${NOVASWARM_PORT:-$DEFAULT_PORT}"
+if [ -t 0 ]; then
+  read -r -p "Web UI port [${APP_PORT}]: " USER_PORT || true
+  APP_PORT="${USER_PORT:-$APP_PORT}"
+fi
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+  SUDO="sudo"
+fi
 
 echo "[1/6] Rendszerfüggőségek ellenőrzése..."
 if command -v apt-get >/dev/null 2>&1; then
-  SUDO=""
-  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
-    SUDO="sudo"
-  fi
   $SUDO apt-get update -qq
-  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng pciutils lm-sensors bubblewrap >/dev/null || true
+  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng pciutils lm-sensors bubblewrap iproute2 >/dev/null || true
 elif command -v dnf >/dev/null 2>&1; then
-  SUDO=""
-  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
-  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng pciutils bubblewrap || true
+  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng pciutils bubblewrap iproute || true
 elif command -v pacman >/dev/null 2>&1; then
-  SUDO=""
-  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
-  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng pciutils bubblewrap || true
+  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng pciutils bubblewrap iproute2 || true
 fi
 
 # Node.js >= 20 check
@@ -56,11 +56,14 @@ else
   echo "[2/6] Node.js $(node -v) rendben."
 fi
 
-# Hardware profiling for Ollama recommendation
+# Hardware profiling for Ollama recommendation & memory safety
 echo "[3/6] Hardver profilozása..."
 CPU_CORES=$(nproc 2>/dev/null || echo 2)
 RAM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 4194304)
-RAM_GB=$(( RAM_KB / 1024 / 1024 ))
+RAM_MB=$(( RAM_KB / 1024 ))
+RAM_GB=$(( (RAM_MB + 512) / 1024 ))
+SWAP_KB=$(grep SwapTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+SWAP_MB=$(( SWAP_KB / 1024 ))
 HAS_GPU=0
 GPU_INFO="none"
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
@@ -70,16 +73,33 @@ elif command -v lspci >/dev/null 2>&1 && lspci | grep -qiE 'VGA|3D|Display'; the
   GPU_INFO=$(lspci | grep -iE 'VGA|3D|Display' | head -n 1)
 fi
 
-if [ "$HAS_GPU" -eq 1 ] || [ "$RAM_GB" -ge 16 ]; then
+if [ "$HAS_GPU" -eq 1 ] || [ "$RAM_MB" -ge 15000 ]; then
   RECOMMENDED_MODEL="qwen2.5-coder:7b"
-elif [ "$RAM_GB" -ge 8 ]; then
+elif [ "$RAM_MB" -ge 7500 ]; then
   RECOMMENDED_MODEL="qwen2.5:3b"
 else
   RECOMMENDED_MODEL="qwen2.5:1.5b"
 fi
 
-echo "  CPU magok: ${CPU_CORES} | RAM: ${RAM_GB} GB | GPU/iGPU: ${GPU_INFO}"
+echo "  CPU magok: ${CPU_CORES} | RAM: ${RAM_MB} MB (~${RAM_GB} GB) | Swap: ${SWAP_MB} MB | GPU/iGPU: ${GPU_INFO}"
 echo "  Ajánlott lokális Ollama modell: ${RECOMMENDED_MODEL}"
+
+# Low-RAM (< 1.5 GB) swap guard so vite build & node-pty never OOM-kill on Raspberry Pi / small VPS
+if [ "$RAM_MB" -lt 1536 ] && [ "$SWAP_MB" -lt 512 ]; then
+  AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}' || echo 0)
+  if [ "$AVAIL_KB" -gt 3145728 ] && [ ! -f /swapfile ] && command -v swapon >/dev/null 2>&1; then
+    echo "  Kevés fizikai RAM (<1.5 GB) és kevés swap észlelve — 1 GB /swapfile létrehozása a stabil buildhez..."
+    (
+      ${SUDO:-} fallocate -l 1G /swapfile 2>/dev/null || ${SUDO:-} dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+      ${SUDO:-} chmod 600 /swapfile
+      ${SUDO:-} mkswap /swapfile >/dev/null
+      ${SUDO:-} swapon /swapfile
+      if ! grep -q '^/swapfile ' /etc/fstab 2>/dev/null; then
+        echo '/swapfile none swap sw 0 0' | ${SUDO:-} tee -a /etc/fstab >/dev/null
+      fi
+    ) || echo "  Figyelem: swap létrehozása kihagyva (nem kritikus, --max-old-space-size=512 használatban)."
+  fi
+fi
 
 # Install Ollama & pull recommended model
 echo "[4/6] Ollama futtató és lokális modell beállítása..."
@@ -111,14 +131,36 @@ if [ ! -f .env ]; then
   fi
 fi
 
+if [ "$RAM_MB" -lt 2048 ]; then
+  export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=512"
+  # Free RAM during Vite build on 1 GB hosts if ollama systemd service is running
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ollama 2>/dev/null; then
+    ${SUDO:-} systemctl stop ollama || true
+    RESTART_OLLAMA_AFTER_BUILD=1
+  fi
+fi
+
 npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
 npm run build
+
+if [ ! -f "${NOVASWARM_DIR}/dist/index.html" ]; then
+  echo "HIBA: A Web UI build (dist/index.html) nem jött létre!"
+  exit 1
+fi
+
+if [ "${RESTART_OLLAMA_AFTER_BUILD:-0}" -eq 1 ]; then
+  ${SUDO:-} systemctl start ollama || true
+fi
 
 # Register systemd service
 echo "[6/6] systemd szolgáltatás létrehozása..."
 RUN_USER="${SUDO_USER:-$(whoami)}"
 TSX_BIN="${NOVASWARM_DIR}/node_modules/.bin/tsx"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+if [ "${RUN_USER}" != "root" ] && [ -d "${NOVASWARM_DIR}" ]; then
+  ${SUDO:-} chown -R "${RUN_USER}:${RUN_USER}" "${NOVASWARM_DIR}" || true
+fi
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
   TMP_UNIT=$(mktemp)
@@ -132,6 +174,7 @@ Wants=network-online.target
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${NOVASWARM_DIR}
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=NODE_ENV=production
 Environment=PORT=${APP_PORT}
 Environment=NOVASWARM_RECOMMENDED_MODEL=${RECOMMENDED_MODEL}
@@ -146,16 +189,43 @@ EOF
   ${SUDO:-} systemctl daemon-reload
   ${SUDO:-} systemctl enable "${SERVICE_NAME}"
   ${SUDO:-} systemctl restart "${SERVICE_NAME}"
+
+  sleep 2
+  if ! ${SUDO:-} systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo "HIBA: A ${SERVICE_NAME} szolgáltatás nem maradt aktív indulás után!"
+    ${SUDO:-} systemctl status "${SERVICE_NAME}" --no-pager || true
+    ${SUDO:-} journalctl -u "${SERVICE_NAME}" -n 40 --no-pager || true
+    exit 1
+  fi
+
+  # Verify HTTP listener responds locally
+  READY=0
+  for _i in 1 2 3 4 5; do
+    if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null 2>&1; then
+      READY=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" -ne 1 ]; then
+    echo "FIGYELEM: A systemd szolgáltatás fut, de a 127.0.0.1:${APP_PORT}/healthz még nem válaszolt:"
+    ${SUDO:-} journalctl -u "${SERVICE_NAME}" -n 30 --no-pager || true
+  fi
 else
   echo "systemd nem érhető el ebben a környezetben; közvetlen indítás: PORT=${APP_PORT} npm start"
 fi
 
-TARGET_URL="http://localhost:${APP_PORT}"
+LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+TARGET_URL="http://${LAN_IP:-localhost}:${APP_PORT}"
 echo "============================================================"
-echo "  Telepítés kész! Nyisd meg: ${TARGET_URL}"
+echo "  Telepítés kész! Nyisd meg:"
+echo "  Lokálisan: http://localhost:${APP_PORT}"
+if [ -n "${LAN_IP}" ]; then
+  echo "  Hálózaton: http://${LAN_IP}:${APP_PORT}"
+fi
 echo "  Minden további beállítás a grafikus Setup Wizardban történik."
 echo "============================================================"
 
 if command -v xdg-open >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-  xdg-open "${TARGET_URL}" >/dev/null 2>&1 &
+  xdg-open "http://localhost:${APP_PORT}" >/dev/null 2>&1 &
 fi

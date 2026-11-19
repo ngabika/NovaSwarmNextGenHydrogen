@@ -54,7 +54,7 @@ export async function sendTelegramMessage(
 
 /**
  * Processes an incoming Telegram command or message with 100% live-data parity
- * matching Web UI + supporting Marveen Per-Agent Dedicated Bot routing.
+ * matching Web UI + supporting Per-Agent Dedicated Bot routing.
  */
 export async function processTelegramInput(
   rawText: string,
@@ -143,7 +143,7 @@ export async function processTelegramInput(
       `- Elsődleges: ${p} (kulcsok: ${state.settings.providerKeys[p].length})`,
       `- Másodlagos: ${s} (kulcsok: ${state.settings.providerKeys[s].length})`,
       `- Helyi Ollama: ${state.settings.ollamaModel} (${state.settings.ollamaUrl})`,
-      `- LiteLLM Gateway kérések: ${state.gatewayAnalytics.totalProxyRequests} (Cache hit: ${state.gatewayAnalytics.cacheHits})`,
+      `- AI Gateway kérések: ${state.gatewayAnalytics.totalProxyRequests} (Cache hit: ${state.gatewayAnalytics.cacheHits})`,
       `- Kvóta (${p}): ${quotaP.remainingRequests ?? 'N/A'} (${quotaP.isEstimated ? 'becsült érték' : 'valós fejléc'})`,
     ].join('\n');
   }
@@ -354,7 +354,7 @@ export function startTelegramPolling(): void {
         await pollSingleBot('main', mainToken);
       }
 
-      // Marveen Parity: Poll each agent's own dedicated Telegram Bot independently
+      // Poll each agent's own dedicated Telegram Bot independently
       for (const ag of state.agents) {
         if (!ag.active || ag.isSupervisor || !ag.telegramBotEnabled || !ag.telegramHasToken) continue;
         const agToken = getAgentTelegramTokenSecret(ag.id);

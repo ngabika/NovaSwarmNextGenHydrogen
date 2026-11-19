@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 import express from 'express';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { createServer as createViteServer } from 'vite';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { runAutonomousKanbanWorkerTick } from './server/agents/engine';
 import { runDreamingCycle } from './server/dreaming/engine';
@@ -119,7 +119,11 @@ async function bootstrap() {
     }
   });
 
-  // Mount LiteLLM OpenAI-compatible Gateway Proxy (/v1/models, /v1/chat/completions, /v1/embeddings)
+  app.get('/healthz', (_req, res) => {
+    res.json({ ok: true, service: 'novaswarm', port: PORT });
+  });
+
+  // Mount OpenAI-compatible AI Gateway Proxy (/v1/models, /v1/chat/completions, /v1/embeddings)
   app.use('/v1', createOpenAiProxyRouter(broadcastEvent));
 
   // Mount NovaSwarm Control Plane API routes
@@ -127,6 +131,7 @@ async function bootstrap() {
 
   // Mount Vite middleware in development, static dist/ in production
   if (!isProduction) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -134,9 +139,20 @@ async function bootstrap() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const indexPath = path.join(distPath, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      console.warn(
+        `[NovaSwarm] Figyelem: ${indexPath} nem található! Futtasd az 'npm run build' parancsot a Web UI kiszolgálásához.`
+      );
+    }
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      if (!fs.existsSync(indexPath)) {
+        return res
+          .status(503)
+          .send('NovaSwarm Web UI nincs még lefordítva. Futtasd: npm run build');
+      }
+      return res.sendFile(indexPath);
     });
   }
 
@@ -207,6 +223,11 @@ async function bootstrap() {
       }
     });
   }, 15 * 60 * 1000);
+
+  server.on('error', (err) => {
+    console.error(`NovaSwarm HTTP szerver hiba (port ${PORT}):`, err);
+    process.exit(1);
+  });
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`NovaSwarm server running on http://0.0.0.0:${PORT}`);

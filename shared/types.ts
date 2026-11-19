@@ -63,7 +63,7 @@ export interface Agent {
   hostExecutionEnabled: boolean;
   active: boolean;
   isSupervisor?: boolean;
-  /** Per-agent dedicated Telegram bot (Marveen parity) */
+  /** Per-agent dedicated Telegram bot */
   telegramBotEnabled?: boolean;
   telegramHasToken?: boolean;
   telegramBotUsername?: string;
@@ -178,7 +178,7 @@ export interface Skill {
   createdByAgentId: string;
   status: SkillStatus;
   sandboxReport: string;
-  /** Marveen Skill Factory: learned failure recovery pitfalls */
+  /** Skill Factory: learned failure recovery pitfalls */
   pitfalls?: string[];
   usageCount?: number;
   lastUsedAt?: string;
@@ -198,7 +198,7 @@ export interface MemoryEntry {
   embedding: number[];
   semanticEmbedding?: number[];
   obsidianPath?: string;
-  /** Marveen Memory Tiering & Salience Decay */
+  /** Memory Tiering & Salience Decay */
   tier?: MemoryTier;
   salience?: number;
   lastAccessedAt?: string;
@@ -233,7 +233,7 @@ export interface ChatThread {
   id: string;
   title: string;
   folder: string;
-  /** OpenClaw session isolation: main_host has host permissions, secondary/external are sandboxed */
+  /** Session isolation: main_host has host permissions, secondary/external are sandboxed */
   isolationMode?: SessionIsolationMode;
   channelSource?: 'web' | 'telegram' | 'discord' | 'slack' | 'webhook' | 'federation';
   compactedCount?: number;
@@ -330,7 +330,7 @@ export interface SupervisorStatus {
   lastDestructiveProofAt: string | null;
 }
 
-/** LiteLLM Parity: Virtual Keys */
+/** Gateway Virtual Keys */
 export interface VirtualKey {
   id: string;
   name: string;
@@ -357,7 +357,7 @@ export interface GatewayAnalytics {
   spendByModel: Record<string, number>;
 }
 
-/** OpenClaw Parity: Multi-Channel Connectors & Pairing */
+/** Multi-Channel Connectors & Pairing */
 export type ChannelConnectorType = 'discord' | 'slack' | 'webhook';
 
 export interface ChannelConnector {
@@ -383,7 +383,7 @@ export interface PairingRequest {
   resolvedAt?: string;
 }
 
-/** Marveen Parity: Federation Peer */
+/** P2P Federation Peer */
 export interface FederationPeer {
   id: string;
   name: string;
@@ -396,7 +396,7 @@ export interface FederationPeer {
   lastError?: string;
 }
 
-/** Marveen Parity: Two-Strikes Uptime Monitor Target */
+/** Two-Strikes Uptime Monitor Target */
 export interface UptimeTarget {
   id: string;
   name: string;
@@ -447,20 +447,20 @@ export interface Settings {
   ttsEnabled: boolean;
   ttsHostSpeakerEnabled: boolean;
   autoTaskRouting: boolean;
-  /** LiteLLM Gateway Cache & Guardrails */
+  /** AI Gateway Cache & Guardrails */
   responseCacheEnabled: boolean;
   responseCacheTtlSec: number;
   guardrailsEnabled: boolean;
   guardrailBlockPii: boolean;
   guardrailBlockSecrets: boolean;
   guardrailBlockPromptInjection: boolean;
-  /** OpenClaw Heartbeat & Pairing */
+  /** Heartbeat & Pairing */
   heartbeatEnabled: boolean;
   heartbeatIntervalMinutes: number;
   channelPairingRequired: boolean;
   lastHeartbeatAt: string | null;
   lastHeartbeatSummary: string | null;
-  /** Marveen Kanban WIP/Aging & Federation */
+  /** Kanban WIP/Aging & Federation */
   kanbanWipLimit: number;
   kanbanAgingHours: number;
   federationEnabled: boolean;

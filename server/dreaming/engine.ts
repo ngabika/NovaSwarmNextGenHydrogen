@@ -24,7 +24,7 @@ export interface DreamCandidate {
 }
 
 /**
- * Light Phase (OpenClaw pattern):
+ * Light Phase:
  * Collects fresh short-term signals and recent conversation excerpts, deduplicates them,
  * and builds candidate queues. NEVER performs persistent memory writes!
  */
@@ -106,7 +106,7 @@ export function runLightDreamPhase(signals: ShortTermSignal[], recentChatExcerpt
 }
 
 /**
- * Deep Phase (OpenClaw pattern):
+ * Deep Phase:
  * Evaluates weighted scores against threshold and promotes qualifying candidates
  * into persistent Vector DB + Obsidian Markdown vault (Hot tier).
  * This is the ONLY dreaming phase that writes persistent memory.
@@ -157,7 +157,7 @@ export interface DreamCycleOutcome {
 }
 
 /**
- * Full Dreaming Cycle (Light -> Deep -> REM + Marveen Memory Health/Salience Decay)
+ * Full Dreaming Cycle (Light -> Deep -> REM + Memory Health/Salience Decay)
  * with Global Daily Cost Limit protection + Hardware thermal/battery throttling awareness.
  */
 export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<DreamCycleOutcome> {
@@ -219,7 +219,7 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
   // 2. Deep Phase (the ONLY phase writing persistent memories)
   const promoted = runDeepDreamPhase(lightCandidates, 0.45, opts.vaultBaseDir);
 
-  // Marveen Dream Bucket: Memory Health & Salience Decay
+  // Dream Bucket: Memory Health & Salience Decay
   const decayStats = runSalienceDecayAndTiering();
 
   updateState((s) => {
