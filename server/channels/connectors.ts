@@ -7,8 +7,10 @@ import type {
 import { handleUserTurn } from '../agents/engine';
 import {
   appendAuditLog,
+  getChannelBotTokenSecret,
   getChannelConnectorSecret,
   getState,
+  setChannelBotTokenSecret,
   setChannelConnectorSecret,
   updateState,
 } from '../state/store';
@@ -19,10 +21,16 @@ export function createChannelConnector(input: {
   webhookUrl: string;
   secret?: string;
   defaultAgentId?: string | null;
+  botToken?: string;
+  channelId?: string;
+  pollingEnabled?: boolean;
 }): ChannelConnector {
   const id = `ch-${input.type}-${crypto.randomUUID().slice(0, 6)}`;
   if (input.secret?.trim()) {
     setChannelConnectorSecret(id, input.secret.trim());
+  }
+  if (input.botToken?.trim()) {
+    setChannelBotTokenSecret(id, input.botToken.trim());
   }
   const conn: ChannelConnector = {
     id,
@@ -32,6 +40,9 @@ export function createChannelConnector(input: {
     hasSecret: Boolean(input.secret?.trim()),
     webhookUrl: input.webhookUrl.trim(),
     defaultAgentId: input.defaultAgentId ?? null,
+    pollingEnabled: Boolean(input.pollingEnabled && input.channelId?.trim()),
+    botTokenConfigured: Boolean(input.botToken?.trim()),
+    channelId: input.channelId?.trim() || undefined,
     lastEventAt: null,
   };
   updateState((s) => {
@@ -49,9 +60,116 @@ export function createChannelConnector(input: {
 
 export function deleteChannelConnector(id: string): void {
   setChannelConnectorSecret(id, '');
+  setChannelBotTokenSecret(id, '');
   updateState((s) => {
     s.channelConnectors = s.channelConnectors.filter((c) => c.id !== id);
   });
+}
+
+/** M18: Update Discord/Slack bidirectional polling config */
+export function updateChannelPollingConfig(
+  connectorId: string,
+  input: { botToken?: string; channelId?: string; pollingEnabled?: boolean }
+): ChannelConnector | null {
+  if (typeof input.botToken === 'string' && input.botToken.trim()) {
+    setChannelBotTokenSecret(connectorId, input.botToken.trim());
+  }
+  let updated: ChannelConnector | null = null;
+  updateState((s) => {
+    const conn = s.channelConnectors.find((c) => c.id === connectorId);
+    if (!conn) return;
+    if (typeof input.channelId === 'string') conn.channelId = input.channelId.trim() || undefined;
+    if (typeof input.pollingEnabled === 'boolean') conn.pollingEnabled = input.pollingEnabled;
+    conn.botTokenConfigured = Boolean(getChannelBotTokenSecret(connectorId));
+    updated = conn;
+  });
+  return updated;
+}
+
+/** M18: Bidirectional active REST polling for Discord & Slack without requiring public inbound ports */
+export async function pollExternalChannels(fetchImpl: typeof fetch = fetch): Promise<{ polled: number; processed: number }> {
+  const state = getState();
+  if (state.settings.killSwitchActive) return { polled: 0, processed: 0 };
+
+  const targets = state.channelConnectors.filter(
+    (c) => c.enabled && c.pollingEnabled && c.botTokenConfigured && c.channelId && (c.type === 'discord' || c.type === 'slack')
+  );
+  let polled = 0;
+  let processed = 0;
+
+  for (const conn of targets) {
+    const botToken = getChannelBotTokenSecret(conn.id);
+    if (!botToken || !conn.channelId) continue;
+    polled++;
+
+    try {
+      if (conn.type === 'discord') {
+        const res = await fetchImpl(
+          `https://discord.com/api/v10/channels/${encodeURIComponent(conn.channelId)}/messages?limit=5`,
+          {
+            headers: { Authorization: `Bot ${botToken}`, 'User-Agent': 'NovaSwarm-ChannelPoller/2.0' },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (!res.ok) continue;
+        const msgs = (await res.json()) as Array<{
+          id: string;
+          content?: string;
+          author?: { id: string; username?: string; bot?: boolean };
+        }>;
+        const chronological = [...(Array.isArray(msgs) ? msgs : [])].reverse();
+        for (const m of chronological) {
+          if (m.author?.bot || !m.content?.trim()) continue;
+          if (conn.lastMessageId && m.id <= conn.lastMessageId) continue;
+          updateState((s) => {
+            const ref = s.channelConnectors.find((c) => c.id === conn.id);
+            if (ref) ref.lastMessageId = m.id;
+          });
+          await handleInboundChannelEvent({
+            connectorId: conn.id,
+            senderId: m.author?.id || 'discord-user',
+            senderLabel: m.author?.username || 'Discord',
+            text: m.content,
+          });
+          processed++;
+        }
+      } else if (conn.type === 'slack') {
+        const res = await fetchImpl(
+          `https://slack.com/api/conversations.history?channel=${encodeURIComponent(conn.channelId)}&limit=5`,
+          {
+            headers: { Authorization: `Bearer ${botToken}` },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (!res.ok) continue;
+        const data = (await res.json()) as {
+          ok?: boolean;
+          messages?: Array<{ ts: string; user?: string; bot_id?: string; text?: string }>;
+        };
+        if (!data.ok || !Array.isArray(data.messages)) continue;
+        const chronological = [...data.messages].reverse();
+        for (const m of chronological) {
+          if (m.bot_id || !m.text?.trim()) continue;
+          if (conn.lastMessageId && m.ts <= conn.lastMessageId) continue;
+          updateState((s) => {
+            const ref = s.channelConnectors.find((c) => c.id === conn.id);
+            if (ref) ref.lastMessageId = m.ts;
+          });
+          await handleInboundChannelEvent({
+            connectorId: conn.id,
+            senderId: m.user || 'slack-user',
+            senderLabel: m.user || 'Slack',
+            text: m.text,
+          });
+          processed++;
+        }
+      }
+    } catch {
+      // transient network poll error
+    }
+  }
+
+  return { polled, processed };
 }
 
 export async function sendToChannelConnector(
@@ -105,10 +223,6 @@ export async function sendToChannelConnector(
   }
 }
 
-/**
- * Channel Pairing Gate: checks if external sender is paired; if unknown & pairing required,
- * issues a 6-character pairing code and queues an approval request.
- */
 export function checkOrCreatePairing(params: {
   channel: PairingRequest['channel'];
   senderId: string;
@@ -183,10 +297,6 @@ export function resolvePairingRequest(
   return resolved;
 }
 
-/**
- * Handles inbound messages from Discord, Slack, or Generic Webhooks, placing them in an
- * isolated sandboxed session thread.
- */
 export async function handleInboundChannelEvent(params: {
   connectorId: string;
   senderId: string;
@@ -213,7 +323,6 @@ export async function handleInboundChannelEvent(params: {
     };
   }
 
-  // Ensure a sandboxed session thread exists for this external channel
   const threadId = `thread-${conn.type}-${conn.id}`;
   if (!state.threads.some((t) => t.id === threadId)) {
     const now = new Date().toISOString();

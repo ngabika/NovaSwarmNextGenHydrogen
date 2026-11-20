@@ -7,6 +7,8 @@ import type {
   ApprovalRequest,
   AuditLogEntry,
   ChatThread,
+  DashboardWidgetConfig,
+  EmailConfig,
   GatewayAnalytics,
   KanbanCard,
   MemoryEntry,
@@ -17,7 +19,7 @@ import type {
   UnifiedMessage,
 } from '../../shared/types';
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -64,7 +66,7 @@ export function maskSecret(raw: string): string {
   return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
 }
 
-/** Atomic write: writes to temp file in same directory, fsyncs, and renames over target */
+/** Atomic write: writes to temp file in same directory and renames over target */
 export function atomicWriteFileSync(targetPath: string, content: string): void {
   const dir = path.dirname(targetPath);
   if (!fs.existsSync(dir)) {
@@ -76,15 +78,17 @@ export function atomicWriteFileSync(targetPath: string, content: string): void {
 }
 
 interface SecretVault {
-  providerKeys: Record<string, string>; // keyId -> encrypted apiKey
-  mcpCredentials: Record<string, string>; // mcpId -> encrypted JSON string
-  telegramBotToken?: string; // encrypted coordinator bot
-  agentTelegramTokens?: Record<string, string>; // agentId -> encrypted per-agent bot token
-  channelSecrets?: Record<string, string>; // connectorId -> encrypted bot/signing secret
-  federationTokens?: Record<string, string>; // peerId -> encrypted shared bearer token
-  googleOAuthTokens?: string; // encrypted JSON
-  webAuthPasswordHash?: string; // scrypt salt:hash (never sent to UI)
-  webSessionSecret?: string; // encrypted random HMAC key
+  providerKeys: Record<string, string>;
+  mcpCredentials: Record<string, string>;
+  telegramBotToken?: string;
+  agentTelegramTokens?: Record<string, string>;
+  channelSecrets?: Record<string, string>;
+  channelBotTokens?: Record<string, string>;
+  federationTokens?: Record<string, string>;
+  googleOAuthTokens?: string;
+  webAuthPasswordHash?: string;
+  webSessionSecret?: string;
+  namedSecrets?: Record<string, string>;
 }
 
 function loadSecretVault(): SecretVault {
@@ -100,6 +104,28 @@ function loadSecretVault(): SecretVault {
 
 function saveSecretVault(vault: SecretVault): void {
   atomicWriteFileSync(SECRETS_PATH, JSON.stringify(vault, null, 2));
+}
+
+export function setNamedSecret(name: string, plaintext: string): void {
+  const vault = loadSecretVault();
+  vault.namedSecrets = vault.namedSecrets ?? {};
+  if (plaintext.trim()) {
+    vault.namedSecrets[name] = encryptSecret(plaintext.trim());
+  } else {
+    delete vault.namedSecrets[name];
+  }
+  saveSecretVault(vault);
+}
+
+export function getNamedSecret(name: string): string {
+  const vault = loadSecretVault();
+  const enc = vault.namedSecrets?.[name];
+  return enc ? decryptSecret(enc) : '';
+}
+
+export function hasNamedSecret(name: string): boolean {
+  const vault = loadSecretVault();
+  return Boolean(vault.namedSecrets?.[name]);
 }
 
 export function setRawProviderKeySecret(keyId: string, rawKey: string): void {
@@ -150,7 +176,6 @@ export function getTelegramTokenSecret(): string {
   return vault.telegramBotToken ? decryptSecret(vault.telegramBotToken) : '';
 }
 
-/** Per-Agent Dedicated Telegram Bot Token Vault */
 export function setAgentTelegramTokenSecret(agentId: string, token: string): void {
   const vault = loadSecretVault();
   vault.agentTelegramTokens = vault.agentTelegramTokens ?? {};
@@ -182,6 +207,23 @@ export function setChannelConnectorSecret(connectorId: string, secret: string): 
 export function getChannelConnectorSecret(connectorId: string): string {
   const vault = loadSecretVault();
   const enc = vault.channelSecrets?.[connectorId];
+  return enc ? decryptSecret(enc) : '';
+}
+
+export function setChannelBotTokenSecret(connectorId: string, token: string): void {
+  const vault = loadSecretVault();
+  vault.channelBotTokens = vault.channelBotTokens ?? {};
+  if (token.trim()) {
+    vault.channelBotTokens[connectorId] = encryptSecret(token.trim());
+  } else {
+    delete vault.channelBotTokens[connectorId];
+  }
+  saveSecretVault(vault);
+}
+
+export function getChannelBotTokenSecret(connectorId: string): string {
+  const vault = loadSecretVault();
+  const enc = vault.channelBotTokens?.[connectorId];
   return enc ? decryptSecret(enc) : '';
 }
 
@@ -318,12 +360,38 @@ export function createDefaultGatewayAnalytics(): GatewayAnalytics {
   };
 }
 
+export function createDefaultDashboardWidgets(): DashboardWidgetConfig[] {
+  return [
+    { id: 'vitals', title: 'Hardver & Rendszer Állapot', visible: true },
+    { id: 'budget', title: 'Költség & Havi Előrejelzés', visible: true },
+    { id: 'kanban', title: 'Aktív Kanban & Munkafolyamatok', visible: true },
+    { id: 'uptime', title: 'Uptime & SSL Figyelő', visible: true },
+    { id: 'briefing', title: 'Napi Briefing, Hírek & Naptár', visible: true },
+  ];
+}
+
+export function createDefaultEmailConfig(): EmailConfig {
+  return {
+    enabled: false,
+    imapHost: '',
+    imapPort: 993,
+    smtpHost: '',
+    smtpPort: 465,
+    username: '',
+    tls: true,
+    hasPassword: hasNamedSecret('email_password'),
+    lastCheckedAt: null,
+    recentEmails: [],
+  };
+}
+
 export function createDefaultSettings(): Settings {
   const hasEnvGemini = Boolean(
     process.env.GEMINI_API_KEY &&
       process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
       process.env.GEMINI_API_KEY.trim().length > 8
   );
+  const ramMb = Math.round(os.totalmem() / (1024 * 1024));
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -337,6 +405,8 @@ export function createDefaultSettings(): Settings {
     ollamaOnlyMode: false,
     ollamaUrl: 'http://127.0.0.1:11434',
     ollamaModel: process.env.NOVASWARM_RECOMMENDED_MODEL || 'qwen2.5:3b',
+    ollamaNumCtx: ramMb <= 2048 ? 2048 : 4096,
+    ollamaKeepAlive: '5m',
     providerKeys: {
       gemini: hasEnvGemini
         ? [
@@ -346,6 +416,7 @@ export function createDefaultSettings(): Settings {
               maskedKey: maskSecret(process.env.GEMINI_API_KEY!),
               enabled: true,
               failureCount: 0,
+              createdAt: new Date().toISOString(),
             },
           ]
         : [],
@@ -366,6 +437,7 @@ export function createDefaultSettings(): Settings {
     dailyCostLimitUsd: 1.0,
     dailySpendUsd: 0,
     dailySpendDate: todayIsoDate(),
+    monthlyBudgetAlertUsd: 25.0,
     dreamingIdleMinutes: 10,
     thermalThrottleCelsius: 80,
     batteryThrottlePercent: 20,
@@ -377,9 +449,13 @@ export function createDefaultSettings(): Settings {
     cloudBackupGoogleDriveConnected: false,
     lastBackupAt: null,
     lastBackupLocation: 'none',
+    backupRsyncTarget: '',
     ttsEnabled: false,
     ttsHostSpeakerEnabled: false,
+    continuousVoiceMode: false,
     autoTaskRouting: true,
+    maxToolSteps: 12,
+    defaultPreset: 'fast',
     responseCacheEnabled: true,
     responseCacheTtlSec: 600,
     guardrailsEnabled: true,
@@ -403,6 +479,15 @@ export function createDefaultSettings(): Settings {
     otaRepoSlug: process.env.NOVASWARM_OTA_REPO || 'ngabika/NovaSwarmNextGenHydrogen',
     autoUpdateEnabled: false,
     autoUpdateCheckHours: 6,
+    searchProvider: 'duckduckgo',
+    searxngUrl: '',
+    braveHasKey: hasNamedSecret('brave_search_key'),
+    caldavUrl: '',
+    homeAssistantUrl: '',
+    homeAssistantHasToken: hasNamedSecret('home_assistant_token'),
+    mqttBrokerHost: '',
+    mqttBrokerPort: 1883,
+    dashboardWidgets: createDefaultDashboardWidgets(),
   };
 }
 
@@ -431,8 +516,6 @@ export function createInitialState(): NovaSwarmState {
   const now = new Date().toISOString();
   return {
     settings: createDefaultSettings(),
-    // Strictly ONLY the structural Supervisor/Auditor exception at cold boot.
-    // Zero sample user agents, zero sample Kanban cards, zero fake memories!
     agents: [createSupervisorAgent()],
     kanban: [],
     ideas: [],
@@ -443,6 +526,7 @@ export function createInitialState(): NovaSwarmState {
         name: 'Google Workspace (Gmail, Calendar, Drive, Photos)',
         description: 'Valódi OAuth2 alapú személyes és munkahelyi Google fiók integráció.',
         endpointUrl: 'https://www.googleapis.com/discovery/v1/apis',
+        transport: 'http',
         authType: 'oauth2',
         hasCredentials: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
         oauthConfigured: false,
@@ -457,6 +541,8 @@ export function createInitialState(): NovaSwarmState {
     memories: [],
     shortTermSignals: [],
     dreamJournal: [],
+    dreamSkillDrafts: [],
+    reflexionSuggestions: [],
     threads: [
       {
         id: 'thread-main',
@@ -488,6 +574,38 @@ export function createInitialState(): NovaSwarmState {
     pairingRequests: [],
     federationPeers: [],
     uptimeTargets: [],
+    promptTemplates: [
+      {
+        id: 'tpl-daily-brief',
+        title: 'Reggeli Briefing',
+        command: '/briefing',
+        body: 'Készíts napi áttekintést a nyitott Kanban kártyákból, mai naptárból, uptime állapotból és friss RSS hírekből.',
+        category: 'Rendszer',
+        createdAt: now,
+      },
+      {
+        id: 'tpl-host-health',
+        title: 'Gazdagép Diagnosztika',
+        command: '/diagnosztika',
+        body: 'Ellenőrizd a CPU, RAM, lemez, systemd szolgáltatások és SSL tanúsítványok állapotát, és jelezd ha beavatkozás kell.',
+        category: 'Üzemeltetés',
+        createdAt: now,
+      },
+    ],
+    artifacts: [],
+    rssFeeds: [],
+    rssFeedItems: [],
+    emailConfig: createDefaultEmailConfig(),
+    calendarEvents: [],
+    smartHomeDevices: [],
+    sshProfiles: [],
+    watchedRepos: [],
+    workflows: [],
+    customWebhooks: [],
+    habits: [],
+    focusSessions: [],
+    expenses: [],
+    sslTargets: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -495,7 +613,6 @@ export function createInitialState(): NovaSwarmState {
 
 let cachedState: NovaSwarmState | null = null;
 
-/** Non-destructive migration: preserves all learned memories, agents, skills, and config while adding missing schema fields */
 export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): NovaSwarmState {
   const base = createInitialState();
   const source = existing ?? (fs.existsSync(STATE_PATH) ? JSON.parse(fs.readFileSync(STATE_PATH, 'utf8')) : {});
@@ -505,9 +622,15 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     ...(source.settings || {}),
     schemaVersion: CURRENT_SCHEMA_VERSION,
     webAuthHasPassword: hasWebAuthPassword(),
+    braveHasKey: hasNamedSecret('brave_search_key'),
+    homeAssistantHasToken: hasNamedSecret('home_assistant_token'),
     otaRepoSlug: !source.settings?.otaRepoSlug
       ? 'ngabika/NovaSwarmNextGenHydrogen'
       : source.settings.otaRepoSlug,
+    dashboardWidgets:
+      Array.isArray(source.settings?.dashboardWidgets) && source.settings.dashboardWidgets.length > 0
+        ? source.settings.dashboardWidgets
+        : base.settings.dashboardWidgets,
     providerKeys: {
       ...base.settings.providerKeys,
       ...(source.settings?.providerKeys || {}),
@@ -518,13 +641,11 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     },
   };
 
-  // Reset daily spend if calendar date rolled over
   if (mergedSettings.dailySpendDate !== todayIsoDate()) {
     mergedSettings.dailySpendDate = todayIsoDate();
     mergedSettings.dailySpendUsd = 0;
   }
 
-  // Ensure server env GEMINI_API_KEY is available if configured
   const hasEnvKey =
     process.env.GEMINI_API_KEY &&
     process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' &&
@@ -536,6 +657,7 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
       maskedKey: maskSecret(process.env.GEMINI_API_KEY!),
       enabled: true,
       failureCount: 0,
+      createdAt: new Date().toISOString(),
     });
   }
 
@@ -544,6 +666,8 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     ...a,
     dailySpendUsd: a.dailySpendUsd ?? 0,
     voiceReplyMode: a.voiceReplyMode ?? 'off',
+    allowedMcpIds: Array.isArray(a.allowedMcpIds) ? a.allowedMcpIds : undefined,
+    runTimestamps: Array.isArray(a.runTimestamps) ? a.runTimestamps : [],
   }));
   if (!agents.some((a) => a.id === 'supervisor-auditor')) {
     agents.unshift(createSupervisorAgent());
@@ -563,6 +687,7 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
         tier: m.tier ?? 'warm',
         salience: m.salience ?? m.importanceScore ?? 0.7,
         lastAccessedAt: m.lastAccessedAt ?? m.createdAt,
+        relations: Array.isArray(m.relations) ? m.relations : [],
       }))
     : [];
 
@@ -571,6 +696,7 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
         ...c,
         priority: c.priority ?? 'medium',
         subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
+        blockedBy: Array.isArray(c.blockedBy) ? c.blockedBy : [],
         archived: Boolean(c.archived),
       }))
     : [];
@@ -589,6 +715,31 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     pairingRequests: Array.isArray(source.pairingRequests) ? source.pairingRequests : [],
     federationPeers: Array.isArray(source.federationPeers) ? source.federationPeers : [],
     uptimeTargets: Array.isArray(source.uptimeTargets) ? source.uptimeTargets : [],
+    dreamSkillDrafts: Array.isArray(source.dreamSkillDrafts) ? source.dreamSkillDrafts : [],
+    reflexionSuggestions: Array.isArray(source.reflexionSuggestions) ? source.reflexionSuggestions : [],
+    promptTemplates:
+      Array.isArray(source.promptTemplates) && source.promptTemplates.length > 0
+        ? source.promptTemplates
+        : base.promptTemplates,
+    artifacts: Array.isArray(source.artifacts) ? source.artifacts : [],
+    rssFeeds: Array.isArray(source.rssFeeds) ? source.rssFeeds : [],
+    rssFeedItems: Array.isArray(source.rssFeedItems) ? source.rssFeedItems : [],
+    emailConfig: {
+      ...base.emailConfig,
+      ...(source.emailConfig || {}),
+      hasPassword: hasNamedSecret('email_password'),
+      recentEmails: Array.isArray(source.emailConfig?.recentEmails) ? source.emailConfig.recentEmails : [],
+    },
+    calendarEvents: Array.isArray(source.calendarEvents) ? source.calendarEvents : [],
+    smartHomeDevices: Array.isArray(source.smartHomeDevices) ? source.smartHomeDevices : [],
+    sshProfiles: Array.isArray(source.sshProfiles) ? source.sshProfiles : [],
+    watchedRepos: Array.isArray(source.watchedRepos) ? source.watchedRepos : [],
+    workflows: Array.isArray(source.workflows) ? source.workflows : [],
+    customWebhooks: Array.isArray(source.customWebhooks) ? source.customWebhooks : [],
+    habits: Array.isArray(source.habits) ? source.habits : [],
+    focusSessions: Array.isArray(source.focusSessions) ? source.focusSessions : [],
+    expenses: Array.isArray(source.expenses) ? source.expenses : [],
+    sslTargets: Array.isArray(source.sslTargets) ? source.sslTargets : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),
@@ -616,7 +767,6 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
 
 export function getState(): NovaSwarmState {
   if (cachedState) {
-    // Check date rollover on daily budget
     if (cachedState.settings.dailySpendDate !== todayIsoDate()) {
       cachedState.settings.dailySpendDate = todayIsoDate();
       cachedState.settings.dailySpendUsd = 0;
@@ -649,7 +799,6 @@ export function saveState(state: NovaSwarmState): void {
   cachedState = state;
   atomicWriteFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 
-  // Mirror non-secret editable config to .config.json atomically
   const nonSecretConfig = {
     schemaVersion: state.settings.schemaVersion,
     language: state.settings.language,
@@ -659,16 +808,23 @@ export function saveState(state: NovaSwarmState): void {
     ollamaOnlyMode: state.settings.ollamaOnlyMode,
     ollamaUrl: state.settings.ollamaUrl,
     ollamaModel: state.settings.ollamaModel,
+    ollamaNumCtx: state.settings.ollamaNumCtx,
+    ollamaKeepAlive: state.settings.ollamaKeepAlive,
     dailyCostLimitEnabled: state.settings.dailyCostLimitEnabled,
     dailyCostLimitUsd: state.settings.dailyCostLimitUsd,
+    monthlyBudgetAlertUsd: state.settings.monthlyBudgetAlertUsd,
     dreamingIdleMinutes: state.settings.dreamingIdleMinutes,
     thermalThrottleCelsius: state.settings.thermalThrottleCelsius,
     batteryThrottlePercent: state.settings.batteryThrottlePercent,
     auditLogMaxEntries: state.settings.auditLogMaxEntries,
     backupSchedule: state.settings.backupSchedule,
+    backupRsyncTarget: state.settings.backupRsyncTarget,
     ttsEnabled: state.settings.ttsEnabled,
     ttsHostSpeakerEnabled: state.settings.ttsHostSpeakerEnabled,
+    continuousVoiceMode: state.settings.continuousVoiceMode,
     autoTaskRouting: state.settings.autoTaskRouting,
+    maxToolSteps: state.settings.maxToolSteps,
+    defaultPreset: state.settings.defaultPreset,
     responseCacheEnabled: state.settings.responseCacheEnabled,
     guardrailsEnabled: state.settings.guardrailsEnabled,
     heartbeatEnabled: state.settings.heartbeatEnabled,
@@ -683,6 +839,12 @@ export function saveState(state: NovaSwarmState): void {
     otaRepoSlug: state.settings.otaRepoSlug,
     autoUpdateEnabled: state.settings.autoUpdateEnabled,
     autoUpdateCheckHours: state.settings.autoUpdateCheckHours,
+    searchProvider: state.settings.searchProvider,
+    searxngUrl: state.settings.searxngUrl,
+    caldavUrl: state.settings.caldavUrl,
+    homeAssistantUrl: state.settings.homeAssistantUrl,
+    mqttBrokerHost: state.settings.mqttBrokerHost,
+    mqttBrokerPort: state.settings.mqttBrokerPort,
   };
   atomicWriteFileSync(CONFIG_PATH, JSON.stringify(nonSecretConfig, null, 2));
 }
@@ -694,7 +856,6 @@ export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarm
   return current;
 }
 
-/** Rotate secondary technical audit logs above limit, NEVER delete user-agent chat history (Section 15.2) */
 export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): AuditLogEntry {
   const full: AuditLogEntry = {
     ...entry,
@@ -721,7 +882,6 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): 
   return full;
 }
 
-/** Unified message store shared by Web UI, Telegram, Discord, Slack, Webhooks, and Federation */
 export function appendUnifiedMessage(
   msg: Omit<UnifiedMessage, 'id' | 'timestamp'>
 ): UnifiedMessage {
@@ -744,13 +904,16 @@ export function appendUnifiedMessage(
 }
 
 export function createApprovalRequest(
-  req: Omit<ApprovalRequest, 'id' | 'status' | 'createdAt'>
+  req: Omit<ApprovalRequest, 'id' | 'status' | 'createdAt' | 'expiresAt'>
 ): ApprovalRequest {
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString(); // M21: 15-minute auto-expiry
   const full: ApprovalRequest = {
     ...req,
     id: crypto.randomUUID(),
     status: 'pending',
-    createdAt: new Date().toISOString(),
+    createdAt,
+    expiresAt,
   };
   updateState((s) => {
     s.approvals.unshift(full);

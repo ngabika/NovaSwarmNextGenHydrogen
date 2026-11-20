@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
+  Bell,
   Bot,
   Brain,
+  Command,
   Cpu,
   Download,
+  Layers,
+  LayoutDashboard,
   Lock,
   LogOut,
   Menu,
@@ -17,11 +21,15 @@ import {
   X,
 } from 'lucide-react';
 import type { HardwareMetrics, NovaSwarmState, OtaVersionStatus } from '../shared/types';
+import { CommandPalette } from './components/CommandPalette';
+import { EcosystemView } from './components/EcosystemView';
 import { McpSkillsView } from './components/McpSkillsView';
 import { MemoryDreamingView } from './components/MemoryDreamingView';
 import { ModelsRouterView } from './components/ModelsRouterView';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { OrgAgentsView } from './components/OrgAgentsView';
+import { OverviewDashboard } from './components/OverviewDashboard';
+import { PWAControls } from './components/PWAControls';
 import { SettingsView } from './components/SettingsView';
 import { SwarmChatView } from './components/SwarmChatView';
 import { SystemOpsView } from './components/SystemOpsView';
@@ -29,11 +37,13 @@ import { TerminalView, type TerminalSessionSummary } from './components/Terminal
 import { getLanguageDir, tr } from './locales/translations';
 
 type TabId =
+  | 'overview'
   | 'swarm'
   | 'agents'
   | 'memory'
   | 'models'
   | 'mcp'
+  | 'ecosystem'
   | 'terminal'
   | 'system'
   | 'settings';
@@ -44,9 +54,12 @@ export default function App() {
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
   const [cacheSize, setCacheSize] = useState(0);
   const [sandboxBackend, setSandboxBackend] = useState<string>('isolated_tmpfs_subprocess');
-  const [activeTab, setActiveTab] = useState<TabId>('swarm');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [externalDraft, setExternalDraft] = useState<{ text: string; nonce: number } | null>(null);
+  const [reminderBanner, setReminderBanner] = useState<string | null>(null);
 
   // LAN Operator Auth Gate
   const [authLocked, setAuthLocked] = useState(false);
@@ -65,7 +78,7 @@ export default function App() {
       if (res.status === 401) {
         setAuthLocked(true);
         setLoadError(null);
-        return true; // stop retry loop; wait for operator login
+        return true;
       }
       if (!res.ok) {
         setLoadError(`HTTP ${res.status}`);
@@ -127,6 +140,17 @@ export default function App() {
   };
 
   useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -137,7 +161,7 @@ export default function App() {
           await fetch('/api/onboarding/autostart', { method: 'POST' }).catch(() => {});
         }
       } catch {
-        // ignore autostart network blip; tryFetchState handles retry
+        // ignore
       }
 
       const ok = await tryFetchState();
@@ -167,11 +191,23 @@ export default function App() {
     try {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${proto}//${window.location.host}/ws/events`);
-      ws.onmessage = () => {
+      ws.onmessage = (ev) => {
+        try {
+          const parsed = JSON.parse(String(ev.data)) as { type?: string; payload?: { title?: string; startAt?: string } };
+          if (parsed.type === 'reminder:alert' && parsed.payload?.title) {
+            const msg = `Emlékeztető: ${parsed.payload.title}`;
+            setReminderBanner(msg);
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification('NovaSwarm Emlékeztető', { body: parsed.payload.title });
+            }
+          }
+        } catch {
+          // ignore
+        }
         void fetchState();
       };
       ws.onerror = () => {
-        // Ignore transient WebSocket errors; polling keeps state synced
+        // Ignore transient WebSocket errors
       };
     } catch {
       // Ignore WebSocket construction failure
@@ -215,6 +251,21 @@ export default function App() {
     await fetch('/api/auth/logout', { method: 'POST' });
     setAuthLocked(true);
     setState(null);
+  };
+
+  const handleQuickAction = async (actionId: string) => {
+    if (actionId === 'run_dream') {
+      await fetch('/api/dreaming/run', { method: 'POST' });
+    } else if (actionId === 'run_audit') {
+      await fetch('/api/supervisor/audit', { method: 'POST' });
+    } else if (actionId === 'check_ota') {
+      await checkOta();
+    } else if (actionId === 'create_backup') {
+      await fetch('/api/system/backup', { method: 'POST' });
+    } else if (actionId === 'warm_ollama') {
+      await fetch('/api/providers/ollama/warm', { method: 'POST' });
+    }
+    await fetchState();
   };
 
   if (authLocked) {
@@ -293,11 +344,13 @@ export default function App() {
   }
 
   const navItems: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
+    { id: 'overview', label: tr(lang, 'navOverview'), icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'swarm', label: tr(lang, 'navSwarm'), icon: <MessageSquare className="h-4 w-4" /> },
     { id: 'agents', label: tr(lang, 'navAgents'), icon: <Bot className="h-4 w-4" /> },
     { id: 'memory', label: tr(lang, 'navMemory'), icon: <Brain className="h-4 w-4" /> },
     { id: 'models', label: tr(lang, 'navModels'), icon: <Cpu className="h-4 w-4" /> },
     { id: 'mcp', label: tr(lang, 'navMcp'), icon: <Plug className="h-4 w-4" /> },
+    { id: 'ecosystem', label: tr(lang, 'navEcosystem'), icon: <Layers className="h-4 w-4" /> },
     { id: 'terminal', label: tr(lang, 'navTerminal'), icon: <TerminalIcon className="h-4 w-4" /> },
     { id: 'system', label: tr(lang, 'navSystem'), icon: <Activity className="h-4 w-4" /> },
     { id: 'settings', label: tr(lang, 'navSettings'), icon: <SettingsIcon className="h-4 w-4" /> },
@@ -328,6 +381,20 @@ export default function App() {
             </button>
           </div>
 
+          <div className="px-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 whitespace-nowrap"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Command className="h-3.5 w-3.5" />
+                Parancspaletta...
+              </span>
+              <span className="font-mono text-[10px] text-slate-400">Ctrl+K</span>
+            </button>
+          </div>
+
           <nav className="p-3 space-y-1" aria-label="Main Navigation">
             {navItems.map((item) => (
               <button
@@ -337,7 +404,7 @@ export default function App() {
                   setActiveTab(item.id);
                   setMobileNavOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === item.id
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -499,6 +566,7 @@ export default function App() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
+            <PWAControls />
             {state.settings.webAuthEnabled && (
               <button
                 type="button"
@@ -520,7 +588,27 @@ export default function App() {
           </div>
         </header>
 
+        {reminderBanner && (
+          <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900">
+            <span className="inline-flex items-center gap-2 font-medium">
+              <Bell className="h-3.5 w-3.5" />
+              {reminderBanner}
+            </span>
+            <button type="button" onClick={() => setReminderBanner(null)} className="text-amber-700 hover:text-amber-950">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         <main className="flex-1 p-6 overflow-y-auto">
+          {activeTab === 'overview' && (
+            <OverviewDashboard
+              state={state}
+              hardware={hardware}
+              onNavigate={(tab) => setActiveTab(tab as TabId)}
+              onRefreshState={fetchState}
+            />
+          )}
           {activeTab === 'swarm' && (
             <SwarmChatView
               language={lang}
@@ -529,7 +617,10 @@ export default function App() {
               messages={state.messages}
               kanban={state.kanban}
               ideas={state.ideas}
+              promptTemplates={state.promptTemplates || []}
+              artifacts={state.artifacts || []}
               settings={state.settings}
+              externalDraft={externalDraft}
               onRefreshState={fetchState}
             />
           )}
@@ -537,6 +628,8 @@ export default function App() {
             <OrgAgentsView
               language={lang}
               agents={state.agents}
+              mcpServers={state.mcpServers}
+              kanban={state.kanban}
               federationPeers={state.federationPeers}
               federationEnabled={state.settings.federationEnabled}
               onRefreshState={fetchState}
@@ -547,6 +640,8 @@ export default function App() {
               language={lang}
               memories={state.memories}
               dreamJournal={state.dreamJournal}
+              dreamSkillDrafts={state.dreamSkillDrafts || []}
+              reflexionSuggestions={state.reflexionSuggestions || []}
               settings={state.settings}
               onRefreshState={fetchState}
             />
@@ -574,6 +669,9 @@ export default function App() {
               onRefreshState={fetchState}
             />
           )}
+          {activeTab === 'ecosystem' && (
+            <EcosystemView state={state} onRefreshState={fetchState} />
+          )}
           {activeTab === 'terminal' && (
             <TerminalView
               language={lang}
@@ -581,6 +679,10 @@ export default function App() {
               sessions={terminalSessions}
               onRefreshState={fetchState}
               onOpenSettings={() => setActiveTab('settings')}
+              onSendToSwarm={(draftText) => {
+                setExternalDraft({ text: draftText, nonce: Date.now() });
+                setActiveTab('swarm');
+              }}
             />
           )}
           {activeTab === 'system' && (
@@ -592,6 +694,8 @@ export default function App() {
               backups={state.backups}
               auditLogs={state.auditLogs}
               uptimeTargets={state.uptimeTargets}
+              sslTargets={state.sslTargets || []}
+              sshProfiles={state.sshProfiles || []}
               settings={state.settings}
               sandboxBackend={sandboxBackend}
               onRefreshState={fetchState}
@@ -602,7 +706,16 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        agents={state.agents}
+        templates={state.promptTemplates || []}
+        onNavigate={(tab) => setActiveTab(tab as TabId)}
+        onApplyTemplate={(body) => setExternalDraft({ text: body, nonce: Date.now() })}
+        onQuickAction={(actionId) => void handleQuickAction(actionId)}
+      />
     </div>
   );
 }
-

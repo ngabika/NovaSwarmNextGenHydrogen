@@ -1,6 +1,12 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type {
+  ExecutionPreset,
+  MediaArtifact,
   ModelInfo,
   NovaSwarmState,
   ProviderId,
@@ -25,15 +31,10 @@ export interface PricingRule {
   contextWindow: number;
 }
 
-/**
- * Maintained local pricing & tier catalog.
- * Provider /models endpoints typically omit pricing; this catalog supplements
- * dynamic model discovery rather than replacing it.
- */
 export const LOCAL_MODEL_PRICING_CATALOG: PricingRule[] = [
   { pattern: /^gemini-3\.1-flash-lite/i, inputCostPer1M: 0.05, outputCostPer1M: 0.2, tier: 'free', contextWindow: 1000000 },
   { pattern: /^gemini-4-hydrogen/i, inputCostPer1M: 0.15, outputCostPer1M: 0.6, tier: 'budget', contextWindow: 1000000 },
-  { pattern: /^gemini-4-argon/i, inputCostPer1M: 1.25, outputCostPer1M: 5.0, tier: 'standard', contextWindow: 2000000 },
+  { pattern: /^gemini-4-neon/i, inputCostPer1M: 0.6, outputCostPer1M: 2.5, tier: 'standard', contextWindow: 1000000 },
   { pattern: /^gemini-4-carbon/i, inputCostPer1M: 2.5, outputCostPer1M: 10.0, tier: 'flagship', contextWindow: 2000000 },
   { pattern: /gemini.*flash/i, inputCostPer1M: 0.1, outputCostPer1M: 0.4, tier: 'budget', contextWindow: 1000000 },
   { pattern: /gemini.*pro/i, inputCostPer1M: 1.25, outputCostPer1M: 5.0, tier: 'standard', contextWindow: 1000000 },
@@ -63,6 +64,60 @@ export function classifyModelPricing(modelId: string, provider: ProviderId): Omi
     }
   }
   return { contextWindow: 128000, inputCostPer1M: 1.0, outputCostPer1M: 3.0, isFree: false, tier: 'standard' };
+}
+
+/** M5: Token estimator & Automatic Context Diet */
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil((text || '').length / 3.8));
+}
+
+export function applyContextDiet(
+  prompt: string,
+  contextWindow = 32768,
+  reserveRatio = 0.7
+): { trimmedPrompt: string; wasTrimmed: boolean; estimatedTokens: number } {
+  const maxTokens = Math.max(512, Math.floor(contextWindow * reserveRatio));
+  const est = estimateTokens(prompt);
+  if (est <= maxTokens) {
+    return { trimmedPrompt: prompt, wasTrimmed: false, estimatedTokens: est };
+  }
+  const maxChars = Math.floor(maxTokens * 3.6);
+  const headChars = Math.floor(maxChars * 0.4);
+  const tailChars = Math.floor(maxChars * 0.55);
+  const trimmedPrompt = `${prompt.slice(0, headChars)}\n\n[... kontextus-diéta: ${est - maxTokens} becsült token tömörítve ...]\n\n${prompt.slice(-tailChars)}`;
+  return {
+    trimmedPrompt,
+    wasTrimmed: true,
+    estimatedTokens: estimateTokens(trimmedPrompt),
+  };
+}
+
+/** M9: Monthly Cost Projection & Budget Alert */
+export function computeMonthlyProjection(stateOverride?: NovaSwarmState): {
+  todaySpendUsd: number;
+  dailyLimitUsd: number;
+  projectedMonthlyUsd: number;
+  monthlyAlertUsd: number;
+  alertExceeded: boolean;
+  daysInMonth: number;
+  dayOfMonth: number;
+} {
+  const s = stateOverride ?? getState();
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const dayOfMonth = now.getDate();
+  const todaySpend = s.settings.dailySpendUsd || 0;
+  const projectedMonthlyUsd = Number((todaySpend * daysInMonth).toFixed(4));
+  const monthlyAlertUsd = s.settings.monthlyBudgetAlertUsd || 25;
+  return {
+    todaySpendUsd: todaySpend,
+    dailyLimitUsd: s.settings.dailyCostLimitUsd,
+    projectedMonthlyUsd,
+    monthlyAlertUsd,
+    alertExceeded: projectedMonthlyUsd > monthlyAlertUsd,
+    daysInMonth,
+    dayOfMonth,
+  };
 }
 
 /** Gateway Guardrails */
@@ -132,14 +187,20 @@ export function getResponseCacheSize(): number {
   return responseCache.size;
 }
 
-function makeCacheKey(provider: ProviderId, model: string, prompt: string, systemInstruction?: string): string {
+function makeCacheKey(
+  provider: ProviderId,
+  model: string,
+  prompt: string,
+  systemInstruction?: string,
+  preset?: ExecutionPreset
+): string {
   return crypto
     .createHash('sha256')
-    .update(`${provider}|${model}|${systemInstruction || ''}|${prompt}`)
+    .update(`${provider}|${model}|${preset || 'fast'}|${systemInstruction || ''}|${prompt}`)
     .digest('hex');
 }
 
-/** Round-robin cursor per provider so consecutive calls rotate across arbitrary keys */
+/** Round-robin cursor per provider */
 const keyCursors: Record<ProviderId, number> = {
   gemini: 0,
   openai: 0,
@@ -189,10 +250,6 @@ export function resetProviderCooldowns(): void {
   });
 }
 
-/**
- * Selects the next enabled & non-cooled-down key in round-robin order,
- * skipping keys already tried in the current attempt.
- */
 export function pickNextPoolKey(
   provider: ProviderId,
   pool: ProviderKeyEntry[],
@@ -226,7 +283,6 @@ export function resolveEffectiveKeySecret(keyId: string): string {
   return getRawProviderKeySecret(keyId);
 }
 
-/** Extract real HTTP rate-limit headers where providers supply them */
 export function extractQuotaFromHeaders(provider: ProviderId, headers: Headers): QuotaStatus {
   const reqRem = headers.get('x-ratelimit-remaining-requests') ?? headers.get('anthropic-ratelimit-requests-remaining');
   const reqLim = headers.get('x-ratelimit-limit-requests') ?? headers.get('anthropic-ratelimit-requests-limit');
@@ -252,10 +308,6 @@ export interface DiscoveryFetchers {
   fetchFn?: typeof fetch;
 }
 
-/**
- * Dynamically queries provider /models endpoints (Gemini, OpenAI, Anthropic, OpenRouter, Ollama)
- * and enriches with local pricing/tier catalog + OpenRouter exact $0 free filtering.
- */
 export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   models: ModelInfo[];
   errors: string[];
@@ -265,7 +317,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   const discovered: ModelInfo[] = [];
   const errors: string[] = [];
 
-  // 1. Gemini dynamic model listing
+  // 1. Gemini
   const geminiKey = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
   if (geminiKey) {
     try {
@@ -303,7 +355,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   }
 
   if (!discovered.some((m) => m.provider === 'gemini')) {
-    for (const id of ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-4-argon', 'gemini-4-carbon']) {
+    for (const id of ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-4-neon', 'gemini-4-carbon']) {
       const pricing = classifyModelPricing(id, 'gemini');
       discovered.push({
         id,
@@ -315,7 +367,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
     }
   }
 
-  // 2. OpenRouter dynamic model listing (explicit pricing fields!)
+  // 2. OpenRouter
   const orKey = pickNextPoolKey('openrouter', state.settings.providerKeys.openrouter, new Set());
   try {
     const res = await fetchImpl('https://openrouter.ai/api/v1/models', {
@@ -360,7 +412,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
     errors.push(`[openrouter]: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // 3. OpenAI dynamic listing if key present
+  // 3. OpenAI
   const openaiKey = pickNextPoolKey('openai', state.settings.providerKeys.openai, new Set());
   if (openaiKey) {
     try {
@@ -385,7 +437,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
     }
   }
 
-  // 4. Anthropic dynamic listing if key present
+  // 4. Anthropic
   const anthropicKey = pickNextPoolKey('anthropic', state.settings.providerKeys.anthropic, new Set());
   if (anthropicKey) {
     try {
@@ -419,7 +471,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
     }
   }
 
-  // 5. Local Ollama tags
+  // 5. Local Ollama
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1500);
@@ -432,7 +484,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
           id: m.name,
           name: `${m.name} (Ollama)`,
           provider: 'ollama',
-          contextWindow: 32768,
+          contextWindow: state.settings.ollamaNumCtx || 4096,
           inputCostPer1M: 0,
           outputCostPer1M: 0,
           isFree: true,
@@ -458,7 +510,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
       id: state.settings.ollamaModel,
       name: `${state.settings.ollamaModel} (Ollama konfigurált)`,
       provider: 'ollama',
-      contextWindow: 32768,
+      contextWindow: state.settings.ollamaNumCtx || 4096,
       inputCostPer1M: 0,
       outputCostPer1M: 0,
       isFree: true,
@@ -473,6 +525,35 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   });
 
   return { models: discovered, errors };
+}
+
+/** M6: Warm up Ollama model into RAM for instant low-latency replies */
+export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
+  const s = getState().settings;
+  const baseUrl = s.ollamaUrl.replace(/\/$/, '');
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: s.ollamaModel,
+        prompt: '',
+        keep_alive: s.ollamaKeepAlive || '5m',
+        options: { num_ctx: s.ollamaNumCtx || 2048 },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      return { ok: false, model: s.ollamaModel, message: `Ollama HTTP ${res.status}` };
+    }
+    return { ok: true, model: s.ollamaModel, message: `${s.ollamaModel} előtöltve (${s.ollamaKeepAlive || '5m'}, num_ctx=${s.ollamaNumCtx || 2048}).` };
+  } catch (err) {
+    return {
+      ok: false,
+      model: s.ollamaModel,
+      message: `Ollama nem érhető el: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 export interface InlineMediaInput {
@@ -502,6 +583,7 @@ export interface LlmInvokeRequest {
   prompt: string;
   systemInstruction?: string;
   complexity?: 'simple' | 'complex';
+  preset?: ExecutionPreset;
   preferredProvider?: ProviderId;
   preferredModel?: string;
   agentId?: string;
@@ -532,10 +614,14 @@ export interface ProviderCallParams {
   prompt: string;
   systemInstruction?: string;
   ollamaUrl: string;
+  ollamaNumCtx?: number;
+  ollamaKeepAlive?: string;
+  preset?: ExecutionPreset;
   images?: InlineMediaInput[];
   audio?: InlineMediaInput;
   tools?: OpenAiToolDefinition[];
   toolChoice?: unknown;
+  onChunk?: (delta: string) => void;
 }
 
 export interface ProviderCallOutput {
@@ -558,7 +644,7 @@ export function selectModelForProvider(
   state: NovaSwarmState,
   explicitModel?: string
 ): string {
-  if (explicitModel && provider === (explicitModel.includes(':') && provider === 'ollama' ? 'ollama' : provider)) {
+  if (explicitModel) {
     if (provider === 'gemini' && explicitModel.startsWith('gemini-')) return explicitModel;
     if (provider === 'openai' && /^(gpt-|o1|o3|o4)/.test(explicitModel)) return explicitModel;
     if (provider === 'anthropic' && explicitModel.startsWith('claude-')) return explicitModel;
@@ -589,7 +675,7 @@ export function selectModelForProvider(
 
   switch (provider) {
     case 'gemini':
-      return complexity === 'simple' ? 'gemini-4-hydrogen' : 'gemini-4-argon';
+      return complexity === 'simple' ? 'gemini-4-hydrogen' : 'gemini-4-neon';
     case 'openrouter':
       return 'meta-llama/llama-3.3-70b-instruct:free';
     case 'openai':
@@ -600,6 +686,9 @@ export function selectModelForProvider(
 }
 
 export async function defaultCallProvider(params: ProviderCallParams): Promise<ProviderCallOutput> {
+  const temperature =
+    params.preset === 'precise' ? 0.1 : params.preset === 'deep' ? 0.45 : 0.7;
+
   if (params.provider === 'gemini') {
     const ai = new GoogleGenAI({
       apiKey: params.apiKey,
@@ -618,9 +707,14 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     if (params.audio) {
       parts.push({ inlineData: { mimeType: params.audio.mimeType, data: params.audio.dataBase64 } });
     }
-    const config: Record<string, unknown> = {};
+    const config: Record<string, unknown> = { temperature };
     if (params.systemInstruction) {
       config.systemInstruction = params.systemInstruction;
+    }
+    if (params.preset === 'deep' && /gemini-4|gemini-3/i.test(params.model)) {
+      config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+    } else if (params.preset === 'fast' && /gemini-4|gemini-3/i.test(params.model)) {
+      config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
     }
     if (params.tools && params.tools.length > 0) {
       config.tools = [
@@ -634,10 +728,30 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
       ];
     }
 
+    if (params.onChunk && (!params.tools || params.tools.length === 0)) {
+      const stream = await ai.models.generateContentStream({
+        model: params.model,
+        contents: parts.length === 1 ? params.prompt : [{ role: 'user', parts }],
+        config,
+      });
+      let acc = '';
+      for await (const chunk of stream) {
+        if (chunk.text) {
+          acc += chunk.text;
+          params.onChunk(chunk.text);
+        }
+      }
+      return {
+        text: acc,
+        inputTokens: estimateTokens(params.prompt),
+        outputTokens: estimateTokens(acc),
+      };
+    }
+
     const response = await ai.models.generateContent({
       model: params.model,
       contents: parts.length === 1 ? params.prompt : [{ role: 'user', parts }],
-      config: Object.keys(config).length > 0 ? config : undefined,
+      config,
     });
 
     const fnCalls = response.functionCalls?.map((fc, idx) => ({
@@ -649,10 +763,14 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
       },
     }));
 
+    if (params.onChunk && response.text) {
+      params.onChunk(response.text);
+    }
+
     return {
       text: response.text ?? '',
-      inputTokens: response.usageMetadata?.promptTokenCount ?? Math.ceil(params.prompt.length / 4),
-      outputTokens: response.usageMetadata?.candidatesTokenCount ?? Math.ceil((response.text ?? '').length / 4),
+      inputTokens: response.usageMetadata?.promptTokenCount ?? estimateTokens(params.prompt),
+      outputTokens: response.usageMetadata?.candidatesTokenCount ?? estimateTokens(response.text ?? ''),
       toolCalls: fnCalls && fnCalls.length > 0 ? fnCalls : undefined,
     };
   }
@@ -662,12 +780,18 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     if (params.images && params.images.length > 0) {
       userMsg.images = params.images.map((i) => i.dataBase64);
     }
+    const useStream = Boolean(params.onChunk && (!params.tools || params.tools.length === 0));
     const res = await fetch(`${params.ollamaUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: params.model,
-        stream: false,
+        stream: useStream,
+        keep_alive: params.ollamaKeepAlive || '5m',
+        options: {
+          num_ctx: params.ollamaNumCtx || 2048,
+          temperature,
+        },
         messages: [
           ...(params.systemInstruction ? [{ role: 'system', content: params.systemInstruction }] : []),
           userMsg,
@@ -678,6 +802,39 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
+
+    if (useStream && res.body && params.onChunk) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = '';
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line) as { message?: { content?: string } };
+            if (obj.message?.content) {
+              acc += obj.message.content;
+              params.onChunk(obj.message.content);
+            }
+          } catch {
+            // partial JSON line
+          }
+        }
+      }
+      return {
+        text: acc,
+        inputTokens: estimateTokens(params.prompt),
+        outputTokens: estimateTokens(acc),
+        headers: res.headers,
+      };
+    }
+
     const data = (await res.json()) as {
       message?: {
         content?: string;
@@ -697,9 +854,11 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
             : JSON.stringify(tc.function?.arguments ?? {}),
       },
     }));
+    const textOut = data.message?.content ?? '';
+    if (params.onChunk && textOut) params.onChunk(textOut);
     return {
-      text: data.message?.content ?? '',
-      inputTokens: data.prompt_eval_count ?? Math.ceil(params.prompt.length / 4),
+      text: textOut,
+      inputTokens: data.prompt_eval_count ?? estimateTokens(params.prompt),
       outputTokens: data.eval_count ?? 100,
       headers: res.headers,
       toolCalls: ollamaCalls && ollamaCalls.length > 0 ? ollamaCalls : undefined,
@@ -722,8 +881,11 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
           ]
         : params.prompt;
 
+    const useStream = Boolean(params.onChunk && (!params.tools || params.tools.length === 0));
     const payload: Record<string, unknown> = {
       model: params.model,
+      temperature,
+      stream: useStream,
       messages: [
         ...(params.systemInstruction ? [{ role: 'system', content: params.systemInstruction }] : []),
         { role: 'user', content: userContent },
@@ -747,6 +909,43 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
+
+    if (useStream && res.body && params.onChunk) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = '';
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const clean = line.replace(/^data:\s*/, '').trim();
+          if (!clean || clean === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(clean) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+            };
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              params.onChunk(delta);
+            }
+          } catch {
+            // partial
+          }
+        }
+      }
+      return {
+        text: acc,
+        inputTokens: estimateTokens(params.prompt),
+        outputTokens: estimateTokens(acc),
+        headers: res.headers,
+      };
+    }
+
     const data = (await res.json()) as {
       choices?: Array<{
         message?: {
@@ -757,9 +956,11 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
     const msg = data.choices?.[0]?.message;
+    const textOut = msg?.content ?? '';
+    if (params.onChunk && textOut) params.onChunk(textOut);
     return {
-      text: msg?.content ?? '',
-      inputTokens: data.usage?.prompt_tokens ?? Math.ceil(params.prompt.length / 4),
+      text: textOut,
+      inputTokens: data.usage?.prompt_tokens ?? estimateTokens(params.prompt),
       outputTokens: data.usage?.completion_tokens ?? 100,
       headers: res.headers,
       toolCalls: msg?.tool_calls && msg.tool_calls.length > 0 ? msg.tool_calls : undefined,
@@ -781,6 +982,7 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
   const anthropicPayload: Record<string, unknown> = {
     model: params.model,
     max_tokens: 2048,
+    temperature,
     system: params.systemInstruction,
     messages: [{ role: 'user', content: anthropicContent }],
   };
@@ -812,6 +1014,7 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     .filter((c) => typeof c.text === 'string')
     .map((c) => c.text)
     .join('\n');
+  if (params.onChunk && textOut) params.onChunk(textOut);
   const toolUseCalls = (data.content || [])
     .filter((c) => c.type === 'tool_use' && c.name)
     .map((c, idx) => ({
@@ -825,17 +1028,13 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
 
   return {
     text: textOut,
-    inputTokens: data.usage?.input_tokens ?? Math.ceil(params.prompt.length / 4),
+    inputTokens: data.usage?.input_tokens ?? estimateTokens(params.prompt),
     outputTokens: data.usage?.output_tokens ?? 100,
     headers: res.headers,
     toolCalls: toolUseCalls.length > 0 ? toolUseCalls : undefined,
   };
 }
 
-/**
- * Computes neural vector embeddings via local Ollama (/api/embed or /api/embeddings)
- * when settings.embeddingMode === 'ollama', returning null if unavailable.
- */
 export async function computeOllamaEmbedding(
   text: string,
   settingsOverride?: Settings,
@@ -863,7 +1062,7 @@ export async function computeOllamaEmbedding(
       }
     }
   } catch {
-    // Fallback check /api/embeddings for older Ollama releases
+    // Fallback
   }
 
   try {
@@ -881,22 +1080,160 @@ export async function computeOllamaEmbedding(
   }
 }
 
-/**
- * Failover Router:
- * - Guardrails (input & output secret/PII/injection filter)
- * - LRU Response Cache with hit savings tracking
- * - Per-key Cooldowns (60s backoff on 429/5xx) & Round-Robin rotation
- * - Global & Per-Agent daily budget enforcement
- * - Exponential backoff failover across Primary -> Secondary -> Ollama
- */
+/** Ú4: Real Image Generation via Gemini ('gemini-3.1-flash-lite-image') saved into MediaArtifacts */
+export async function generateImageArtifactWithGemini(params: {
+  prompt: string;
+  aspectRatio?: '1:1' | '16:9' | '4:3' | '3:4' | '9:16';
+  agentId?: string;
+}): Promise<MediaArtifact> {
+  const state = getState();
+  const picked = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
+  if (!picked) {
+    throw new Error('Képgeneráláshoz legalább egy aktív Gemini API kulcs szükséges.');
+  }
+  const ai = new GoogleGenAI({
+    apiKey: picked.secret,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+  });
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite-image',
+    contents: params.prompt,
+    config: {
+      responseModalities: ['IMAGE', 'TEXT'],
+      imageConfig: {
+        aspectRatio: params.aspectRatio || '1:1',
+      },
+    },
+  });
+
+  const candidates = response.candidates || [];
+  let mimeType = 'image/png';
+  let b64 = '';
+  for (const c of candidates) {
+    for (const part of c.content?.parts || []) {
+      if (part.inlineData?.data) {
+        b64 = part.inlineData.data;
+        mimeType = part.inlineData.mimeType || 'image/png';
+        break;
+      }
+    }
+    if (b64) break;
+  }
+
+  if (!b64) {
+    throw new Error('A Gemini képgeneráló modell nem adott vissza képadatot (ellenőrizd a jogosultságot vagy promptot).');
+  }
+
+  const artifact: MediaArtifact = {
+    id: `art-img-${crypto.randomUUID().slice(0, 8)}`,
+    kind: 'image',
+    title: params.prompt.slice(0, 64),
+    mimeType,
+    urlOrContent: `data:${mimeType};base64,${b64}`,
+    agentId: params.agentId,
+    createdAt: new Date().toISOString(),
+  };
+
+  updateState((s) => {
+    s.artifacts.unshift(artifact);
+    s.artifacts = s.artifacts.slice(0, 50);
+  });
+
+  appendAuditLog({
+    type: 'action',
+    sourceAgentId: params.agentId || 'media-studio',
+    sourceAgentName: 'Képstúdió',
+    message: `Kép generálva (gemini-3.1-flash-lite-image): "${params.prompt.slice(0, 60)}"`,
+    verifiedExecution: true,
+  });
+
+  return artifact;
+}
+
+/** Ú5: Speech-to-Text via local whisper-cli / whisper binary first, then Gemini multimodal audio */
+export async function transcribeAudioBuffer(params: {
+  dataBase64: string;
+  mimeType: string;
+}): Promise<{ text: string; engine: string }> {
+  const buf = Buffer.from(params.dataBase64, 'base64');
+
+  // 1. Probe local whisper binary for zero-cost offline transcription
+  for (const bin of ['whisper-cli', 'whisper']) {
+    try {
+      const which = execFileSync('which', [bin], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (which) {
+        const ext = params.mimeType.includes('wav') ? '.wav' : params.mimeType.includes('ogg') ? '.ogg' : '.webm';
+        const tmpFile = path.join(os.tmpdir(), `ns-audio-${Date.now()}${ext}`);
+        fs.writeFileSync(tmpFile, buf);
+        try {
+          const out = spawnSync(which, [tmpFile, '--output_format', 'txt'], { encoding: 'utf8', timeout: 25000 });
+          if (out.status === 0 && out.stdout?.trim()) {
+            return { text: out.stdout.trim(), engine: `local:${bin}` };
+          }
+        } finally {
+          if (fs.existsSync(tmpFile)) fs.rmSync(tmpFile, { force: true });
+        }
+      }
+    } catch {
+      // try next
+    }
+  }
+
+  // 2. Fallback to Gemini cloud multimodal transcription
+  const state = getState();
+  const picked = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
+  if (!picked) {
+    throw new Error('Sem lokális whisper bináris, sem aktív Gemini API kulcs nem érhető el a hangátíráshoz.');
+  }
+  const ai = new GoogleGenAI({
+    apiKey: picked.secret,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+  });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-transcribe',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: 'Írd le pontosan szó szerint a hangfelvételt magyarul vagy az elhangzott nyelven. Csak a szöveget add vissza.' },
+          { inlineData: { mimeType: params.mimeType || 'audio/webm', data: params.dataBase64 } },
+        ],
+      },
+    ],
+  });
+  return {
+    text: (response.text || '').trim(),
+    engine: 'gemini-3.5-transcribe',
+  };
+}
+
+export async function invokeStreamWithFailover(
+  req: LlmInvokeRequest,
+  onChunk: (delta: string) => void,
+  deps: RouterDependencies = {}
+): Promise<LlmInvokeResult> {
+  return invokeWithFailoverInternal(req, deps, onChunk);
+}
+
 export async function invokeWithFailover(
   req: LlmInvokeRequest,
   deps: RouterDependencies = {}
+): Promise<LlmInvokeResult> {
+  return invokeWithFailoverInternal(req, deps, undefined);
+}
+
+async function invokeWithFailoverInternal(
+  req: LlmInvokeRequest,
+  deps: RouterDependencies = {},
+  onChunk?: (delta: string) => void
 ): Promise<LlmInvokeResult> {
   const state = getState();
   const callProvider = deps.callProvider ?? defaultCallProvider;
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const resolveSecret = deps.resolveSecret ?? resolveEffectiveKeySecret;
+
+  const effectivePreset = req.preset ?? state.settings.defaultPreset ?? 'fast';
 
   // Input Guardrails
   const inputGuard = evaluateGuardrails(req.prompt, 'input', state.settings);
@@ -933,7 +1270,7 @@ export async function invokeWithFailover(
     const ratio = state.settings.dailySpendUsd / Math.max(0.01, state.settings.dailyCostLimitUsd);
     if (ratio >= 1.0) {
       throw new Error(
-        `Napi globális költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). Új hívások leállítva; növeld a limitet vagy válts Ollama módra.`
+        `Napi globális költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). Új hívások leállítva.`
       );
     }
     if (ratio >= 0.85) {
@@ -957,8 +1294,8 @@ export async function invokeWithFailover(
         ])
       );
 
-  // Check LRU Response Cache first for primary model (skip if images/audio/tools present)
   const allowCache =
+    !onChunk &&
     state.settings.responseCacheEnabled &&
     !req.bypassCache &&
     (!req.images || req.images.length === 0) &&
@@ -967,7 +1304,7 @@ export async function invokeWithFailover(
 
   const primaryCandidateModel = selectModelForProvider(chain[0], req.complexity ?? 'simple', state, req.preferredModel);
   if (allowCache) {
-    const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction);
+    const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction, effectivePreset);
     const cached = responseCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       updateState((s) => {
@@ -995,6 +1332,9 @@ export async function invokeWithFailover(
 
   for (const provider of chain) {
     const model = selectModelForProvider(provider, req.complexity ?? 'simple', state, req.preferredModel);
+    const pricing = classifyModelPricing(model, provider);
+    const contextWin = provider === 'ollama' ? state.settings.ollamaNumCtx || 2048 : pricing.contextWindow;
+    const diet = applyContextDiet(req.prompt, contextWin);
 
     if (provider === 'ollama') {
       try {
@@ -1002,13 +1342,17 @@ export async function invokeWithFailover(
           provider: 'ollama',
           model,
           apiKey: '',
-          prompt: req.prompt,
+          prompt: diet.trimmedPrompt,
           systemInstruction: req.systemInstruction,
           ollamaUrl: state.settings.ollamaUrl,
+          ollamaNumCtx: state.settings.ollamaNumCtx,
+          ollamaKeepAlive: state.settings.ollamaKeepAlive,
+          preset: effectivePreset,
           images: req.images,
           audio: req.audio,
           tools: req.tools,
           toolChoice: req.toolChoice,
+          onChunk,
         });
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: true });
@@ -1048,17 +1392,18 @@ export async function invokeWithFailover(
           provider,
           model,
           apiKey: picked.secret,
-          prompt: req.prompt,
+          prompt: diet.trimmedPrompt,
           systemInstruction: req.systemInstruction,
           ollamaUrl: state.settings.ollamaUrl,
+          preset: effectivePreset,
           images: req.images,
           audio: req.audio,
           tools: req.tools,
           toolChoice: req.toolChoice,
+          onChunk,
         });
 
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
-        const pricing = classifyModelPricing(model, provider);
         const costUsd = Number(
           (
             (res.inputTokens / 1_000_000) * pricing.inputCostPer1M +
@@ -1094,7 +1439,7 @@ export async function invokeWithFailover(
             const firstKey = responseCache.keys().next().value;
             if (firstKey) responseCache.delete(firstKey);
           }
-          const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction);
+          const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction, effectivePreset);
           responseCache.set(cacheKey, {
             text: outGuard.sanitizedText,
             provider,
@@ -1139,3 +1484,4 @@ export async function invokeWithFailover(
 
   throw new Error(failureSummaries.join(' | ') || 'Nincs elérhető AI szolgáltató a failover láncban.');
 }
+

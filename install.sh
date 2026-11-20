@@ -116,7 +116,7 @@ fi
 # Build NovaSwarm
 echo "[5/6] NovaSwarm függőségek telepítése és build..."
 cd "${NOVASWARM_DIR}"
-mkdir -p memory-vault backups skills
+mkdir -p memory-vault backups skills rag-docs
 if [ ! -f .env ]; then
   cp .env.example .env
   if grep -q '^PORT=' .env; then
@@ -132,12 +132,13 @@ if [ ! -f .env ]; then
 fi
 
 if [ "$RAM_MB" -lt 2048 ]; then
-  export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=512"
-  # Free RAM during Vite build on 1 GB hosts if ollama systemd service is running
+  export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=640"
+  # Free RAM during Vite build on 1 GB hosts if ollama is active
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ollama 2>/dev/null; then
     ${SUDO:-} systemctl stop ollama || true
     RESTART_OLLAMA_AFTER_BUILD=1
   fi
+  pkill -x ollama 2>/dev/null || true
 fi
 
 npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
@@ -155,6 +156,8 @@ fi
 # Register systemd service
 echo "[6/6] systemd szolgáltatás létrehozása..."
 RUN_USER="${SUDO_USER:-$(whoami)}"
+NODE_BIN=$(command -v node)
+NODE_BIN_DIR=$(dirname "${NODE_BIN}")
 TSX_BIN="${NOVASWARM_DIR}/node_modules/.bin/tsx"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -174,8 +177,9 @@ Wants=network-online.target
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${NOVASWARM_DIR}
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=${NODE_BIN_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
 Environment=PORT=${APP_PORT}
 Environment=NOVASWARM_RECOMMENDED_MODEL=${RECOMMENDED_MODEL}
 ExecStart=${TSX_BIN} server.ts

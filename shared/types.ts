@@ -13,6 +13,8 @@ export type LanguageCode =
 
 export type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'ollama';
 
+export type ExecutionPreset = 'fast' | 'deep' | 'precise';
+
 export interface ProviderKeyEntry {
   id: string;
   label: string;
@@ -23,6 +25,7 @@ export interface ProviderKeyEntry {
   lastUsedAt?: string;
   lastError?: string;
   cooldownUntil?: string;
+  createdAt?: string;
 }
 
 export interface ModelInfo {
@@ -72,6 +75,13 @@ export interface Agent {
   dailySpendUsd?: number;
   voiceReplyMode?: VoiceReplyMode;
   lastHeartbeatAt?: string;
+  /** M19: Per-agent MCP permission matrix (empty/undefined = allowed to all) */
+  allowedMcpIds?: string[];
+  /** M23: Per-agent rate limit & quiet/active schedule */
+  activeHoursStart?: number;
+  activeHoursEnd?: number;
+  maxRunsPerHour?: number;
+  runTimestamps?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -95,6 +105,10 @@ export interface KanbanCard {
   subtasks?: KanbanSubtask[];
   archived?: boolean;
   project?: string;
+  /** M16: Card dependencies that must be 'done' before autonomous worker runs this card */
+  blockedBy?: string[];
+  /** M17: Isolated git branch bound to this Kanban task */
+  gitBranch?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,7 +149,9 @@ export type AuditLogType =
   | 'gateway'
   | 'channel'
   | 'federation'
-  | 'uptime';
+  | 'uptime'
+  | 'workflow'
+  | 'security';
 
 export interface AuditLogEntry {
   id: string;
@@ -149,6 +165,7 @@ export interface AuditLogEntry {
 }
 
 export type McpAuthType = 'none' | 'basic' | 'apikey' | 'oauth2';
+export type McpTransport = 'http' | 'stdio';
 export type McpConnectionStatus = 'untested' | 'connected' | 'disconnected' | 'error' | 'not_configured';
 
 export interface McpServer {
@@ -156,6 +173,9 @@ export interface McpServer {
   name: string;
   description: string;
   endpointUrl: string;
+  transport?: McpTransport;
+  command?: string;
+  args?: string[];
   authType: McpAuthType;
   /** Non-secret display summary; secrets are AES-encrypted on server */
   hasCredentials: boolean;
@@ -187,6 +207,11 @@ export interface Skill {
 
 export type MemoryTier = 'hot' | 'warm' | 'cold' | 'shared';
 
+export interface MemoryRelation {
+  target: string;
+  relation: string;
+}
+
 export interface MemoryEntry {
   id: string;
   createdAt: string;
@@ -203,6 +228,11 @@ export interface MemoryEntry {
   salience?: number;
   lastAccessedAt?: string;
   agentId?: string;
+  /** M11: Contradiction resolution */
+  supersededBy?: string;
+  supersedesId?: string;
+  /** M12: Auto-extracted entity relations */
+  relations?: MemoryRelation[];
 }
 
 export interface ShortTermSignal {
@@ -214,6 +244,16 @@ export interface ShortTermSignal {
   tags: string[];
 }
 
+export interface DreamSkillDraft {
+  id: string;
+  name: string;
+  description: string;
+  suggestedCode: string;
+  theme: string;
+  createdAt: string;
+  promotedSkillId?: string;
+}
+
 export interface DreamJournalEntry {
   id: string;
   timestamp: string;
@@ -221,10 +261,23 @@ export interface DreamJournalEntry {
     lightCandidates: number;
     deepPromoted: number;
     remThemes: string[];
+    contradictionsResolved?: number;
+    skillDraftsCreated?: number;
   };
   narrative: string;
   costUsd: number;
   usedLocalOllama: boolean;
+}
+
+export interface ReflexionSuggestion {
+  id: string;
+  agentId: string;
+  agentName: string;
+  reason: string;
+  currentPromptSnippet: string;
+  proposedPrompt: string;
+  createdAt: string;
+  applied?: boolean;
 }
 
 export type SessionIsolationMode = 'main_host' | 'sandboxed';
@@ -250,7 +303,7 @@ export interface ToolExecutionStep {
 }
 
 export interface MessageAttachment {
-  kind: 'image' | 'audio';
+  kind: 'image' | 'audio' | 'document';
   mimeType: string;
   dataBase64: string;
   name?: string;
@@ -270,6 +323,7 @@ export interface UnifiedMessage {
   providerUsed?: ProviderId;
   costUsd?: number;
   toolTrace?: ToolExecutionStep[];
+  artifactIds?: string[];
   timestamp: string;
 }
 
@@ -290,7 +344,10 @@ export type DestructiveActionType =
   | 'partition_disk'
   | 'firewall_modify'
   | 'full_restore'
-  | 'sensitive_selfmod';
+  | 'sensitive_selfmod'
+  | 'docker_control'
+  | 'systemd_control'
+  | 'email_send';
 
 export interface ApprovalRequest {
   id: string;
@@ -298,7 +355,9 @@ export interface ApprovalRequest {
   title: string;
   commandOrTarget: string;
   requestedBy: string;
-  status: 'pending' | 'approved' | 'rejected';
+  impactSummary?: string;
+  expiresAt?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
   createdAt: string;
   resolvedAt?: string;
   resolvedVia?: 'web' | 'telegram';
@@ -368,6 +427,11 @@ export interface ChannelConnector {
   hasSecret: boolean;
   webhookUrl: string;
   defaultAgentId: string | null;
+  /** M18: Bidirectional polling via bot token + channel ID */
+  pollingEnabled?: boolean;
+  botTokenConfigured?: boolean;
+  channelId?: string;
+  lastMessageId?: string;
   lastEventAt: string | null;
   lastError?: string;
 }
@@ -414,6 +478,198 @@ export interface UptimeTarget {
   lastError?: string;
 }
 
+/** M10: Prompt Templates */
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  command: string;
+  body: string;
+  category: string;
+  createdAt: string;
+}
+
+/** Ú4, Ú18, Ú20: Media & Interactive Artifacts */
+export interface MediaArtifact {
+  id: string;
+  kind: 'image' | 'audio' | 'chart_svg' | 'html_app';
+  title: string;
+  mimeType?: string;
+  urlOrContent: string;
+  agentId?: string;
+  createdAt: string;
+}
+
+/** Ú6: RSS / Atom / GitHub Release Feeds */
+export interface RssFeed {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  lastCheckedAt: string | null;
+  lastError?: string;
+}
+
+export interface RssFeedItem {
+  id: string;
+  feedId: string;
+  feedName: string;
+  title: string;
+  link: string;
+  publishedAt: string;
+  summary: string;
+}
+
+/** Ú7: IMAP/SMTP Email Monitor */
+export interface EmailSummaryItem {
+  uid: number;
+  from: string;
+  subject: string;
+  date: string;
+  snippet: string;
+}
+
+export interface EmailConfig {
+  enabled: boolean;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  username: string;
+  tls: boolean;
+  hasPassword: boolean;
+  lastCheckedAt: string | null;
+  lastError?: string;
+  recentEmails: EmailSummaryItem[];
+}
+
+/** Ú8: Calendar & Reminders */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt?: string;
+  location?: string;
+  notes?: string;
+  reminderMinutes: number;
+  triggered?: boolean;
+  createdAt: string;
+}
+
+/** Ú13: Smart Home (Home Assistant + MQTT) */
+export interface SmartHomeDevice {
+  id: string;
+  name: string;
+  kind: 'home_assistant' | 'mqtt';
+  entityOrTopic: string;
+  lastState?: string;
+  lastUpdatedAt?: string;
+}
+
+/** Ú15: SSH Fleet Profiles */
+export interface SshHostProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  keyPath?: string;
+  lastCheckedAt?: string;
+  lastStatus?: 'unknown' | 'online' | 'error';
+  lastOutput?: string;
+}
+
+/** Ú16: Watched GitHub Repositories */
+export interface WatchedRepo {
+  id: string;
+  slug: string;
+  branch: string;
+  lastCommitSha?: string;
+  lastCommitMsg?: string;
+  openIssuesCount?: number;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
+/** Ú17: Visual Workflow Automation */
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  enabled: boolean;
+  triggerType: 'manual' | 'cron' | 'webhook' | 'uptime_down' | 'feed_item';
+  triggerConfig: string;
+  conditionExpr?: string;
+  actionType: 'agent_prompt' | 'kanban_create' | 'notify';
+  actionTarget: string;
+  actionPayload: string;
+  lastRunAt: string | null;
+  lastStatus?: string;
+  runCount: number;
+}
+
+/** Ú19: Custom Incoming Webhooks */
+export interface CustomWebhook {
+  id: string;
+  slug: string;
+  name: string;
+  enabled: boolean;
+  hasSecret: boolean;
+  targetAgentId?: string;
+  workflowId?: string;
+  promptTemplate: string;
+  lastTriggeredAt: string | null;
+  hitCount: number;
+}
+
+/** Ú24: Habits & Focus Sessions */
+export interface HabitItem {
+  id: string;
+  name: string;
+  targetPerWeek: number;
+  completedDates: string[];
+  totalMinutes: number;
+  createdAt: string;
+}
+
+export interface FocusSession {
+  id: string;
+  label: string;
+  habitId?: string;
+  minutes: number;
+  startedAt: string;
+  completedAt: string;
+}
+
+/** Ú25: Local Expense & Receipt Records */
+export interface ExpenseRecord {
+  id: string;
+  date: string;
+  merchant: string;
+  category: string;
+  amount: number;
+  currency: string;
+  source: 'csv' | 'receipt_ocr' | 'manual';
+  notes?: string;
+}
+
+/** Ú26: SSL Certificate Watch Targets */
+export interface SslWatchTarget {
+  id: string;
+  host: string;
+  port: number;
+  issuer?: string;
+  expiresAt?: string;
+  daysRemaining?: number | null;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
+/** M30: Dashboard Widget Layout */
+export interface DashboardWidgetConfig {
+  id: string;
+  title: string;
+  visible: boolean;
+}
+
 export interface Settings {
   schemaVersion: number;
   onboardingCompleted: boolean;
@@ -426,6 +682,9 @@ export interface Settings {
   ollamaOnlyMode: boolean;
   ollamaUrl: string;
   ollamaModel: string;
+  /** M6: Ollama low-RAM optimizer */
+  ollamaNumCtx: number;
+  ollamaKeepAlive: string;
   providerKeys: Record<ProviderId, ProviderKeyEntry[]>;
   manualModelPriority: Record<ProviderId, string[]>;
   lastModelDiscoveryAt: string | null;
@@ -433,6 +692,8 @@ export interface Settings {
   dailyCostLimitUsd: number;
   dailySpendUsd: number;
   dailySpendDate: string;
+  /** M9: Monthly projected alert threshold */
+  monthlyBudgetAlertUsd: number;
   dreamingIdleMinutes: number;
   thermalThrottleCelsius: number;
   batteryThrottlePercent: number;
@@ -444,9 +705,16 @@ export interface Settings {
   cloudBackupGoogleDriveConnected: boolean;
   lastBackupAt: string | null;
   lastBackupLocation: 'none' | 'local' | 'local_and_drive';
+  /** Ú14: Rsync external/NAS backup target */
+  backupRsyncTarget: string;
   ttsEnabled: boolean;
   ttsHostSpeakerEnabled: boolean;
+  /** M29: Hands-free continuous voice loop */
+  continuousVoiceMode: boolean;
   autoTaskRouting: boolean;
+  /** M2 & M4: Configurable tool chain depth & default execution preset */
+  maxToolSteps: number;
+  defaultPreset: ExecutionPreset;
   /** AI Gateway Cache & Guardrails */
   responseCacheEnabled: boolean;
   responseCacheTtlSec: number;
@@ -474,6 +742,19 @@ export interface Settings {
   otaRepoSlug: string;
   autoUpdateEnabled: boolean;
   autoUpdateCheckHours: number;
+  /** Ú2: Live Web Search config */
+  searchProvider: 'duckduckgo' | 'searxng' | 'brave';
+  searxngUrl: string;
+  braveHasKey: boolean;
+  /** Ú8: CalDAV URL */
+  caldavUrl: string;
+  /** Ú13: Home Assistant + MQTT */
+  homeAssistantUrl: string;
+  homeAssistantHasToken: boolean;
+  mqttBrokerHost: string;
+  mqttBrokerPort: number;
+  /** M30: Overview Widgets */
+  dashboardWidgets: DashboardWidgetConfig[];
 }
 
 export interface BackupPoint {
@@ -511,6 +792,8 @@ export interface NovaSwarmState {
   memories: MemoryEntry[];
   shortTermSignals: ShortTermSignal[];
   dreamJournal: DreamJournalEntry[];
+  dreamSkillDrafts: DreamSkillDraft[];
+  reflexionSuggestions: ReflexionSuggestion[];
   threads: ChatThread[];
   messages: UnifiedMessage[];
   cronTasks: CronTask[];
@@ -525,6 +808,21 @@ export interface NovaSwarmState {
   pairingRequests: PairingRequest[];
   federationPeers: FederationPeer[];
   uptimeTargets: UptimeTarget[];
+  promptTemplates: PromptTemplate[];
+  artifacts: MediaArtifact[];
+  rssFeeds: RssFeed[];
+  rssFeedItems: RssFeedItem[];
+  emailConfig: EmailConfig;
+  calendarEvents: CalendarEvent[];
+  smartHomeDevices: SmartHomeDevice[];
+  sshProfiles: SshHostProfile[];
+  watchedRepos: WatchedRepo[];
+  workflows: WorkflowDefinition[];
+  customWebhooks: CustomWebhook[];
+  habits: HabitItem[];
+  focusSessions: FocusSession[];
+  expenses: ExpenseRecord[];
+  sslTargets: SslWatchTarget[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }

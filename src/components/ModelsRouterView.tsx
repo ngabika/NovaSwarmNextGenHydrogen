@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Copy, Key, Plus, RefreshCw, ShieldAlert, Trash2, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Copy, Cpu, Flame, Key, Plus, RefreshCw, ShieldAlert, Trash2, TrendingUp, Zap } from 'lucide-react';
 import type {
   GatewayAnalytics,
   LanguageCode,
@@ -24,6 +24,14 @@ interface Props {
 
 const PROVIDERS: ProviderId[] = ['gemini', 'openrouter', 'openai', 'anthropic', 'ollama'];
 
+interface ProjectionData {
+  dailySpendUsd: number;
+  dailyLimitUsd: number;
+  projectedMonthlyUsd: number;
+  monthlyAlertThresholdUsd: number;
+  alertTriggered: boolean;
+}
+
 export const ModelsRouterView: React.FC<Props> = ({
   language,
   settings,
@@ -47,6 +55,42 @@ export const ModelsRouterView: React.FC<Props> = ({
   const [vkRpm, setVkRpm] = useState(60);
   const [vkModels, setVkModels] = useState('');
   const [revealedRawKey, setRevealedRawKey] = useState<string | null>(null);
+
+  // Monthly projection (M9) & Ollama optimizer (M6)
+  const [projection, setProjection] = useState<ProjectionData | null>(null);
+  const [numCtx, setNumCtx] = useState<number>(settings.ollamaNumCtx || 2048);
+  const [keepAlive, setKeepAlive] = useState<string>(settings.ollamaKeepAlive || '10m');
+  const [ollamaStatus, setOllamaStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetch('/api/gateway/projection')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: ProjectionData | null) => {
+        if (d) setProjection(d);
+      })
+      .catch(() => {});
+  }, [settings.dailySpendUsd, settings.monthlyBudgetAlertUsd]);
+
+  const handleSaveOllamaOpt = async () => {
+    await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ollamaNumCtx: numCtx, ollamaKeepAlive: keepAlive }),
+    });
+    setOllamaStatus(`Mentve: num_ctx=${numCtx}, keep_alive=${keepAlive}`);
+    await onRefreshState();
+  };
+
+  const handleWarmOllama = async () => {
+    setOllamaStatus('Ollama modell előmelegítése folyamatban...');
+    const res = await fetch('/api/providers/ollama/warm', { method: 'POST' });
+    const data = (await res.json()) as { ok: boolean; model?: string; message?: string; elapsedMs?: number };
+    setOllamaStatus(
+      data.ok
+        ? `Modell előmelegítve: ${data.model || settings.ollamaModel} (${data.elapsedMs ?? 0}ms)`
+        : data.message || 'Ollama nem érhető el'
+    );
+  };
 
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,7 +224,7 @@ export const ModelsRouterView: React.FC<Props> = ({
             <select
               id="router-primary"
               value={settings.primaryProvider}
-              onChange={(e) => handlePriorityChange('primaryProvider', e.target.value as ProviderId)}
+              onChange={(e) => void handlePriorityChange('primaryProvider', e.target.value as ProviderId)}
               className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white"
             >
               {PROVIDERS.map((p) => (
@@ -195,7 +239,7 @@ export const ModelsRouterView: React.FC<Props> = ({
             <select
               id="router-secondary"
               value={settings.secondaryProvider}
-              onChange={(e) => handlePriorityChange('secondaryProvider', e.target.value as ProviderId)}
+              onChange={(e) => void handlePriorityChange('secondaryProvider', e.target.value as ProviderId)}
               className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white"
             >
               {PROVIDERS.map((p) => (
@@ -211,7 +255,7 @@ export const ModelsRouterView: React.FC<Props> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handleResetCooldowns}
+            onClick={() => void handleResetCooldowns()}
             className="px-3 py-2 text-xs font-medium border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             Cooldown Reset
@@ -219,7 +263,7 @@ export const ModelsRouterView: React.FC<Props> = ({
           <button
             type="button"
             disabled={discovering}
-            onClick={handleDiscover}
+            onClick={() => void handleDiscover()}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium border border-slate-300 text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${discovering ? 'animate-spin' : ''}`} />
@@ -227,12 +271,105 @@ export const ModelsRouterView: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            onClick={handleTestFailover}
+            onClick={() => void handleTestFailover()}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
           >
             <Zap className="h-3.5 w-3.5" />
             {tr(language, 'testFailover')}
           </button>
+        </div>
+      </div>
+
+      {/* Monthly Cost Projection & Ollama Low-RAM Optimizer */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-slate-700" />
+              Havi Költség-Projekció & Kontextus Diéta
+            </h3>
+            <span
+              className={`text-xs font-mono font-semibold ${
+                projection?.alertTriggered ? 'text-red-700' : 'text-emerald-700'
+              }`}
+            >
+              {projection?.alertTriggered ? 'RIASZTÁSI KÜSZÖB FELETT' : 'Költségvetésen belül'}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
+              <div className="text-slate-500">Napi költés</div>
+              <div className="font-mono font-semibold text-sm tabular-nums">
+                ${(projection?.dailySpendUsd ?? settings.dailySpendUsd).toFixed(4)}
+              </div>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
+              <div className="text-slate-500">30 napos projekció</div>
+              <div className="font-mono font-semibold text-sm tabular-nums">
+                ${(projection?.projectedMonthlyUsd ?? settings.dailySpendUsd * 30).toFixed(2)}
+              </div>
+            </div>
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
+              <div className="text-slate-500">Havi riasztás</div>
+              <div className="font-mono font-semibold text-sm tabular-nums">
+                ${settings.monthlyBudgetAlertUsd.toFixed(2)}
+              </div>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono text-slate-500">
+            Kontextus Diéta aktív: maxToolSteps={settings.maxToolSteps} · alap mód={settings.defaultPreset} · automatikus hosszú üzenet tömörítés
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-slate-700" />
+              Lokális Ollama Optimalizáló (Raspberry Pi / Kis RAM)
+            </h3>
+            <button
+              type="button"
+              onClick={() => void handleWarmOllama()}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded hover:bg-slate-800 whitespace-nowrap shrink-0"
+            >
+              <Flame className="h-3.5 w-3.5" />
+              Modell Előmelegítése
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <label className="space-y-1">
+              <span className="text-slate-500 block">Kontextus (num_ctx)</span>
+              <input
+                type="number"
+                step="256"
+                min="512"
+                max="32768"
+                value={numCtx}
+                onChange={(e) => setNumCtx(Number(e.target.value))}
+                className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-slate-500 block">Memóriában tartás (keep_alive)</span>
+              <input
+                type="text"
+                value={keepAlive}
+                onChange={(e) => setKeepAlive(e.target.value)}
+                placeholder="10m"
+                className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded"
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void handleSaveOllamaOpt()}
+                className="w-full px-3 py-1.5 font-medium border border-slate-300 bg-white hover:bg-slate-50 rounded"
+              >
+                Paraméterek Mentése
+              </button>
+            </div>
+          </div>
+          {ollamaStatus && <div className="text-[11px] font-mono text-slate-700">{ollamaStatus}</div>}
         </div>
       </div>
 
@@ -337,7 +474,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleToggleVirtualKey(vk)}
+                      onClick={() => void handleToggleVirtualKey(vk)}
                       className={`px-2 py-0.5 text-[11px] rounded border ${
                         vk.enabled
                           ? 'bg-emerald-700 text-white border-emerald-700'
@@ -349,7 +486,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                     <button
                       type="button"
                       aria-label={`Revoke virtual key ${vk.name}`}
-                      onClick={() => handleRevokeVirtualKey(vk.id)}
+                      onClick={() => void handleRevokeVirtualKey(vk.id)}
                       className="text-slate-400 hover:text-red-600"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -400,13 +537,13 @@ export const ModelsRouterView: React.FC<Props> = ({
                 <input
                   type="checkbox"
                   checked={settings.responseCacheEnabled}
-                  onChange={() => handleToggleGatewayFlag('responseCacheEnabled')}
+                  onChange={() => void handleToggleGatewayFlag('responseCacheEnabled')}
                 />
                 <span>LRU Válasz Cache ({settings.responseCacheTtlSec}s TTL)</span>
               </label>
               <button
                 type="button"
-                onClick={handleClearCache}
+                onClick={() => void handleClearCache()}
                 className="px-2 py-0.5 text-[11px] border border-slate-300 rounded hover:bg-slate-50"
               >
                 Cache Törlés
@@ -416,7 +553,7 @@ export const ModelsRouterView: React.FC<Props> = ({
               <input
                 type="checkbox"
                 checked={settings.guardrailsEnabled}
-                onChange={() => handleToggleGatewayFlag('guardrailsEnabled')}
+                onChange={() => void handleToggleGatewayFlag('guardrailsEnabled')}
               />
               <span>Guardrails Védelem Aktív</span>
             </label>
@@ -425,7 +562,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                 <input
                   type="checkbox"
                   checked={settings.guardrailBlockSecrets}
-                  onChange={() => handleToggleGatewayFlag('guardrailBlockSecrets')}
+                  onChange={() => void handleToggleGatewayFlag('guardrailBlockSecrets')}
                 />
                 Titkok szűrése
               </label>
@@ -433,7 +570,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                 <input
                   type="checkbox"
                   checked={settings.guardrailBlockPromptInjection}
-                  onChange={() => handleToggleGatewayFlag('guardrailBlockPromptInjection')}
+                  onChange={() => void handleToggleGatewayFlag('guardrailBlockPromptInjection')}
                 />
                 Prompt Injection
               </label>
@@ -441,7 +578,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                 <input
                   type="checkbox"
                   checked={settings.guardrailBlockPii}
-                  onChange={() => handleToggleGatewayFlag('guardrailBlockPii')}
+                  onChange={() => void handleToggleGatewayFlag('guardrailBlockPii')}
                 />
                 PII Szűrés
               </label>
@@ -524,7 +661,7 @@ export const ModelsRouterView: React.FC<Props> = ({
                           <button
                             type="button"
                             aria-label={`Remove key ${k.label}`}
-                            onClick={() => handleRemoveKey(p, k.id)}
+                            onClick={() => void handleRemoveKey(p, k.id)}
                             className="text-slate-400 hover:text-red-600"
                           >
                             <Trash2 className="h-3.5 w-3.5" />

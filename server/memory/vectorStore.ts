@@ -1,16 +1,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MemoryEntry, MemoryTier } from '../../shared/types';
+import type { MemoryEntry, MemoryRelation, MemoryTier } from '../../shared/types';
 import { computeOllamaEmbedding } from '../providers/router';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
 const VAULT_DIR = path.join(process.cwd(), 'memory-vault');
 
-/**
- * Pure Node.js deterministic bag-of-n-grams embedding (64 dims) so semantic vector search
- * works immediately out of the box with zero external Python/Chroma dependencies.
- */
 export function computeLocalEmbedding(text: string, dims = 64): number[] {
   const vec = new Array<number>(dims).fill(0);
   const normalized = text
@@ -62,9 +58,35 @@ function sanitizeSlug(input: string): string {
   );
 }
 
-/**
- * Writes an Obsidian-compatible Markdown note with YAML frontmatter, #tags, and [[wikilinks]].
- */
+/** M12: Lightweight entity-relation extraction (rule-based + wikilink synthesis) */
+export function extractRelationsFromMemory(entity: string, content: string, links: string[]): MemoryRelation[] {
+  const rels: MemoryRelation[] = [];
+  const seen = new Set<string>();
+  const addRel = (target: string, relation: string) => {
+    const clean = target.trim();
+    if (!clean || clean.toLowerCase() === entity.toLowerCase() || seen.has(`${clean}:${relation}`)) return;
+    seen.add(`${clean}:${relation}`);
+    rels.push({ target: clean.slice(0, 60), relation });
+  };
+
+  for (const l of links) {
+    addRel(l, 'kapcsolódik');
+  }
+
+  const wikiRe = /\[\[([^\]]+)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = wikiRe.exec(content)) !== null) {
+    addRel(m[1], 'hivatkozik');
+  }
+
+  const depRe = /\b(uses|depends on|runs on|hosts|integrates|használja|függ|futtatja|kezeli)\s+([A-Z0-9][a-zA-Z0-9_.-]{2,30})/gi;
+  while ((m = depRe.exec(content)) !== null) {
+    addRel(m[2], m[1].toLowerCase());
+  }
+
+  return rels.slice(0, 8);
+}
+
 export function writeObsidianNote(entry: MemoryEntry, vaultBaseDir = VAULT_DIR): string {
   if (!fs.existsSync(vaultBaseDir)) {
     fs.mkdirSync(vaultBaseDir, { recursive: true });
@@ -100,6 +122,9 @@ ${entry.links.length > 0 ? `## Kapcsolódó hivatkozások\n${linkLines}\n` : ''}
   return path.relative(process.cwd(), fullPath);
 }
 
+/** M11: Detect & resolve contradicting older memory on same entity */
+const CONTRADICTION_MARKERS = /\b(már nem|nem |helyett|frissítve|megváltozott|törölve|kikapcsolva|lecserélve|no longer|instead|replaced|deprecated|changed to|disabled)\b/i;
+
 export function addPersistentMemory(params: {
   content: string;
   entity: string;
@@ -116,6 +141,21 @@ export function addPersistentMemory(params: {
   const links = params.links ?? [];
   const embedding = computeLocalEmbedding(params.content);
   const importance = params.importanceScore ?? 0.75;
+  const relations = extractRelationsFromMemory(params.entity, params.content, links);
+
+  let supersedesId: string | undefined;
+  const current = getState();
+  const hasMarker = CONTRADICTION_MARKERS.test(params.content);
+  const candidates = current.memories.filter(
+    (m) => !m.supersededBy && m.entity.toLowerCase() === params.entity.toLowerCase()
+  );
+  for (const prev of candidates) {
+    const sim = cosineSimilarity(embedding, prev.embedding || []);
+    if (sim > 0.72 || (hasMarker && sim > 0.45)) {
+      supersedesId = prev.id;
+      break;
+    }
+  }
 
   const entry: MemoryEntry = {
     id,
@@ -130,11 +170,20 @@ export function addPersistentMemory(params: {
     salience: importance,
     lastAccessedAt: createdAt,
     agentId: params.agentId,
+    supersedesId,
+    relations,
   };
 
   entry.obsidianPath = writeObsidianNote(entry, params.vaultBaseDir);
 
   updateState((s) => {
+    if (supersedesId) {
+      const oldRef = s.memories.find((m) => m.id === supersedesId);
+      if (oldRef) {
+        oldRef.supersededBy = entry.id;
+        oldRef.tier = 'cold';
+      }
+    }
     s.memories.unshift(entry);
   });
 
@@ -142,7 +191,9 @@ export function addPersistentMemory(params: {
     type: 'memory',
     sourceAgentId: params.agentId || 'memory-core',
     sourceAgentName: 'Memória Mag',
-    message: `Tartós memória [${entry.tier?.toUpperCase()}] rögzítve [${entry.entity}] (${tags.map((t) => `#${t}`).join(' ')})`,
+    message: supersedesId
+      ? `Ellentmondás feloldva [${entry.entity}]: új tény (${entry.id.slice(0, 6)}) felülírta a régit (${supersedesId.slice(0, 6)}).`
+      : `Tartós memória [${entry.tier?.toUpperCase()}] rögzítve [${entry.entity}] (${tags.map((t) => `#${t}`).join(' ')})`,
   });
 
   return entry;
@@ -172,10 +223,6 @@ export async function addPersistentMemoryAsync(params: {
   return entry;
 }
 
-/**
- * Hybrid Search (Vector Cosine + Lexical/FTS Token Score fused via RRF + Tier & Salience Weight).
- * Updates lastAccessedAt & reinforces salience of recalled items without mutating unrelated memories.
- */
 export function searchMemories(
   query: string,
   limit = 8,
@@ -211,7 +258,6 @@ export function searchMemories(
     return { entry: m, vecSim, lexScore };
   });
 
-  // Rank independently for Reciprocal Rank Fusion (RRF, k = 60)
   const byVec = [...scored].sort((a, b) => b.vecSim - a.vecSim);
   const byLex = [...scored].sort((a, b) => b.lexScore - a.lexScore);
   const vecRank = new Map(byVec.map((item, idx) => [item.entry.id, idx + 1]));
@@ -231,7 +277,8 @@ export function searchMemories(
       const rrf = 1 / (60 + rVec) + 1 / (60 + rLex);
       const salience = entry.salience ?? entry.importanceScore ?? 0.6;
       const tBoost = tierBoost[entry.tier ?? 'warm'] ?? 1.0;
-      const hybridScore = (rrf * 20 + Math.max(0, vecSim) * 0.6 + lexScore * 0.25) * (0.7 + salience * 0.3) * tBoost;
+      const supersededPenalty = entry.supersededBy ? 0.55 : 1.0;
+      const hybridScore = (rrf * 20 + Math.max(0, vecSim) * 0.6 + lexScore * 0.25) * (0.7 + salience * 0.3) * tBoost * supersededPenalty;
       return {
         ...entry,
         score: Number(hybridScore.toFixed(4)),
@@ -256,10 +303,6 @@ export function searchMemories(
   return results;
 }
 
-/**
- * Async Hybrid Search upgrading synchronous RRF with local Ollama neural embeddings (nomic-embed-text)
- * when settings.embeddingMode === 'ollama'.
- */
 export async function searchMemoriesAsync(
   query: string,
   limit = 8,
@@ -314,9 +357,6 @@ export async function searchMemoriesAsync(
   return reranked;
 }
 
-/**
- * Salience Decay & Tier Transition (Hot -> Warm -> Cold, NEVER deletes memories).
- */
 export function runSalienceDecayAndTiering(): { decayed: number; cooledToCold: number; warmedToWarm: number } {
   const nowMs = Date.now();
   let decayed = 0;
@@ -351,10 +391,6 @@ export function runSalienceDecayAndTiering(): { decayed: number; cooledToCold: n
   return { decayed, cooledToCold, warmedToWarm };
 }
 
-/**
- * PreCompact Hook: before long threads grow past threshold, distills key facts
- * into Hot persistent memory so context compaction never loses critical decisions.
- */
 export function preCompactThreadMemory(threadId: string, maxUncompacted = 28): {
   compacted: boolean;
   savedMemoryId?: string;
@@ -393,12 +429,9 @@ export function preCompactThreadMemory(threadId: string, maxUncompacted = 28): {
   return { compacted: true, savedMemoryId: entry.id };
 }
 
-/**
- * Knowledge Graph builder across entities, #tags, and [[wikilinks]] for dashboard graph view.
- */
 export function getMemoryGraphData(): {
   nodes: Array<{ id: string; label: string; kind: 'entity' | 'tag' | 'link'; tier?: MemoryTier; weight: number }>;
-  edges: Array<{ source: string; target: string; kind: 'tagged' | 'wikilink' }>;
+  edges: Array<{ source: string; target: string; kind: 'tagged' | 'wikilink' | 'relation'; label?: string }>;
 } {
   const state = getState();
   const nodeMap = new Map<
@@ -406,7 +439,7 @@ export function getMemoryGraphData(): {
     { id: string; label: string; kind: 'entity' | 'tag' | 'link'; tier?: MemoryTier; weight: number }
   >();
   const edgeSet = new Set<string>();
-  const edges: Array<{ source: string; target: string; kind: 'tagged' | 'wikilink' }> = [];
+  const edges: Array<{ source: string; target: string; kind: 'tagged' | 'wikilink' | 'relation'; label?: string }> = [];
 
   for (const m of state.memories.slice(0, 40)) {
     const entityId = `entity:${m.entity}`;
@@ -452,6 +485,22 @@ export function getMemoryGraphData(): {
         edges.push({ source: entityId, target: linkId, kind: 'wikilink' });
       }
     }
+
+    for (const rel of (m.relations || []).slice(0, 4)) {
+      const targetId = `link:${rel.target}`;
+      const prevT = nodeMap.get(targetId);
+      nodeMap.set(targetId, {
+        id: targetId,
+        label: rel.target,
+        kind: 'link',
+        weight: (prevT?.weight ?? 0) + 1,
+      });
+      const ek = `${entityId}~>${targetId}:${rel.relation}`;
+      if (!edgeSet.has(ek)) {
+        edgeSet.add(ek);
+        edges.push({ source: entityId, target: targetId, kind: 'relation', label: rel.relation });
+      }
+    }
   }
 
   return {
@@ -479,3 +528,47 @@ export function listObsidianNotes(vaultBaseDir = VAULT_DIR): Array<{ path: strin
   walk(vaultBaseDir);
   return results;
 }
+
+/** Ú23: Safe Markdown Wiki CRUD inside memory-vault/ */
+function resolveSafeVaultPath(relPath: string, vaultBaseDir = VAULT_DIR): string {
+  if (!fs.existsSync(vaultBaseDir)) {
+    fs.mkdirSync(vaultBaseDir, { recursive: true });
+  }
+  const cleanRel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const withExt = cleanRel.endsWith('.md') ? cleanRel : `${cleanRel}.md`;
+  const abs = path.resolve(vaultBaseDir, withExt);
+  const baseResolved = path.resolve(vaultBaseDir);
+  if (!abs.startsWith(baseResolved + path.sep)) {
+    throw new Error('Érvénytelen vault útvonal (traversal tiltva).');
+  }
+  return abs;
+}
+
+export function readVaultNote(relPath: string, vaultBaseDir = VAULT_DIR): { path: string; content: string } {
+  const abs = resolveSafeVaultPath(relPath, vaultBaseDir);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`Wiki jegyzet nem található: ${relPath}`);
+  }
+  return {
+    path: path.relative(vaultBaseDir, abs),
+    content: fs.readFileSync(abs, 'utf8'),
+  };
+}
+
+export function saveVaultNote(relPath: string, content: string, vaultBaseDir = VAULT_DIR): { path: string; content: string } {
+  const abs = resolveSafeVaultPath(relPath, vaultBaseDir);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content, 'utf8');
+  return {
+    path: path.relative(vaultBaseDir, abs),
+    content,
+  };
+}
+
+export function deleteVaultNote(relPath: string, vaultBaseDir = VAULT_DIR): void {
+  const abs = resolveSafeVaultPath(relPath, vaultBaseDir);
+  if (fs.existsSync(abs)) {
+    fs.rmSync(abs, { force: true });
+  }
+}
+

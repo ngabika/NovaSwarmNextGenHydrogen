@@ -96,12 +96,28 @@ interface InternalPtySession {
   ptyProcess: PtyLikeProcess;
   clients: Set<WebSocket>;
   lineBuffer: string;
+  outputLines: string[];
+  partialLine: string;
 }
 
 const sessions = new Map<string, InternalPtySession>();
 
 export function listTerminalSessions(): TerminalSessionInfo[] {
   return Array.from(sessions.values()).map((s) => s.info);
+}
+
+/** M24: Read last N lines from a terminal session's rolling circular buffer (ANSI stripped) */
+export function getTerminalBuffer(sessionId: string, lines = 50): string {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error(`Terminál session nem található: ${sessionId}`);
+  const combined = session.partialLine
+    ? [...session.outputLines, session.partialLine]
+    : session.outputLines;
+  const sliced = combined.slice(-Math.max(1, Math.min(150, lines)));
+  return sliced
+    .join('\n')
+    .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .trim();
 }
 
 export function createTerminalSession(params: {
@@ -152,9 +168,21 @@ export function createTerminalSession(params: {
     ptyProcess,
     clients: new Set(),
     lineBuffer: '',
+    outputLines: [],
+    partialLine: '',
   };
 
   ptyProcess.onData((data) => {
+    const normalized = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const parts = (session.partialLine + normalized).split('\n');
+    session.partialLine = parts.pop() ?? '';
+    for (const ln of parts) {
+      session.outputLines.push(ln);
+    }
+    if (session.outputLines.length > 150) {
+      session.outputLines = session.outputLines.slice(-150);
+    }
+
     for (const ws of session.clients) {
       if (ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'output', sessionId: id, data }));

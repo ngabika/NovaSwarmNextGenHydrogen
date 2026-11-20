@@ -109,13 +109,17 @@ export function requireDestructiveApproval(
   type: DestructiveActionType,
   title: string,
   commandOrTarget: string,
-  requestedBy: string
+  requestedBy: string,
+  impactSummary?: string
 ): ApprovalRequest {
   const req = createApprovalRequest({
     type,
     title,
     commandOrTarget,
     requestedBy,
+    impactSummary:
+      impactSummary ||
+      `Művelet típusa: ${type}. Célpont: ${commandOrTarget}. A kérés 15 perc elteltével automatikusan lejár.`,
   });
   appendAuditLog({
     type: 'system',
@@ -127,11 +131,36 @@ export function requireDestructiveApproval(
   return req;
 }
 
+/** M21: Expire pending approvals past their 15-minute TTL */
+export function expireStaleApprovals(nowMs = Date.now()): number {
+  let expiredCount = 0;
+  updateState((s) => {
+    for (const req of s.approvals) {
+      if (req.status === 'pending' && req.expiresAt && Date.parse(req.expiresAt) <= nowMs) {
+        req.status = 'expired';
+        req.resolvedAt = new Date(nowMs).toISOString();
+        expiredCount += 1;
+      }
+    }
+  });
+  if (expiredCount > 0) {
+    appendAuditLog({
+      type: 'security',
+      sourceAgentId: 'permission-gate',
+      sourceAgentName: 'Jogosultsági Kapu',
+      message: `${expiredCount} lejárt jóváhagyási kérelem automatikusan lezárva (expired).`,
+      verifiedExecution: true,
+    });
+  }
+  return expiredCount;
+}
+
 export function resolveApproval(
   approvalId: string,
   decision: 'approved' | 'rejected',
   via: 'web' | 'telegram'
 ): ApprovalRequest | null {
+  expireStaleApprovals();
   let found: ApprovalRequest | null = null;
   updateState((s) => {
     const item = s.approvals.find((a) => a.id === approvalId);

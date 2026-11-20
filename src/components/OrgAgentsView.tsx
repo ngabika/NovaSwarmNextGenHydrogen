@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { GitBranch, Globe, Plus, RefreshCw, Send, Shield, Trash2 } from 'lucide-react';
+import { GitBranch, Globe, Plus, RefreshCw, Send, Share2, Shield, Trash2 } from 'lucide-react';
 import type {
   Agent,
   FederationPeer,
+  KanbanCard,
   LanguageCode,
+  McpServer,
   ProviderId,
   VoiceReplyMode,
 } from '../../shared/types';
@@ -12,6 +14,8 @@ import { tr } from '../locales/translations';
 interface Props {
   language: LanguageCode;
   agents: Agent[];
+  mcpServers: McpServer[];
+  kanban: KanbanCard[];
   federationPeers: FederationPeer[];
   federationEnabled: boolean;
   onRefreshState: () => Promise<void>;
@@ -20,16 +24,36 @@ interface Props {
 const AgentTreeNode: React.FC<{
   agent: Agent;
   allAgents: Agent[];
+  mcpServers: McpServer[];
   depth: number;
   onToggle: (agent: Agent, field: 'active' | 'webSearchEnabled' | 'hostExecutionEnabled') => Promise<void>;
-  onSaveBot: (agentId: string, token: string, budget: number, voiceMode: VoiceReplyMode) => Promise<void>;
+  onSavePolicy: (
+    agentId: string,
+    payload: {
+      token: string;
+      budget: number;
+      voiceMode: VoiceReplyMode;
+      allowedMcpIds: string[];
+      activeHoursStart: number;
+      activeHoursEnd: number;
+      maxRunsPerHour: number;
+    }
+  ) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-}> = ({ agent, allAgents, depth, onToggle, onSaveBot, onDelete }) => {
+}> = ({ agent, allAgents, mcpServers, depth, onToggle, onSavePolicy, onDelete }) => {
   const children = allAgents.filter((a) => a.parentAgentId === agent.id);
   const [editingBot, setEditingBot] = useState(false);
   const [tgToken, setTgToken] = useState('');
   const [budget, setBudget] = useState(agent.dailyBudgetUsd ?? 0);
   const [voiceMode, setVoiceMode] = useState<VoiceReplyMode>(agent.voiceReplyMode ?? 'off');
+  const [allowedMcpIds, setAllowedMcpIds] = useState<string[]>(agent.allowedMcpIds || []);
+  const [activeHoursStart, setActiveHoursStart] = useState<number>(agent.activeHoursStart ?? 0);
+  const [activeHoursEnd, setActiveHoursEnd] = useState<number>(agent.activeHoursEnd ?? 23);
+  const [maxRunsPerHour, setMaxRunsPerHour] = useState<number>(agent.maxRunsPerHour ?? 60);
+
+  const toggleMcpId = (id: string) => {
+    setAllowedMcpIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   return (
     <div className="space-y-2" style={{ marginLeft: depth > 0 ? `${Math.min(depth * 24, 96)}px` : '0px' }}>
@@ -50,6 +74,9 @@ const AgentTreeNode: React.FC<{
               {(agent.dailySpendUsd ?? 0).toFixed(4)}
               {agent.dailyBudgetUsd ? ` / $${agent.dailyBudgetUsd.toFixed(2)}` : ''}
               {agent.telegramHasToken ? ' · Dedikált TG Bot' : ''}
+              {agent.allowedMcpIds && agent.allowedMcpIds.length > 0
+                ? ` · MCP:${agent.allowedMcpIds.length}`
+                : ' · MCP:Mind'}
             </div>
           </div>
 
@@ -57,7 +84,7 @@ const AgentTreeNode: React.FC<{
             <button
               type="button"
               onClick={() => onToggle(agent, 'webSearchEnabled')}
-              className={`px-2.5 py-1 text-xs rounded border ${
+              className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap shrink-0 ${
                 agent.webSearchEnabled
                   ? 'bg-slate-900 text-white border-slate-900'
                   : 'bg-slate-50 text-slate-600 border-slate-200'
@@ -68,7 +95,7 @@ const AgentTreeNode: React.FC<{
             <button
               type="button"
               onClick={() => onToggle(agent, 'hostExecutionEnabled')}
-              className={`px-2.5 py-1 text-xs rounded border ${
+              className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap shrink-0 ${
                 agent.hostExecutionEnabled
                   ? 'bg-slate-900 text-white border-slate-900'
                   : 'bg-slate-50 text-slate-600 border-slate-200'
@@ -81,14 +108,14 @@ const AgentTreeNode: React.FC<{
                 <button
                   type="button"
                   onClick={() => setEditingBot((v) => !v)}
-                  className="px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0"
                 >
-                  Bot & Keret
+                  Bot, MCP & Ütemezés
                 </button>
                 <button
                   type="button"
                   onClick={() => onToggle(agent, 'active')}
-                  className={`px-2.5 py-1 text-xs rounded border ${
+                  className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap shrink-0 ${
                     agent.active
                       ? 'bg-emerald-700 text-white border-emerald-700'
                       : 'bg-slate-100 text-slate-600 border-slate-200'
@@ -110,43 +137,109 @@ const AgentTreeNode: React.FC<{
         </div>
 
         {editingBot && (
-          <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
-            <input
-              type="password"
-              value={tgToken}
-              onChange={(e) => setTgToken(e.target.value)}
-              placeholder={agent.telegramHasToken ? 'Új Telegram Bot Token...' : 'Dedikált Telegram Bot Token'}
-              className="sm:col-span-2 px-2.5 py-1.5 border border-slate-300 rounded"
-            />
-            <input
-              type="number"
-              step="0.2"
-              min="0"
-              value={budget}
-              onChange={(e) => setBudget(Number(e.target.value))}
-              placeholder="Napi limit ($)"
-              title="Ágens napi USD limit (0 = globális)"
-              className="px-2.5 py-1.5 font-mono border border-slate-300 rounded"
-            />
-            <select
-              value={voiceMode}
-              onChange={(e) => setVoiceMode(e.target.value as VoiceReplyMode)}
-              className="px-2 py-1.5 border border-slate-300 rounded bg-white"
-            >
-              <option value="off">Hangválasz: Ki</option>
-              <option value="on_voice">Hangra hang</option>
-              <option value="always">Mindig hang</option>
-            </select>
+          <div className="pt-3 border-t border-slate-100 space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <input
+                type="password"
+                value={tgToken}
+                onChange={(e) => setTgToken(e.target.value)}
+                placeholder={agent.telegramHasToken ? 'Új Telegram Bot Token...' : 'Dedikált Telegram Bot Token'}
+                className="sm:col-span-2 px-2.5 py-1.5 border border-slate-300 rounded"
+              />
+              <input
+                type="number"
+                step="0.2"
+                min="0"
+                value={budget}
+                onChange={(e) => setBudget(Number(e.target.value))}
+                placeholder="Napi limit ($)"
+                title="Ágens napi USD limit (0 = globális)"
+                className="px-2.5 py-1.5 font-mono border border-slate-300 rounded"
+              />
+              <select
+                value={voiceMode}
+                onChange={(e) => setVoiceMode(e.target.value as VoiceReplyMode)}
+                className="px-2 py-1.5 border border-slate-300 rounded bg-white"
+              >
+                <option value="off">Hangválasz: Ki</option>
+                <option value="on_voice">Hangra hang</option>
+                <option value="always">Mindig hang</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <label className="space-y-1">
+                <span className="text-[11px] text-slate-500 block">Aktív óra kezdete (0-23)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={activeHoursStart}
+                  onChange={(e) => setActiveHoursStart(Number(e.target.value))}
+                  className="w-full px-2 py-1 font-mono border border-slate-300 rounded"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] text-slate-500 block">Aktív óra vége (0-23)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={activeHoursEnd}
+                  onChange={(e) => setActiveHoursEnd(Number(e.target.value))}
+                  className="w-full px-2 py-1 font-mono border border-slate-300 rounded"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] text-slate-500 block">Max futás / óra</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={maxRunsPerHour}
+                  onChange={(e) => setMaxRunsPerHour(Number(e.target.value))}
+                  className="w-full px-2 py-1 font-mono border border-slate-300 rounded"
+                />
+              </label>
+            </div>
+
+            {mcpServers.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium text-slate-600">
+                  MCP Jogosultsági Mátrix (üres = minden MCP engedélyezve):
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {mcpServers.map((m) => (
+                    <label key={m.id} className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowedMcpIds.includes(m.id)}
+                        onChange={() => toggleMcpId(m.id)}
+                      />
+                      <span>{m.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={async () => {
-                await onSaveBot(agent.id, tgToken, budget, voiceMode);
+                await onSavePolicy(agent.id, {
+                  token: tgToken,
+                  budget,
+                  voiceMode,
+                  allowedMcpIds,
+                  activeHoursStart,
+                  activeHoursEnd,
+                  maxRunsPerHour,
+                });
                 setTgToken('');
                 setEditingBot(false);
               }}
-              className="sm:col-span-4 px-3 py-1.5 bg-slate-900 text-white rounded font-medium"
+              className="w-full px-3 py-1.5 bg-slate-900 text-white rounded font-medium"
             >
-              Ágens Bot & Költségkeret Mentése
+              Ágens Szabályok & Bot Mentése
             </button>
           </div>
         )}
@@ -157,9 +250,10 @@ const AgentTreeNode: React.FC<{
           key={child.id}
           agent={child}
           allAgents={allAgents}
+          mcpServers={mcpServers}
           depth={depth + 1}
           onToggle={onToggle}
-          onSaveBot={onSaveBot}
+          onSavePolicy={onSavePolicy}
           onDelete={onDelete}
         />
       ))}
@@ -170,6 +264,8 @@ const AgentTreeNode: React.FC<{
 export const OrgAgentsView: React.FC<Props> = ({
   language,
   agents,
+  mcpServers,
+  kanban,
   federationPeers,
   federationEnabled,
   onRefreshState,
@@ -183,16 +279,19 @@ export const OrgAgentsView: React.FC<Props> = ({
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [hostExecutionEnabled, setHostExecutionEnabled] = useState(true);
 
-  // Federation Peer form
+  // Federation Peer form + Handoff + Memory Sync
   const [peerName, setPeerName] = useState('');
   const [peerUrl, setPeerUrl] = useState('');
   const [peerToken, setPeerToken] = useState('');
   const [fedAddress, setFedAddress] = useState('');
   const [fedContent, setFedContent] = useState('');
+  const [handoffCardId, setHandoffCardId] = useState('');
+  const [handoffPeerId, setHandoffPeerId] = useState('');
   const [fedReply, setFedReply] = useState<string | null>(null);
 
   const rootAgents = agents.filter((a) => !a.parentAgentId);
   const selectableParents = agents.filter((a) => !a.isSupervisor);
+  const activeCards = kanban.filter((c) => !c.archived);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,19 +328,29 @@ export const OrgAgentsView: React.FC<Props> = ({
     await onRefreshState();
   };
 
-  const handleSaveBot = async (
+  const handleSavePolicy = async (
     agentId: string,
-    token: string,
-    budget: number,
-    voiceMode: VoiceReplyMode
+    payload: {
+      token: string;
+      budget: number;
+      voiceMode: VoiceReplyMode;
+      allowedMcpIds: string[];
+      activeHoursStart: number;
+      activeHoursEnd: number;
+      maxRunsPerHour: number;
+    }
   ) => {
     await fetch(`/api/agents/${agentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        agentTelegramToken: token.trim() || undefined,
-        dailyBudgetUsd: budget,
-        voiceReplyMode: voiceMode,
+        agentTelegramToken: payload.token.trim() || undefined,
+        dailyBudgetUsd: payload.budget,
+        voiceReplyMode: payload.voiceMode,
+        allowedMcpIds: payload.allowedMcpIds,
+        activeHoursStart: payload.activeHoursStart,
+        activeHoursEnd: payload.activeHoursEnd,
+        maxRunsPerHour: payload.maxRunsPerHour,
       }),
     });
     await onRefreshState();
@@ -284,13 +393,33 @@ export const OrgAgentsView: React.FC<Props> = ({
     await onRefreshState();
   };
 
+  const handleKanbanHandoff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!handoffCardId || !handoffPeerId) return;
+    const res = await fetch('/api/federation/handoff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cardId: handoffCardId, peerId: handoffPeerId }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string; message?: string };
+    setFedReply(data.message || data.error || (data.ok ? 'Kanban feladat átadva.' : 'Handoff hiba'));
+    await onRefreshState();
+  };
+
+  const handleSyncSharedMemory = async () => {
+    const res = await fetch('/api/federation/memory-sync', { method: 'POST' });
+    const data = (await res.json()) as { pushed?: number; peers?: number };
+    setFedReply(`Közös (shared) memóriák szinkronizálva: ${data.pushed ?? 0} bejegyzés -> ${data.peers ?? 0} társ.`);
+    await onRefreshState();
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">
-              Szervezeti Hierarchia & Dedikált Ágens-Botok
+              Szervezeti Hierarchia, MCP Mátrix & Ütemezés
             </h2>
             <span className="text-xs text-slate-500 tabular-nums">{agents.length} ágens</span>
           </div>
@@ -301,9 +430,10 @@ export const OrgAgentsView: React.FC<Props> = ({
                 key={root.id}
                 agent={root}
                 allAgents={agents}
+                mcpServers={mcpServers}
                 depth={0}
                 onToggle={handleToggle}
-                onSaveBot={handleSaveBot}
+                onSavePolicy={handleSavePolicy}
                 onDelete={handleDelete}
               />
             ))}
@@ -436,28 +566,38 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div>
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Globe className="h-4 w-4 text-slate-700" />
-              Föderáció — Távoli NovaSwarm Példányok Összekötése
+              Föderáció — Távoli NovaSwarm Példányok, Kanban Handoff & Memória Szinkron
             </h3>
             <p className="text-xs text-slate-500">
-              Állapot: {federationEnabled ? 'Bekapcsolva' : 'Kikapcsolva (engedélyezd a Beállításokban vagy alább)'}
+              Állapot: {federationEnabled ? 'Bekapcsolva' : 'Kikapcsolva'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={async () => {
-              await fetch('/api/settings', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ federationEnabled: !federationEnabled }),
-              });
-              await onRefreshState();
-            }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${
-              federationEnabled ? 'bg-emerald-700 text-white border-emerald-700' : 'border-slate-300 text-slate-700'
-            }`}
-          >
-            {federationEnabled ? 'Föderáció Aktív' : 'Föderáció Bekapcsolása'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSyncSharedMemory()}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Shared Memória Szinkron
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch('/api/settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ federationEnabled: !federationEnabled }),
+                });
+                await onRefreshState();
+              }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border whitespace-nowrap shrink-0 ${
+                federationEnabled ? 'bg-emerald-700 text-white border-emerald-700' : 'border-slate-300 text-slate-700'
+              }`}
+            >
+              {federationEnabled ? 'Föderáció Aktív' : 'Föderáció Bekapcsolása'}
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleAddPeer} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
@@ -465,7 +605,7 @@ export const OrgAgentsView: React.FC<Props> = ({
             type="text"
             value={peerName}
             onChange={(e) => setPeerName(e.target.value)}
-            placeholder="Társ neve (pl. mac-mini)"
+            placeholder="Társ neve (pl. pi-node-2)"
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
           />
           <input
@@ -502,7 +642,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handlePingPeer(p.id)}
+                      onClick={() => void handlePingPeer(p.id)}
                       className="inline-flex items-center gap-1 px-2 py-0.5 border border-slate-300 bg-white rounded"
                     >
                       <RefreshCw className="h-3 w-3" />
@@ -529,29 +669,67 @@ export const OrgAgentsView: React.FC<Props> = ({
           </div>
         )}
 
-        <form onSubmit={handleSendFed} className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-          <input
-            type="text"
-            value={fedAddress}
-            onChange={(e) => setFedAddress(e.target.value)}
-            placeholder="Cím: társ/ágens (pl. mac-mini/backend-dev)"
-            className="w-64 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
-          />
-          <input
-            type="text"
-            value={fedContent}
-            onChange={(e) => setFedContent(e.target.value)}
-            placeholder="Üzenet a föderált ágensnek..."
-            className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
-          />
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
-          >
-            <Send className="h-3 w-3" />
-            Küldés
-          </button>
-        </form>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+          <form onSubmit={handleSendFed} className="flex flex-wrap gap-2">
+            <input
+              type="text"
+              value={fedAddress}
+              onChange={(e) => setFedAddress(e.target.value)}
+              placeholder="társ/ágens (pl. pi-2/kutato)"
+              className="w-44 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+            />
+            <input
+              type="text"
+              value={fedContent}
+              onChange={(e) => setFedContent(e.target.value)}
+              placeholder="Üzenet a föderált ágensnek..."
+              className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
+            >
+              <Send className="h-3 w-3" />
+              Küldés
+            </button>
+          </form>
+
+          <form onSubmit={handleKanbanHandoff} className="flex flex-wrap gap-2">
+            <select
+              value={handoffCardId}
+              onChange={(e) => setHandoffCardId(e.target.value)}
+              aria-label="Handoff Kanban card"
+              className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
+            >
+              <option value="">Kanban kártya átadása...</option>
+              {activeCards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+            <select
+              value={handoffPeerId}
+              onChange={(e) => setHandoffPeerId(e.target.value)}
+              aria-label="Handoff peer"
+              className="px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
+            >
+              <option value="">Cél társ...</option>
+              {federationPeers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
+            >
+              Kártya Átadása
+            </button>
+          </form>
+        </div>
+
         {fedReply && <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono">{fedReply}</div>}
       </div>
     </div>

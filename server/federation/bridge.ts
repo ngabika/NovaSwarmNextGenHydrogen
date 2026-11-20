@@ -191,3 +191,163 @@ export async function receiveFederationMessage(params: {
 
   return { ok: true, reply: turn.coordinatorReply.content };
 }
+
+/** M28: Handoff a local Kanban card to a federated peer */
+export async function handoffKanbanToPeer(cardId: string, peerId: string): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  const state = getState();
+  if (!state.settings.federationEnabled) {
+    throw new Error('A Föderáció nincs engedélyezve.');
+  }
+  const card = state.kanban.find((c) => c.id === cardId);
+  if (!card) throw new Error('Kanban kártya nem található.');
+  const peer = state.federationPeers.find((p) => p.id === peerId && p.enabled);
+  if (!peer) throw new Error('Föderációs társ nem található vagy inaktív.');
+
+  const token = getFederationPeerToken(peer.id);
+  const res = await fetch(`${peer.baseUrl}/api/federation/handoff-inbound`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      fromNode: state.settings.instanceName,
+      card: {
+        title: card.title,
+        description: card.description,
+        priority: card.priority,
+        project: card.project,
+      },
+    }),
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) {
+    return { ok: false, message: `Átadás sikertelen (HTTP ${res.status})` };
+  }
+  updateState((s) => {
+    const ref = s.kanban.find((c) => c.id === cardId);
+    if (ref) {
+      ref.description = `${ref.description ? `${ref.description}\n\n` : ''}[Átadva föderációs társnak: ${peer.name}]`;
+      ref.updatedAt = new Date().toISOString();
+    }
+  });
+  appendAuditLog({
+    type: 'federation',
+    sourceAgentId: 'federation-bridge',
+    sourceAgentName: 'Föderációs Híd',
+    message: `Kanban kártya átadva (${peer.name}): ${card.title}`,
+    verifiedExecution: true,
+  });
+  return { ok: true, message: `Kanban feladat átadva (${peer.name}).` };
+}
+
+export function receiveKanbanHandoff(params: {
+  fromNode: string;
+  card: { title: string; description?: string; priority?: 'low' | 'medium' | 'high' | 'urgent'; project?: string };
+}) {
+  const state = getState();
+  if (!state.settings.federationEnabled) {
+    throw new Error('Föderáció nincs engedélyezve.');
+  }
+  const now = new Date().toISOString();
+  const created = {
+    id: `card-${crypto.randomUUID().slice(0, 8)}`,
+    title: params.card.title.trim(),
+    description: `${params.card.description || ''}\n[Föderált átadás innen: ${params.fromNode}]`.trim(),
+    status: 'todo' as const,
+    assignedAgentId: null,
+    priority: params.card.priority || 'medium',
+    subtasks: [],
+    project: params.card.project,
+    createdAt: now,
+    updatedAt: now,
+  };
+  updateState((s) => {
+    s.kanban.unshift(created);
+  });
+  appendAuditLog({
+    type: 'federation',
+    sourceAgentId: 'federation-bridge',
+    sourceAgentName: 'Föderációs Híd',
+    message: `Bejövő föderált Kanban feladat <- ${params.fromNode}: ${created.title}`,
+    verifiedExecution: true,
+  });
+  return created;
+}
+
+/** M28: Sync 'shared' tier memories with online federated peers */
+export async function syncSharedMemoriesWithPeers(): Promise<{
+  syncedPeers: number;
+  pushedCount: number;
+}> {
+  const state = getState();
+  if (!state.settings.federationEnabled) {
+    throw new Error('A Föderáció nincs engedélyezve.');
+  }
+  const shared = state.memories
+    .filter((m) => m.tier === 'shared')
+    .slice(0, 25)
+    .map((m) => ({
+      entity: m.entity,
+      content: m.content,
+      tags: m.tags,
+      links: m.links,
+      importanceScore: m.importanceScore,
+    }));
+
+  let syncedPeers = 0;
+  for (const peer of state.federationPeers.filter((p) => p.enabled)) {
+    const token = getFederationPeerToken(peer.id);
+    try {
+      const res = await fetch(`${peer.baseUrl}/api/federation/memory-sync-inbound`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          fromNode: state.settings.instanceName,
+          memories: shared,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) syncedPeers++;
+    } catch {
+      // ignore unreachable peer
+    }
+  }
+  return { syncedPeers, pushedCount: shared.length };
+}
+
+export function receiveSharedMemories(
+  fromNode: string,
+  memories: Array<{ entity: string; content: string; tags?: string[]; links?: string[]; importanceScore?: number }>
+): { imported: number } {
+  let imported = 0;
+  updateState((s) => {
+    const existing = new Set(s.memories.map((m) => m.content.trim().toLowerCase()));
+    const now = new Date().toISOString();
+    for (const m of memories.slice(0, 30)) {
+      if (!m?.content || existing.has(m.content.trim().toLowerCase())) continue;
+      s.memories.unshift({
+        id: crypto.randomUUID(),
+        createdAt: now,
+        lastAccessedAt: now,
+        content: m.content,
+        entity: `${m.entity} (${fromNode})`,
+        tags: Array.from(new Set([...(m.tags || []), 'federated', fromNode])),
+        links: m.links || [fromNode],
+        importanceScore: m.importanceScore ?? 0.8,
+        salience: 0.85,
+        tier: 'shared',
+        embedding: [],
+      });
+      existing.add(m.content.trim().toLowerCase());
+      imported++;
+    }
+  });
+  return { imported };
+}

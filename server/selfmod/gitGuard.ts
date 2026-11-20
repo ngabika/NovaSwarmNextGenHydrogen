@@ -185,7 +185,7 @@ export function applyGuardedSelfModification(opts: SelfModOptions): SelfModResul
   const absTarget = path.join(repoRoot, relPath);
   atomicWriteFileSync(absTarget, opts.newContent);
 
-  // Verify build / health check
+  // Verify build / lint + unit tests (M14)
   const verifyCmd = opts.verifyCommand ?? ['npm', 'run', 'lint'];
   const verify = spawnSync(verifyCmd[0], verifyCmd.slice(1), {
     cwd: repoRoot,
@@ -193,7 +193,22 @@ export function applyGuardedSelfModification(opts: SelfModOptions): SelfModResul
     timeout: 60000,
   });
 
-  if (verify.status !== 0) {
+  let testFailed = false;
+  let testErr = '';
+  if (!opts.verifyCommand && verify.status === 0 && fs.existsSync(path.join(repoRoot, 'tests'))) {
+    const testRun = spawnSync('./node_modules/.bin/tsx', ['--test', '--test-force-exit', 'tests/*.test.ts'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 60000,
+      shell: true,
+    });
+    if (testRun.status !== 0) {
+      testFailed = true;
+      testErr = testRun.stderr || testRun.stdout || 'Egységtesztek elbuktak';
+    }
+  }
+
+  if (verify.status !== 0 || testFailed) {
     // Automatic human-free rollback to preCommitHash
     execFileSync('git', ['reset', '--hard', preCommitHash], { cwd: repoRoot });
     execFileSync('git', ['clean', '-fd'], { cwd: repoRoot });
@@ -208,7 +223,7 @@ export function applyGuardedSelfModification(opts: SelfModOptions): SelfModResul
       applied: false,
       rolledBack: true,
       preCommitHash,
-      message: `Ellenőrzés sikertelen (${verify.stderr || verify.stdout}); visszaállítva a(z) ${preCommitHash.slice(0, 7)} commitra.`,
+      message: `Ellenőrzés sikertelen (${testFailed ? testErr : verify.stderr || verify.stdout}); visszaállítva a(z) ${preCommitHash.slice(0, 7)} commitra.`,
     };
   }
 
@@ -256,4 +271,51 @@ export function getRecentGitHistory(repoRoot = process.cwd(), limit = 10): Array
   } catch {
     return [];
   }
+}
+
+/** M15: Commit diff preview */
+export function getCommitDiff(hash: string, repoRoot = process.cwd()): { hash: string; diff: string; ok: boolean } {
+  const cleanHash = hash.trim().replace(/[^a-fA-F0-9]/g, '');
+  if (!cleanHash || cleanHash.length < 6) {
+    return { hash, diff: 'Érvénytelen commit hash.', ok: false };
+  }
+  try {
+    const out = execFileSync('git', ['show', '--stat', '--patch', cleanHash], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    return { hash: cleanHash, diff: out.slice(0, 12000), ok: true };
+  } catch (err) {
+    return { hash: cleanHash, diff: err instanceof Error ? err.message : String(err), ok: false };
+  }
+}
+
+/** M15: Explicit 1-click rollback to a known safe commit hash */
+export function rollbackSelfModToCommit(hash: string, repoRoot = process.cwd()): {
+  ok: boolean;
+  commitHash: string;
+  message: string;
+} {
+  assertHostPermission(`git_rollback:${hash}`, 'user');
+  const cleanHash = hash.trim().replace(/[^a-fA-F0-9]/g, '');
+  if (!cleanHash || cleanHash.length < 6) {
+    throw new Error('Érvénytelen commit hash a visszaállításhoz.');
+  }
+  if (!fs.existsSync(path.join(repoRoot, '.git'))) {
+    throw new Error('Nem található .git tároló ebben a könyvtárban.');
+  }
+  execFileSync('git', ['reset', '--hard', cleanHash], { cwd: repoRoot, timeout: 10000 });
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
+  appendAuditLog({
+    type: 'system',
+    sourceAgentId: 'git-guard',
+    sourceAgentName: 'Git Rollback',
+    message: `Rendszer visszaállítva a(z) ${head} commit állapotára.`,
+    verifiedExecution: true,
+  });
+  return { ok: true, commitHash: head, message: `Sikeresen visszaállítva: ${head}` };
 }

@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   ChevronUp,
   Download,
+  Globe,
   KeyRound,
+  Monitor,
   Play,
   Plus,
   Radio,
+  RefreshCw,
+  Search,
   Trash2,
   X,
 } from 'lucide-react';
@@ -19,6 +23,7 @@ import type {
   LanguageCode,
   McpAuthType,
   McpServer,
+  McpTransport,
   PairingRequest,
   Skill,
 } from '../../shared/types';
@@ -49,9 +54,12 @@ export const McpSkillsView: React.FC<Props> = ({
     Record<string, { ok: boolean; tools: Array<{ name: string; description?: string }>; error?: string }>
   >({});
 
-  // New MCP server form
+  // New MCP server form (HTTP or stdio M20)
   const [mcpName, setMcpName] = useState('');
+  const [mcpTransport, setMcpTransport] = useState<McpTransport>('http');
   const [mcpUrl, setMcpUrl] = useState('');
+  const [mcpCommand, setMcpCommand] = useState('');
+  const [mcpArgs, setMcpArgs] = useState('');
   const [mcpAuth, setMcpAuth] = useState<McpAuthType>('apikey');
 
   // External Catalog Import
@@ -70,13 +78,32 @@ export const McpSkillsView: React.FC<Props> = ({
   const [skillCode, setSkillCode] = useState('console.log("Skill sandbox verification OK");');
   const [pitfallDrafts, setPitfallDrafts] = useState<Record<string, string>>({});
 
-  // Multi-Channel Connectors (Discord / Slack / Generic Webhook)
+  // Multi-Channel Connectors & Bidirectional Polling (M18)
   const [chType, setChType] = useState<ChannelConnectorType>('discord');
   const [chName, setChName] = useState('');
   const [chWebhook, setChWebhook] = useState('');
   const [chSecret, setChSecret] = useState('');
   const [chAgentId, setChAgentId] = useState('');
   const [chStatusMsg, setChStatusMsg] = useState<string | null>(null);
+  const [pollForm, setPollForm] = useState<Record<string, { channelId: string; botToken: string; enabled: boolean }>>({});
+
+  // Web Search & Headless Browser Inspector (Ú1, Ú2)
+  const [webQuery, setWebQuery] = useState('');
+  const [webResults, setWebResults] = useState<Array<{ title: string; url: string; snippet: string }>>([]);
+  const [webSearchProvider, setWebSearchProvider] = useState<string | null>(null);
+  const [browserInfo, setBrowserInfo] = useState<{ available: boolean; binary: string | null } | null>(null);
+  const [browserUrl, setBrowserUrl] = useState('https://example.com');
+  const [browserOut, setBrowserOut] = useState<{ title?: string; text?: string; screenshotBase64?: string; error?: string } | null>(null);
+  const [browserBusy, setBrowserBusy] = useState(false);
+
+  useEffect(() => {
+    void fetch('/api/browser/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { available: boolean; binary: string | null } | null) => {
+        if (d) setBrowserInfo(d);
+      })
+      .catch(() => {});
+  }, []);
 
   const workerAgents = agents.filter((a) => !a.isSupervisor);
   const pendingPairings = pairingRequests.filter((p) => p.status === 'pending');
@@ -114,14 +141,25 @@ export const McpSkillsView: React.FC<Props> = ({
 
   const handleRegisterMcp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mcpName.trim() || !mcpUrl.trim()) return;
+    if (!mcpName.trim()) return;
+    if (mcpTransport === 'http' && !mcpUrl.trim()) return;
+    if (mcpTransport === 'stdio' && !mcpCommand.trim()) return;
     await fetch('/api/mcp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: mcpName, endpointUrl: mcpUrl, authType: mcpAuth }),
+      body: JSON.stringify({
+        name: mcpName.trim(),
+        transport: mcpTransport,
+        endpointUrl: mcpTransport === 'http' ? mcpUrl.trim() : `stdio://${mcpCommand.trim()}`,
+        command: mcpTransport === 'stdio' ? mcpCommand.trim() : undefined,
+        args: mcpTransport === 'stdio' ? mcpArgs.trim() : undefined,
+        authType: mcpTransport === 'stdio' ? 'none' : mcpAuth,
+      }),
     });
     setMcpName('');
     setMcpUrl('');
+    setMcpCommand('');
+    setMcpArgs('');
     await onRefreshState();
   };
 
@@ -135,7 +173,7 @@ export const McpSkillsView: React.FC<Props> = ({
     });
     const data = (await res.json()) as { items?: typeof catalogItems; error?: string };
     if (!res.ok) {
-      setCatalogErr(data.error || 'Import failed');
+      setCatalogErr(data.error || 'Import sikertelen');
       return;
     }
     setCatalogItems(data.items || []);
@@ -197,6 +235,32 @@ export const McpSkillsView: React.FC<Props> = ({
     await onRefreshState();
   };
 
+  const handleSaveChannelPolling = async (connector: ChannelConnector) => {
+    const draft = pollForm[connector.id] || {
+      channelId: connector.channelId || '',
+      botToken: '',
+      enabled: !connector.pollingEnabled,
+    };
+    await fetch(`/api/channels/${connector.id}/polling`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pollingEnabled: draft.enabled,
+        channelId: draft.channelId.trim() || undefined,
+        botToken: draft.botToken.trim() || undefined,
+      }),
+    });
+    setChStatusMsg(`${connector.name} kétirányú polling frissítve.`);
+    await onRefreshState();
+  };
+
+  const handlePollChannelsNow = async () => {
+    const res = await fetch('/api/channels/poll', { method: 'POST' });
+    const data = (await res.json()) as { checked?: number; ingested?: number };
+    setChStatusMsg(`Csatornák lekérdezve (${data.checked ?? 0} aktív, ${data.ingested ?? 0} új üzenet).`);
+    await onRefreshState();
+  };
+
   const handleTestChannel = async (id: string) => {
     setChStatusMsg(null);
     const res = await fetch(`/api/channels/${id}/test`, { method: 'POST' });
@@ -219,13 +283,51 @@ export const McpSkillsView: React.FC<Props> = ({
     await onRefreshState();
   };
 
+  const handleWebSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!webQuery.trim()) return;
+    const res = await fetch('/api/web/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: webQuery.trim(), maxResults: 5 }),
+    });
+    const data = (await res.json()) as {
+      provider?: string;
+      results?: Array<{ title: string; url: string; snippet: string }>;
+    };
+    setWebSearchProvider(data.provider || null);
+    setWebResults(data.results || []);
+  };
+
+  const handleBrowserAction = async (action: 'inspect' | 'screenshot') => {
+    if (!browserUrl.trim()) return;
+    setBrowserBusy(true);
+    setBrowserOut(null);
+    try {
+      const res = await fetch('/api/browser/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: browserUrl.trim(), action }),
+      });
+      const data = (await res.json()) as {
+        title?: string;
+        text?: string;
+        screenshotBase64?: string;
+        error?: string;
+      };
+      setBrowserOut(data);
+    } finally {
+      setBrowserBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* MCP Servers List with Expandable Auth & Real Probes */}
+        {/* MCP Servers List (HTTP + stdio) */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <h2 className="text-base font-semibold text-slate-900">
-            MCP Szerverek & Valós Kapcsolat-Ellenőrzés
+            MCP Szerverek (HTTP & Lokális stdio)
           </h2>
 
           <div className="space-y-3">
@@ -234,10 +336,13 @@ export const McpSkillsView: React.FC<Props> = ({
               return (
                 <div key={srv.id} className="border border-slate-200 rounded-lg p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-900">{srv.name}</div>
-                      <div className="text-xs text-slate-500 font-mono">
-                        {srv.endpointUrl} · {srv.authType} · Állapot:{' '}
+                      <div className="text-xs text-slate-500 font-mono truncate">
+                        {srv.transport === 'stdio'
+                          ? `stdio: ${srv.command} ${(srv.args || []).join(' ')}`
+                          : srv.endpointUrl}{' '}
+                        · {srv.authType} · Állapot:{' '}
                         <span
                           className={
                             srv.status === 'connected'
@@ -253,11 +358,11 @@ export const McpSkillsView: React.FC<Props> = ({
                       <div className="text-xs text-slate-600 mt-1">{srv.lastCheckMessage}</div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {srv.isGoogleWorkspace && (
                         <button
                           type="button"
-                          onClick={handleGoogleOAuth}
+                          onClick={() => void handleGoogleOAuth()}
                           className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-md hover:bg-slate-50 whitespace-nowrap shrink-0"
                         >
                           Google OAuth2
@@ -265,7 +370,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => handleTestMcp(srv.id)}
+                        onClick={() => void handleTestMcp(srv.id)}
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800 whitespace-nowrap shrink-0"
                       >
                         <Play className="h-3 w-3" />
@@ -357,7 +462,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => handleSaveMcpCreds(srv.id)}
+                        onClick={() => void handleSaveMcpCreds(srv.id)}
                         className="px-3 py-1.5 text-xs font-medium bg-slate-800 text-white rounded"
                       >
                         Hitelesítési adatok mentése
@@ -375,32 +480,64 @@ export const McpSkillsView: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Register New MCP */}
-          <form onSubmit={handleRegisterMcp} className="pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <input
-              type="text"
-              value={mcpName}
-              onChange={(e) => setMcpName(e.target.value)}
-              placeholder="Új MCP neve"
-              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
-            />
-            <input
-              type="url"
-              value={mcpUrl}
-              onChange={(e) => setMcpUrl(e.target.value)}
-              placeholder="https://endpoint..."
-              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
-            />
-            <select
-              value={mcpAuth}
-              onChange={(e) => setMcpAuth(e.target.value as McpAuthType)}
-              className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
-            >
-              <option value="none">Nincs auth</option>
-              <option value="apikey">API Kulcs</option>
-              <option value="basic">Felhasználó + Jelszó</option>
-              <option value="oauth2">OAuth2</option>
-            </select>
+          {/* Register New MCP (HTTP or stdio) */}
+          <form onSubmit={handleRegisterMcp} className="pt-4 border-t border-slate-200 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <input
+                type="text"
+                value={mcpName}
+                onChange={(e) => setMcpName(e.target.value)}
+                placeholder="Új MCP neve"
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+              />
+              <select
+                value={mcpTransport}
+                onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
+                aria-label="MCP transport"
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white font-mono"
+              >
+                <option value="http">HTTP / JSON-RPC</option>
+                <option value="stdio">Lokális stdio</option>
+              </select>
+              {mcpTransport === 'http' ? (
+                <>
+                  <input
+                    type="url"
+                    value={mcpUrl}
+                    onChange={(e) => setMcpUrl(e.target.value)}
+                    placeholder="https://endpoint..."
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+                  />
+                  <select
+                    value={mcpAuth}
+                    onChange={(e) => setMcpAuth(e.target.value as McpAuthType)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
+                  >
+                    <option value="none">Nincs auth</option>
+                    <option value="apikey">API Kulcs</option>
+                    <option value="basic">Felhasználó + Jelszó</option>
+                    <option value="oauth2">OAuth2</option>
+                  </select>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={mcpCommand}
+                    onChange={(e) => setMcpCommand(e.target.value)}
+                    placeholder="Parancs (pl. npx)"
+                    className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                  />
+                  <input
+                    type="text"
+                    value={mcpArgs}
+                    onChange={(e) => setMcpArgs(e.target.value)}
+                    placeholder="Argok (pl. -y @mcp/server)"
+                    className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                  />
+                </>
+              )}
+            </div>
             <button
               type="submit"
               className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
@@ -411,7 +548,7 @@ export const McpSkillsView: React.FC<Props> = ({
           </form>
         </div>
 
-        {/* Right: External Catalog & Dynamic Sandbox-Verified Skill Factory + Buktatók */}
+        {/* Right: External Catalog & Dynamic Sandbox-Verified Skill Factory */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <h3 className="text-base font-semibold text-slate-900">Külső Gyűjtemény Import</h3>
@@ -540,15 +677,113 @@ export const McpSkillsView: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom: Multi-Channel Connectors & Pairing Approval Queue */}
+      {/* Live Web Search & Headless Browser Inspector (Ú1, Ú2) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+            <Globe className="h-4 w-4 text-slate-700" />
+            Élő Web Keresés (DuckDuckGo / SearXNG / Brave)
+          </h3>
+          <form onSubmit={handleWebSearch} className="flex gap-2">
+            <input
+              type="text"
+              value={webQuery}
+              onChange={(e) => setWebQuery(e.target.value)}
+              placeholder="Webes keresőkifejezés tesztelése..."
+              className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
+            >
+              <Search className="h-3.5 w-3.5" />
+              Keresés
+            </button>
+          </form>
+          {webSearchProvider && (
+            <div className="text-[11px] font-mono text-slate-500">Motor: {webSearchProvider} · {webResults.length} találat</div>
+          )}
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {webResults.map((r, i) => (
+              <div key={i} className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs space-y-0.5">
+                <a href={r.url} target="_blank" rel="noreferrer" className="font-semibold text-slate-900 hover:underline">
+                  {r.title}
+                </a>
+                <div className="font-mono text-[11px] text-slate-500 truncate">{r.url}</div>
+                <p className="text-slate-600">{r.snippet}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Monitor className="h-4 w-4 text-slate-700" />
+              Headless Böngésző & Képernyőkép
+            </h3>
+            <span className="text-[11px] font-mono text-slate-500">
+              {browserInfo ? (browserInfo.available ? `Chromium: ${browserInfo.binary}` : 'Chromium nem telepített') : '...'}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={browserUrl}
+              onChange={(e) => setBrowserUrl(e.target.value)}
+              placeholder="https://..."
+              className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
+            />
+            <button
+              type="button"
+              disabled={browserBusy}
+              onClick={() => void handleBrowserAction('inspect')}
+              className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              DOM Olvasás
+            </button>
+            <button
+              type="button"
+              disabled={browserBusy}
+              onClick={() => void handleBrowserAction('screenshot')}
+              className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
+            >
+              Screenshot
+            </button>
+          </div>
+          {browserOut && (
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs space-y-2 max-h-56 overflow-y-auto">
+              {browserOut.error && <div className="text-red-700 font-mono">{browserOut.error}</div>}
+              {browserOut.title && <div className="font-semibold text-slate-900">{browserOut.title}</div>}
+              {browserOut.screenshotBase64 && (
+                <img
+                  src={`data:image/png;base64,${browserOut.screenshotBase64}`}
+                  alt="Headless browser capture"
+                  className="max-h-36 rounded border border-slate-200"
+                />
+              )}
+              {browserOut.text && <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">{browserOut.text.slice(0, 800)}</pre>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom: Multi-Channel Connectors (with Bidirectional Polling M18) & Pairing Queue */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Radio className="h-4 w-4 text-slate-600" />
               Csatorna Csatlakozók (Discord · Slack · Webhook)
             </h3>
-            <span className="text-xs font-mono text-slate-500">Sandboxolt munkamenetek</span>
+            <button
+              type="button"
+              onClick={() => void handlePollChannelsNow()}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-slate-300 bg-white rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Csatornák Poll Most
+            </button>
           </div>
 
           <form onSubmit={handleCreateChannel} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
@@ -605,42 +840,97 @@ export const McpSkillsView: React.FC<Props> = ({
 
           {chStatusMsg && <div className="text-xs font-mono text-slate-700">{chStatusMsg}</div>}
 
-          <div className="space-y-2 max-h-[240px] overflow-y-auto">
+          <div className="space-y-2 max-h-[280px] overflow-y-auto">
             {channelConnectors.length === 0 ? (
               <p className="text-xs text-slate-500">Nincs beállított Discord, Slack vagy Webhook csatlakozó.</p>
             ) : (
-              channelConnectors.map((c) => (
-                <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <span className="font-mono uppercase font-semibold text-slate-700">[{c.type}]</span>{' '}
-                      <span className="font-semibold text-slate-900">{c.name}</span>
-                      {c.hasSecret && <span className="ml-2 text-[11px] font-mono text-emerald-700">titkosítva</span>}
+              channelConnectors.map((c) => {
+                const draft = pollForm[c.id] || {
+                  channelId: c.channelId || '',
+                  botToken: '',
+                  enabled: Boolean(c.pollingEnabled),
+                };
+                return (
+                  <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-mono uppercase font-semibold text-slate-700">[{c.type}]</span>{' '}
+                        <span className="font-semibold text-slate-900">{c.name}</span>
+                        {c.pollingEnabled && <span className="ml-2 font-mono text-emerald-700">· Polling BE</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleTestChannel(c.id)}
+                          className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
+                        >
+                          Teszt küldés
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteChannel(c.id)}
+                          aria-label={`Delete connector ${c.name}`}
+                          className="text-slate-400 hover:text-red-600"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleTestChannel(c.id)}
-                        className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
-                      >
-                        Teszt küldés
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteChannel(c.id)}
-                        aria-label={`Delete connector ${c.name}`}
-                        className="text-slate-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="font-mono text-[11px] text-slate-500 truncate">
+                      Bejövő endpoint: <span className="text-slate-700">/api/channels/inbound/{c.id}</span>
                     </div>
+                    {(c.type === 'discord' || c.type === 'slack') && (
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5 pt-1 border-t border-slate-200">
+                        <input
+                          type="text"
+                          value={draft.channelId}
+                          onChange={(e) =>
+                            setPollForm((prev) => ({
+                              ...prev,
+                              [c.id]: { ...draft, channelId: e.target.value },
+                            }))
+                          }
+                          placeholder="Csatorna ID"
+                          className="px-2 py-1 text-[11px] font-mono border border-slate-300 rounded bg-white"
+                        />
+                        <input
+                          type="password"
+                          value={draft.botToken}
+                          onChange={(e) =>
+                            setPollForm((prev) => ({
+                              ...prev,
+                              [c.id]: { ...draft, botToken: e.target.value },
+                            }))
+                          }
+                          placeholder={c.botTokenConfigured ? 'Új Bot Token...' : 'Bot Token'}
+                          className="px-2 py-1 text-[11px] border border-slate-300 rounded bg-white"
+                        />
+                        <label className="inline-flex items-center gap-1 text-[11px] cursor-pointer px-1">
+                          <input
+                            type="checkbox"
+                            checked={draft.enabled}
+                            onChange={(e) =>
+                              setPollForm((prev) => ({
+                                ...prev,
+                                [c.id]: { ...draft, enabled: e.target.checked },
+                              }))
+                            }
+                          />
+                          2-irányú Poll
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveChannelPolling(c)}
+                          className="px-2 py-1 text-[11px] font-medium bg-slate-800 text-white rounded"
+                        >
+                          Poll Mentés
+                        </button>
+                      </div>
+                    )}
+                    {c.lastError && <div className="text-[11px] text-red-700 font-mono">{c.lastError}</div>}
                   </div>
-                  <div className="font-mono text-[11px] text-slate-500 truncate">
-                    Bejövő endpoint: <span className="text-slate-700">/api/channels/inbound/{c.id}</span>
-                  </div>
-                  {c.lastError && <div className="text-[11px] text-red-700 font-mono">{c.lastError}</div>}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

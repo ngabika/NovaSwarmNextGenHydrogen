@@ -4,14 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type {
   Agent,
+  ExecutionPreset,
   KanbanCard,
   MessageAttachment,
   SessionIsolationMode,
   ToolExecutionStep,
   UnifiedMessage,
 } from '../../shared/types';
+import { ensureKanbanGitBranch } from '../infra/hostAdmin';
 import { preCompactThreadMemory, searchMemories } from '../memory/vectorStore';
-import { invokeWithFailover, type InlineMediaInput, type RouterDependencies } from '../providers/router';
+import {
+  invokeStreamWithFailover,
+  invokeWithFailover,
+  type InlineMediaInput,
+  type RouterDependencies,
+} from '../providers/router';
 import {
   assertHostPermission,
   detectDestructiveOperation,
@@ -23,16 +30,47 @@ import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../
 import {
   AGENT_TOOLS_INSTRUCTION,
   executeAgentTool,
-  parseToolCallFromResponse,
+  parseAllToolCallsFromResponse,
 } from './tools';
 
 export const SELF_DOCUMENTATION_TEXT = `NovaSwarm Önismereti Architektúra Dokumentáció:
 1. Állapot & Igazságforrás: Minden konfiguráció és entitás a központi állapottárban (.state.json, .config.json) él, atomikus ideiglenes fájlos átnevezéssel (rename) mentve.
-2. Ágensek, Al-ágensek & Hierarchia: Induláskor csak a felhasználó által létrehozott első ágens és az állandó Felügyelő Auditor fut. Tetszőleges mélységű hierarchia, ágensenkénti dedikált Telegram bot és napi költségkeret.
+2. Ágensek, Al-ágensek & Tanács: Induláskor csak a felhasználó által létrehozott ágensek és az állandó Felügyelő Auditor fut. Párhuzamos eszközlánc, Konzilium mód, időablak és sebességkorlát támogatva.
 3. Session Izoláció & Jogosultsági Kapu: A fő szál (main_host) gazdagép-hozzáférést kaphat az assertHostPermission kapun át; minden másodlagos/külső szál (sandboxed) automatikusan izolált sandboxban fut.
 4. AI Gateway Proxy (/v1/*): OpenAI-kompatibilis /v1/chat/completions (SSE stream & auto routing), /v1/models, /v1/embeddings, Virtuális Kulcsok (budget + RPM), LRU válasz-cache, Guardrail védelem és kulcs-cooldown rotáció.
-5. Rétegzett Hibrid Memória & Álmodás: Hot/Warm/Cold/Shared rétegek, salience decay, RRF hibrid keresés, PreCompact kontextus-mentés, Tudásgráf és Obsidian vault + 3 fázisú Álmodás.
-6. Ötletláda, Rich Kanban, Föderáció & Uptime: Impact×Effort ötletpontozás, AI feladatbontás, WIP limit & kártya-öregedés, több példányos Föderáció és Two-Strikes Uptime Monitor.`;
+5. Rétegzett Hibrid Memória & Álmodás: Hot/Warm/Cold/Shared rétegek, salience decay, RRF hibrid keresés, ellentmondás-feloldás, RAG dokumentumok, Markdown Wiki és 3 fázisú Álmodás + Reflexion.
+6. Ökoszisztéma & Host Üzemeltetés: Gazdag Kanban (függőségek, izolált git branch), Munkafolyamatok, Webhookok, RSS/Email/Naptár, Okosotthon (HA/MQTT), Docker/Systemd/SSH Flotta és GitHub OTA frissítés.`;
+
+/** M23: Check per-agent active hours & hourly run rate limits */
+export function isAgentScheduleAndRateAllowed(agent: Agent, now = new Date()): { allowed: boolean; reason?: string } {
+  if (typeof agent.activeHoursStart === 'number' && typeof agent.activeHoursEnd === 'number') {
+    const h = now.getHours();
+    const start = agent.activeHoursStart;
+    const end = agent.activeHoursEnd;
+    const inWindow = start <= end ? h >= start && h < end : h >= start || h < end;
+    if (!inWindow) {
+      return { allowed: false, reason: `Csendes órák (${start}:00–${end}:00 között aktív csak)` };
+    }
+  }
+  if (typeof agent.maxRunsPerHour === 'number' && agent.maxRunsPerHour > 0) {
+    const cutoff = now.getTime() - 3_600_000;
+    const recentCount = (agent.runTimestamps || []).filter((ts) => Date.parse(ts) >= cutoff).length;
+    if (recentCount >= agent.maxRunsPerHour) {
+      return { allowed: false, reason: `Óránkénti futtatási limit elérve (${recentCount}/${agent.maxRunsPerHour})` };
+    }
+  }
+  return { allowed: true };
+}
+
+function recordAgentRunTimestamp(agentId: string): void {
+  const cutoff = Date.now() - 3_600_000;
+  const nowIso = new Date().toISOString();
+  updateState((s) => {
+    const ag = s.agents.find((a) => a.id === agentId);
+    if (!ag) return;
+    ag.runTimestamps = [...(ag.runTimestamps || []).filter((t) => Date.parse(t) >= cutoff), nowIso];
+  });
+}
 
 export function buildDynamicAgentSystemPrompt(
   agent: Agent,
@@ -49,9 +87,11 @@ export function buildDynamicAgentSystemPrompt(
     .join('\n');
 
   const skillsIndex = buildProgressiveSkillsIndex();
-  const mcpSummary = state.mcpServers
-    .map((m) => `- ${m.id}: ${m.name} (${m.status})`)
-    .join('\n');
+  const allowedMcps =
+    agent.allowedMcpIds && agent.allowedMcpIds.length > 0
+      ? state.mcpServers.filter((m) => agent.allowedMcpIds!.includes(m.id))
+      : state.mcpServers;
+  const mcpSummary = allowedMcps.map((m) => `- ${m.id}: ${m.name} (${m.transport || 'http'}, ${m.status})`).join('\n');
 
   return [
     `Te vagy ${agent.name}, szerepköröd: ${agent.role}.`,
@@ -65,7 +105,7 @@ export function buildDynamicAgentSystemPrompt(
     activeRoster
       ? `Aktuális csapattagok (valós, dinamikus lista):\n${activeRoster}`
       : 'Jelenleg te vagy az egyetlen aktív felhasználói ágens a csapatban.',
-    mcpSummary ? `Regisztrált MCP szerverek:\n${mcpSummary}` : '',
+    mcpSummary ? `Elérhető MCP szerverek:\n${mcpSummary}` : '',
     memories ? `Kapcsolódó tartós memóriák:\n${memories}` : '',
     skillsIndex ? `Elérhető ellenőrzött skillek (progressive disclosure):\n${skillsIndex}` : '',
     AGENT_TOOLS_INSTRUCTION,
@@ -223,15 +263,18 @@ export function resolveTargetAgent(prompt: string, explicitAgentId?: string | nu
 }
 
 /**
- * Multi-step bounded tool-calling loop for an agent.
+ * Multi-step bounded tool-calling loop with parallel tool execution (M2 & M3),
+ * execution presets (M4), and optional streaming delta callback (M1).
  */
 export async function runAgentWithTools(params: {
   agent: Agent;
   prompt: string;
   complexity: 'simple' | 'complex';
+  preset?: ExecutionPreset;
   isolationMode: SessionIsolationMode;
   images?: InlineMediaInput[];
   maxSteps?: number;
+  onStreamDelta?: (delta: string) => void;
   routerDeps?: RouterDependencies;
 }): Promise<{
   text: string;
@@ -239,52 +282,72 @@ export async function runAgentWithTools(params: {
   provider: Agent['providerId'];
   costUsd: number;
   toolTrace: ToolExecutionStep[];
+  artifactIds: string[];
 }> {
+  const state = getState();
   const systemInstruction = buildDynamicAgentSystemPrompt(params.agent, params.isolationMode);
-  const maxSteps = params.maxSteps ?? 4;
+  const maxSteps = Math.max(1, Math.min(20, params.maxSteps ?? state.settings.maxToolSteps ?? 12));
+  const preset = params.preset ?? state.settings.defaultPreset ?? 'fast';
   const toolTrace: ToolExecutionStep[] = [];
+  const artifactIds: string[] = [];
   let runningPrompt = params.prompt;
   let totalCost = 0;
   let lastModel = params.agent.modelId;
   let lastProvider = params.agent.providerId;
 
   for (let step = 0; step < maxSteps; step++) {
-    const res = await invokeWithFailover(
-      {
-        prompt: runningPrompt,
-        systemInstruction,
-        complexity: params.complexity,
-        preferredProvider: params.agent.providerId,
-        preferredModel: params.agent.modelId,
-        agentId: params.agent.id,
-        images: step === 0 ? params.images : undefined,
-        bypassCache: toolTrace.length > 0 || Boolean(params.images?.length),
-      },
-      params.routerDeps
-    );
+    const invokeReq = {
+      prompt: runningPrompt,
+      systemInstruction,
+      complexity: preset === 'deep' ? ('complex' as const) : params.complexity,
+      preset,
+      preferredProvider: params.agent.providerId,
+      preferredModel: params.agent.modelId,
+      agentId: params.agent.id,
+      images: step === 0 ? params.images : undefined,
+      bypassCache: toolTrace.length > 0 || Boolean(params.images?.length),
+    };
+
+    const res = params.onStreamDelta
+      ? await invokeStreamWithFailover(invokeReq, params.onStreamDelta, params.routerDeps)
+      : await invokeWithFailover(invokeReq, params.routerDeps);
+
     totalCost = Number((totalCost + res.costUsd).toFixed(6));
     lastModel = res.model;
     lastProvider = res.provider;
 
-    const call = parseToolCallFromResponse(res.text);
-    if (!call) {
+    const calls = parseAllToolCallsFromResponse(res.text);
+    if (calls.length === 0) {
       return {
         text: res.text,
         model: lastModel,
         provider: lastProvider,
         costUsd: totalCost,
         toolTrace,
+        artifactIds,
       };
     }
 
-    const execOutcome = await executeAgentTool({
-      agent: params.agent,
-      toolName: call.name,
-      args: call.args,
-      isolationMode: params.isolationMode,
-    });
-    toolTrace.push(execOutcome.step);
-    runningPrompt = `${runningPrompt}\n\n[Eszköz hívás #${step + 1}: ${call.name}]\n[Eredmény]:\n${execOutcome.observation}\n\nFolytasd a feladatot vagy adj végleges választ a felhasználónak.`;
+    const outcomes = await Promise.all(
+      calls.map((c) =>
+        executeAgentTool({
+          agent: params.agent,
+          toolName: c.name,
+          args: c.args,
+          isolationMode: params.isolationMode,
+        })
+      )
+    );
+
+    const obsBlocks: string[] = [];
+    for (let idx = 0; idx < outcomes.length; idx++) {
+      const outcome = outcomes[idx];
+      toolTrace.push(outcome.step);
+      if (outcome.createdArtifactId) artifactIds.push(outcome.createdArtifactId);
+      obsBlocks.push(`[Eszköz hívás #${step + 1}.${idx + 1}: ${calls[idx].name}]\n[Eredmény]:\n${outcome.observation}`);
+    }
+
+    runningPrompt = `${runningPrompt}\n\n${obsBlocks.join('\n\n')}\n\nFolytasd a feladatot vagy adj végleges választ a felhasználónak.`;
   }
 
   return {
@@ -293,19 +356,22 @@ export async function runAgentWithTools(params: {
     provider: lastProvider,
     costUsd: totalCost,
     toolTrace,
+    artifactIds,
   };
 }
 
 /**
  * Processes an explicit user message (Web UI, Telegram, Discord, Slack, Webhook, Federation)
- * with priority over autonomous tasks, session isolation, PreCompact hook, tool loop, and delegation.
+ * with priority over autonomous tasks, session isolation, PreCompact hook, tool loop, streaming, and delegation.
  */
 export async function handleUserTurn(params: {
   threadId: string;
   content: string;
   channel: UnifiedMessage['channel'];
   targetAgentId?: string | null;
+  preset?: ExecutionPreset;
   attachments?: MessageAttachment[];
+  onStreamDelta?: (delta: string) => void;
   routerDeps?: RouterDependencies;
 }): Promise<{
   userMessage: UnifiedMessage;
@@ -332,7 +398,6 @@ export async function handleUserTurn(params: {
     attachments: params.attachments,
   });
 
-  // PreCompact hook: safeguard decisions before thread grows long
   preCompactThreadMemory(params.threadId);
 
   updateState((s) => {
@@ -359,6 +424,23 @@ export async function handleUserTurn(params: {
     return { userMessage, agentMessages: [], coordinatorReply: sysReply };
   }
 
+  // Enforce schedule & rate guard for automated non-interactive channels
+  if (params.channel !== 'web') {
+    const sched = isAgentScheduleAndRateAllowed(targetAgent);
+    if (!sched.allowed) {
+      const blockedReply = appendUnifiedMessage({
+        threadId: params.threadId,
+        senderType: 'system',
+        senderId: targetAgent.id,
+        senderName: targetAgent.name,
+        channel: params.channel,
+        content: `Ütemezési korlát miatt kihagyva: ${sched.reason}`,
+      });
+      return { userMessage, agentMessages: [], coordinatorReply: blockedReply };
+    }
+  }
+  recordAgentRunTimestamp(targetAgent.id);
+
   updateState((s) => {
     s.activeExplicitTaskAgentId = targetAgent.id;
   });
@@ -384,7 +466,7 @@ export async function handleUserTurn(params: {
         agent: delegate,
         prompt: delegationPrompt,
         complexity: 'simple',
-        // Subagents default to sandboxed isolation
+        preset: params.preset,
         isolationMode: 'sandboxed',
         maxSteps: 2,
         routerDeps: params.routerDeps,
@@ -401,6 +483,7 @@ export async function handleUserTurn(params: {
         providerUsed: subRes.provider,
         costUsd: subRes.costUsd,
         toolTrace: subRes.toolTrace,
+        artifactIds: subRes.artifactIds,
       });
       agentMessages.push(subMsg);
       delegatedContext = `\n\nBeérkezett belső delegálási jelentés (${delegate.name}):\n${subRes.text}`;
@@ -426,15 +509,17 @@ export async function handleUserTurn(params: {
   let providerUsed = targetAgent.providerId;
   let costUsd = 0;
   let toolTrace: ToolExecutionStep[] = [];
+  let artifactIds: string[] = [];
 
   try {
     const res = await runAgentWithTools({
       agent: targetAgent,
       prompt: fullPrompt,
       complexity: isComplex ? 'complex' : 'simple',
+      preset: params.preset,
       isolationMode,
       images: imageInputs.length > 0 ? imageInputs : undefined,
-      maxSteps: 4,
+      onStreamDelta: params.onStreamDelta,
       routerDeps: params.routerDeps,
     });
     replyText = res.text;
@@ -442,6 +527,7 @@ export async function handleUserTurn(params: {
     providerUsed = res.provider;
     costUsd = res.costUsd;
     toolTrace = res.toolTrace;
+    artifactIds = res.artifactIds;
   } catch (err) {
     replyText = `Hiba a modellhívás közben (valós failover lánc eredmény): ${err instanceof Error ? err.message : String(err)}`;
   }
@@ -457,6 +543,7 @@ export async function handleUserTurn(params: {
     providerUsed,
     costUsd,
     toolTrace,
+    artifactIds: artifactIds.length > 0 ? artifactIds : undefined,
   });
 
   updateState((s) => {
@@ -466,6 +553,111 @@ export async function handleUserTurn(params: {
   auditRecentCycle();
 
   return { userMessage, agentMessages, coordinatorReply };
+}
+
+/**
+ * Ú21: Multi-Agent Council Consensus Mode
+ * Queries up to 3 active specialist agents in parallel, then synthesizes consensus.
+ */
+export async function handleCouncilTurn(params: {
+  threadId: string;
+  content: string;
+  preset?: ExecutionPreset;
+  routerDeps?: RouterDependencies;
+}): Promise<{
+  userMessage: UnifiedMessage;
+  opinions: UnifiedMessage[];
+  consensusReply: UnifiedMessage;
+}> {
+  const state = getState();
+  if (state.settings.killSwitchActive) {
+    throw new Error('A Vészleállító aktív.');
+  }
+  const activeAgents = state.agents.filter((a) => !a.isSupervisor && a.active).slice(0, 3);
+  const userMessage = appendUnifiedMessage({
+    threadId: params.threadId,
+    senderType: 'user',
+    senderId: 'user',
+    senderName: 'Felhasználó (Konzilium)',
+    channel: 'web',
+    content: params.content,
+  });
+
+  if (activeAgents.length === 0) {
+    const emptyReply = appendUnifiedMessage({
+      threadId: params.threadId,
+      senderType: 'system',
+      senderId: 'council',
+      senderName: 'Konzilium',
+      channel: 'web',
+      content: 'Nincs aktív felhasználói ágens a tanácskozáshoz.',
+    });
+    return { userMessage, opinions: [], consensusReply: emptyReply };
+  }
+
+  const results = await Promise.all(
+    activeAgents.map(async (ag) => {
+      const res = await runAgentWithTools({
+        agent: ag,
+        prompt: `Konzilium szakértői véleménykérés (szerepköröd: ${ag.role}):\n${params.content}\n\nAdj tömör, határozott állásfoglalást a saját szakterületed szemszögéből!`,
+        complexity: 'simple',
+        preset: params.preset || 'deep',
+        isolationMode: 'sandboxed',
+        maxSteps: 2,
+        routerDeps: params.routerDeps,
+      });
+      return { ag, res };
+    })
+  );
+
+  const opinions: UnifiedMessage[] = [];
+  for (const { ag, res } of results) {
+    opinions.push(
+      appendUnifiedMessage({
+        threadId: params.threadId,
+        senderType: 'agent',
+        senderId: ag.id,
+        senderName: `${ag.name} (${ag.role})`,
+        channel: 'swarm_internal',
+        content: res.text,
+        modelUsed: res.model,
+        providerUsed: res.provider,
+        costUsd: res.costUsd,
+        toolTrace: res.toolTrace,
+      })
+    );
+  }
+
+  const lead = activeAgents[0];
+  const synthesisPrompt = `Összegezd az alábbi ${results.length} specialista véleményét egyetlen közös, cselekvési konszenzusba magyarul:\n\nKérdés: ${params.content}\n\n${results
+    .map((r) => `### ${r.ag.name} (${r.ag.role}):\n${r.res.text}`)
+    .join('\n\n')}`;
+
+  const synth = await invokeWithFailover(
+    {
+      prompt: synthesisPrompt,
+      complexity: 'complex',
+      preset: params.preset || 'deep',
+      preferredProvider: lead.providerId,
+      preferredModel: lead.modelId,
+      agentId: lead.id,
+    },
+    params.routerDeps
+  );
+
+  const consensusReply = appendUnifiedMessage({
+    threadId: params.threadId,
+    senderType: 'agent',
+    senderId: lead.id,
+    senderName: `Konzilium Konszenzus (${lead.name})`,
+    channel: 'web',
+    content: synth.text,
+    modelUsed: synth.model,
+    providerUsed: synth.provider,
+    costUsd: synth.costUsd,
+  });
+
+  return { userMessage, opinions, consensusReply };
 }
 
 /** Kanban AI Auto-Breakdown */
@@ -536,6 +728,10 @@ export function createAgent(input: {
   hostExecutionEnabled?: boolean;
   dailyBudgetUsd?: number;
   voiceReplyMode?: Agent['voiceReplyMode'];
+  allowedMcpIds?: string[];
+  activeHoursStart?: number;
+  activeHoursEnd?: number;
+  maxRunsPerHour?: number;
 }): Agent {
   const now = new Date().toISOString();
   const state = getState();
@@ -559,6 +755,11 @@ export function createAgent(input: {
     dailyBudgetUsd: input.dailyBudgetUsd ?? 0,
     dailySpendUsd: 0,
     voiceReplyMode: input.voiceReplyMode ?? 'off',
+    allowedMcpIds: input.allowedMcpIds,
+    activeHoursStart: input.activeHoursStart,
+    activeHoursEnd: input.activeHoursEnd,
+    maxRunsPerHour: input.maxRunsPerHour,
+    runTimestamps: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -586,10 +787,8 @@ const KANBAN_PRIO_WEIGHT: Record<string, number> = {
 };
 
 /**
- * Autonomous Kanban Backlog Worker:
- * Picks up the highest-priority 'todo' card when idle (no explicit user task running),
- * moves it to 'in_progress', executes it via the assigned agent (sandboxed), completes subtasks,
- * and marks it 'done' cleanly.
+ * M16 + M17 + M23: Autonomous Kanban Backlog Worker respecting `blockedBy` dependencies,
+ * isolated `gitBranch` binding, and agent active schedule/rate limits.
  */
 export async function runAutonomousKanbanWorkerTick(
   routerDeps?: RouterDependencies
@@ -602,9 +801,11 @@ export async function runAutonomousKanbanWorkerTick(
     return { worked: false, reason: 'Aktív felhasználói kérés élvez elsőbbséget.' };
   }
 
-  const activeAgents = state.agents.filter((a) => a.active && !a.isSupervisor);
+  const activeAgents = state.agents.filter(
+    (a) => a.active && !a.isSupervisor && isAgentScheduleAndRateAllowed(a).allowed
+  );
   if (activeAgents.length === 0) {
-    return { worked: false, reason: 'Nincs aktív felhasználói ágens.' };
+    return { worked: false, reason: 'Nincs aktív, időablakon belüli felhasználói ágens.' };
   }
 
   const wipCount = state.kanban.filter((c) => !c.archived && c.status === 'in_progress').length;
@@ -612,17 +813,34 @@ export async function runAutonomousKanbanWorkerTick(
     return { worked: false, reason: `WIP limit elérve (${wipCount}/${state.settings.kanbanWipLimit}).` };
   }
 
+  const doneIds = new Set(state.kanban.filter((c) => c.status === 'done').map((c) => c.id));
   const todoCards = state.kanban
-    .filter((c) => !c.archived && c.status === 'todo')
+    .filter((c) => {
+      if (c.archived || c.status !== 'todo') return false;
+      if (c.blockedBy && c.blockedBy.length > 0) {
+        return c.blockedBy.every((depId) => doneIds.has(depId));
+      }
+      return true;
+    })
     .sort((a, b) => (KANBAN_PRIO_WEIGHT[b.priority || 'medium'] ?? 2) - (KANBAN_PRIO_WEIGHT[a.priority || 'medium'] ?? 2));
 
   if (todoCards.length === 0) {
-    return { worked: false, reason: 'Nincs várakozó (todo) Kanban kártya.' };
+    return { worked: false, reason: 'Nincs feloldott várakozó (todo) Kanban kártya.' };
   }
 
   const card = todoCards[0];
   const worker =
     (card.assignedAgentId && activeAgents.find((a) => a.id === card.assignedAgentId)) || activeAgents[0];
+
+  recordAgentRunTimestamp(worker.id);
+
+  if (card.gitBranch) {
+    try {
+      ensureKanbanGitBranch(card.id);
+    } catch {
+      // ignore if repo unavailable
+    }
+  }
 
   const now = new Date().toISOString();
   updateState((s) => {
@@ -650,6 +868,7 @@ export async function runAutonomousKanbanWorkerTick(
   const prompt = [
     `Autonóm Kanban háttér-végrehajtás (feladat: ${card.title}):`,
     card.description ? `Leírás: ${card.description}` : '',
+    card.gitBranch ? `Git branch: ${card.gitBranch}` : '',
     subtaskText ? `Nyitott részfeladatok:\n${subtaskText}` : '',
     `Dolgozd fel a feladatot röviden, tényszerűen, és ha kész, foglald össze az elvégzett lépéseket.`,
   ]

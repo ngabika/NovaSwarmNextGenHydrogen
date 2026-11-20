@@ -5,12 +5,15 @@ import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { runAutonomousKanbanWorkerTick } from './server/agents/engine';
+import { executeWorkflow, triggerCustomWebhook } from './server/automation/workflowsAndProductivity';
+import { pollExternalChannels } from './server/channels/connectors';
 import { runDreamingCycle } from './server/dreaming/engine';
 import { createOpenAiProxyRouter } from './server/gateway/openaiProxy';
 import { discoverModels } from './server/providers/router';
 import { createApiRouter } from './server/routes/api';
 import { isWsUpgradeAuthorized } from './server/security/auth';
-import { getState } from './server/state/store';
+import { expireStaleApprovals } from './server/security/permissionGate';
+import { getState, updateState } from './server/state/store';
 import {
   applyOtaUpdate,
   checkOtaUpdates,
@@ -126,6 +129,18 @@ async function bootstrap() {
   // Mount OpenAI-compatible AI Gateway Proxy (/v1/models, /v1/chat/completions, /v1/embeddings)
   app.use('/v1', createOpenAiProxyRouter(broadcastEvent));
 
+  // Mount Custom Incoming Webhooks (/hooks/:slug)
+  app.post('/hooks/:slug', async (req, res) => {
+    try {
+      const secret = req.header('x-webhook-secret') || req.query.secret?.toString();
+      const out = await triggerCustomWebhook(req.params.slug, secret, req.body);
+      broadcastEvent('state:updated');
+      res.status(out.ok ? 200 : 403).json(out);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // Mount NovaSwarm Control Plane API routes
   app.use('/api', createApiRouter(broadcastEvent));
 
@@ -223,6 +238,56 @@ async function bootstrap() {
       }
     });
   }, 15 * 60 * 1000);
+
+  // M21 Approval Expiry + Ú8 Calendar Reminders + Ú17 Periodic Workflows (every 60s)
+  setInterval(() => {
+    let changed = false;
+    const expired = expireStaleApprovals();
+    if (expired > 0) changed = true;
+
+    const s = getState();
+    const nowMs = Date.now();
+    for (const ev of s.calendarEvents) {
+      if (ev.triggered) continue;
+      const startMs = Date.parse(ev.startAt);
+      if (!Number.isFinite(startMs)) continue;
+      const leadMs = Math.max(0, ev.reminderMinutes || 0) * 60_000;
+      if (nowMs >= startMs - leadMs && nowMs <= startMs + 3_600_000) {
+        updateState((draft) => {
+          const ref = draft.calendarEvents.find((x) => x.id === ev.id);
+          if (ref) ref.triggered = true;
+        });
+        broadcastEvent('reminder:alert', ev);
+        void sendTelegramMessage(`Emlékeztető: ${ev.title} (${new Date(ev.startAt).toLocaleString()})`);
+        changed = true;
+      }
+    }
+
+    if (!s.settings.killSwitchActive && s.settings.onboardingCompleted) {
+      for (const wf of s.workflows) {
+        if (!wf.enabled || wf.triggerType !== 'cron') continue;
+        const everyMins = Number(wf.triggerConfig);
+        if (Number.isFinite(everyMins) && everyMins > 0) {
+          const lastMs = wf.lastRunAt ? Date.parse(wf.lastRunAt) : 0;
+          if (nowMs - lastMs >= everyMins * 60_000) {
+            void executeWorkflow(wf.id).then(() => broadcastEvent('state:updated'));
+          }
+        }
+      }
+    }
+
+    if (changed) broadcastEvent('state:updated');
+  }, 60_000);
+
+  // M18 Bidirectional Discord/Slack Polling (every 30s)
+  setInterval(() => {
+    const s = getState();
+    if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
+    if (!s.channelConnectors.some((c) => c.enabled && c.pollingEnabled)) return;
+    void pollExternalChannels().then((r) => {
+      if (r.processed > 0) broadcastEvent('state:updated');
+    });
+  }, 30_000);
 
   server.on('error', (err) => {
     console.error(`NovaSwarm HTTP szerver hiba (port ${PORT}):`, err);

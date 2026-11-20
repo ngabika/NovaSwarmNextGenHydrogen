@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { KeyRound, OctagonAlert, Save } from 'lucide-react';
-import type { LanguageCode, Settings } from '../../shared/types';
+import type { ExecutionPreset, LanguageCode, Settings } from '../../shared/types';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
 export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshState }) => {
   const [form, setForm] = useState<Settings>(settings);
   const [telegramToken, setTelegramToken] = useState('');
+  const [braveSearchKey, setBraveSearchKey] = useState('');
+  const [homeAssistantToken, setHomeAssistantToken] = useState('');
   const [operatorPassword, setOperatorPassword] = useState('');
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -28,10 +30,14 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
         body: JSON.stringify({
           ...form,
           telegramToken: telegramToken.trim() || undefined,
+          braveSearchKey: braveSearchKey.trim() || undefined,
+          homeAssistantToken: homeAssistantToken.trim() || undefined,
         }),
       });
       if (res.ok) {
         setTelegramToken('');
+        setBraveSearchKey('');
+        setHomeAssistantToken('');
         setSavedMsg('Beállítások mentve és azonnal érvényesítve.');
         await onRefreshState();
       }
@@ -143,6 +149,37 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
+            <label htmlFor="set-preset" className="block text-xs font-medium text-slate-700 mb-1">
+              Alapértelmezett Végrehajtási Mód (Preset)
+            </label>
+            <select
+              id="set-preset"
+              value={form.defaultPreset || 'fast'}
+              onChange={(e) => setForm({ ...form, defaultPreset: e.target.value as ExecutionPreset })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="fast">Gyors (Fast)</option>
+              <option value="deep">Mély kutatás (Deep)</option>
+              <option value="precise">Precíziós (Precise)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="set-tool-steps" className="block text-xs font-medium text-slate-700 mb-1">
+              Maximális Eszközlánc Mélység (ReAct lépések)
+            </label>
+            <input
+              id="set-tool-steps"
+              type="number"
+              min="1"
+              max="12"
+              value={form.maxToolSteps || 6}
+              onChange={(e) => setForm({ ...form, maxToolSteps: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
             <label htmlFor="set-budget" className="block text-xs font-medium text-slate-700 mb-1">
               Globális Napi Költséglimit (USD)
             </label>
@@ -153,6 +190,21 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               min="0"
               value={form.dailyCostLimitUsd}
               onChange={(e) => setForm({ ...form, dailyCostLimitUsd: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-monthly-alert" className="block text-xs font-medium text-slate-700 mb-1">
+              Havi Várható Költség Riasztás (USD)
+            </label>
+            <input
+              id="set-monthly-alert"
+              type="number"
+              step="1"
+              min="0"
+              value={form.monthlyBudgetAlertUsd || 25}
+              onChange={(e) => setForm({ ...form, monthlyBudgetAlertUsd: Number(e.target.value) })}
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
@@ -224,6 +276,34 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
+            <label htmlFor="set-ollama-ctx" className="block text-xs font-medium text-slate-700 mb-1">
+              Ollama Kontextus Méret (num_ctx)
+            </label>
+            <input
+              id="set-ollama-ctx"
+              type="number"
+              step="256"
+              min="512"
+              value={form.ollamaNumCtx || 2048}
+              onChange={(e) => setForm({ ...form, ollamaNumCtx: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-ollama-ka" className="block text-xs font-medium text-slate-700 mb-1">
+              Ollama Keep Alive (pl. 10m, 0)
+            </label>
+            <input
+              id="set-ollama-ka"
+              type="text"
+              value={form.ollamaKeepAlive || '10m'}
+              onChange={(e) => setForm({ ...form, ollamaKeepAlive: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
             <label htmlFor="set-tg-chat" className="block text-xs font-medium text-slate-700 mb-1">
               Telegram Chat / Csoport ID
             </label>
@@ -247,6 +327,120 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               onChange={(e) => setTelegramToken(e.target.value)}
               placeholder="Új token megadása..."
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-search-prov" className="block text-xs font-medium text-slate-700 mb-1">
+              Web Keresőmotor
+            </label>
+            <select
+              id="set-search-prov"
+              value={form.searchProvider || 'duckduckgo'}
+              onChange={(e) =>
+                setForm({ ...form, searchProvider: e.target.value as Settings['searchProvider'] })
+              }
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="duckduckgo">DuckDuckGo (Kulcs nélküli)</option>
+              <option value="searxng">Lokális SearXNG</option>
+              <option value="brave">Brave Search API</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="set-searx" className="block text-xs font-medium text-slate-700 mb-1">
+              SearXNG URL / Brave Search Kulcs {settings.braveHasKey ? '(Brave mentve)' : ''}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                id="set-searx"
+                type="text"
+                value={form.searxngUrl || ''}
+                onChange={(e) => setForm({ ...form, searxngUrl: e.target.value })}
+                placeholder="http://localhost:8080"
+                className="px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+              />
+              <input
+                type="password"
+                value={braveSearchKey}
+                onChange={(e) => setBraveSearchKey(e.target.value)}
+                placeholder="Brave API Key..."
+                className="px-2.5 py-2 text-xs border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="set-ha-url" className="block text-xs font-medium text-slate-700 mb-1">
+              Home Assistant URL & Token {settings.homeAssistantHasToken ? '(mentve)' : ''}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                id="set-ha-url"
+                type="text"
+                value={form.homeAssistantUrl || ''}
+                onChange={(e) => setForm({ ...form, homeAssistantUrl: e.target.value })}
+                placeholder="http://homeassistant.local:8123"
+                className="px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+              />
+              <input
+                type="password"
+                value={homeAssistantToken}
+                onChange={(e) => setHomeAssistantToken(e.target.value)}
+                placeholder="Long-lived Token"
+                className="px-2.5 py-2 text-xs border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="set-mqtt" className="block text-xs font-medium text-slate-700 mb-1">
+              MQTT Broker Host & Port
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                id="set-mqtt"
+                type="text"
+                value={form.mqttBrokerHost || ''}
+                onChange={(e) => setForm({ ...form, mqttBrokerHost: e.target.value })}
+                placeholder="192.168.1.10"
+                className="col-span-2 px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+              />
+              <input
+                type="number"
+                value={form.mqttBrokerPort || 1883}
+                onChange={(e) => setForm({ ...form, mqttBrokerPort: Number(e.target.value) })}
+                className="px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="set-rsync" className="block text-xs font-medium text-slate-700 mb-1">
+              Külső Rsync / NAS Mentési Célmappa
+            </label>
+            <input
+              id="set-rsync"
+              type="text"
+              value={form.backupRsyncTarget || ''}
+              onChange={(e) => setForm({ ...form, backupRsyncTarget: e.target.value })}
+              placeholder="/mnt/usb/novaswarm-backup"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-caldav" className="block text-xs font-medium text-slate-700 mb-1">
+              CalDAV Naptár URL (opcionális)
+            </label>
+            <input
+              id="set-caldav"
+              type="text"
+              value={form.caldavUrl || ''}
+              onChange={(e) => setForm({ ...form, caldavUrl: e.target.value })}
+              placeholder="https://nextcloud.local/remote.php/dav"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
 
@@ -306,50 +500,6 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-cache-ttl" className="block text-xs font-medium text-slate-700 mb-1">
-              Gateway Cache TTL (másodperc)
-            </label>
-            <input
-              id="set-cache-ttl"
-              type="number"
-              min="10"
-              value={form.responseCacheTtlSec}
-              onChange={(e) => setForm({ ...form, responseCacheTtlSec: Number(e.target.value) })}
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 mb-1">
-              Memória Embedding Mód
-            </label>
-            <select
-              id="set-emb-mode"
-              value={form.embeddingMode || 'local_ngram'}
-              onChange={(e) =>
-                setForm({ ...form, embeddingMode: e.target.value as Settings['embeddingMode'] })
-              }
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-            >
-              <option value="local_ngram">Helyi n-gram + BM25 (Offline gyors)</option>
-              <option value="ollama">Ollama Neurális Embedding (nomic-embed-text)</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 mb-1">
-              Ollama Embedding Modell
-            </label>
-            <input
-              id="set-emb-model"
-              type="text"
-              value={form.ollamaEmbeddingModel || 'nomic-embed-text'}
-              onChange={(e) => setForm({ ...form, ollamaEmbeddingModel: e.target.value })}
-              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-            />
-          </div>
-
-          <div>
             <label htmlFor="set-ota-repo" className="block text-xs font-medium text-slate-700 mb-1">
               GitHub OTA Repository (owner/repo)
             </label>
@@ -373,6 +523,36 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               max="168"
               value={form.autoUpdateCheckHours || 6}
               onChange={(e) => setForm({ ...form, autoUpdateCheckHours: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 mb-1">
+              Memória Embedding Mód
+            </label>
+            <select
+              id="set-emb-mode"
+              value={form.embeddingMode || 'local_ngram'}
+              onChange={(e) =>
+                setForm({ ...form, embeddingMode: e.target.value as Settings['embeddingMode'] })
+              }
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+            >
+              <option value="local_ngram">Helyi n-gram + BM25 (Offline gyors)</option>
+              <option value="ollama">Ollama Neurális Embedding</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 mb-1">
+              Ollama Embedding Modell
+            </label>
+            <input
+              id="set-emb-model"
+              type="text"
+              value={form.ollamaEmbeddingModel || 'nomic-embed-text'}
+              onChange={(e) => setForm({ ...form, ollamaEmbeddingModel: e.target.value })}
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
@@ -454,6 +634,14 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
               type="checkbox"
+              checked={Boolean(form.continuousVoiceMode)}
+              onChange={(e) => setForm({ ...form, continuousVoiceMode: e.target.checked })}
+            />
+            <span>Folyamatos kézmentes hangmód alapértelmezett (TTS után automatikus hallgatás)</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
               checked={form.ttsHostSpeakerEnabled}
               onChange={(e) => setForm({ ...form, ttsHostSpeakerEnabled: e.target.checked })}
             />
@@ -517,14 +705,14 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
         </div>
       </div>
 
-      {/* Intentionally unobtrusive Emergency Kill Switch at the bottom of Settings (Section 8.4 & 15.4) */}
+      {/* Emergency Kill Switch */}
       <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between bg-slate-50">
         <div className="text-xs text-slate-600">
           <span className="font-semibold text-slate-800">{tr(language, 'killSwitchTitle')}</span> — vészhelyzetben minden ágens-folyamat és MCP szerver azonnali leállítása (Telegram: <span className="font-mono">/stop</span>).
         </div>
         <button
           type="button"
-          onClick={handleToggleKillSwitch}
+          onClick={() => void handleToggleKillSwitch()}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border whitespace-nowrap shrink-0 ${
             settings.killSwitchActive
               ? 'bg-emerald-700 text-white border-emerald-700'

@@ -238,6 +238,42 @@ async function downloadTelegramFileBase64(
   }
 }
 
+export function buildTelegramStatusInlineKeyboard() {
+  return [
+    [
+      { text: 'Állapot frissítése', callback_data: '/statusz' },
+      { text: 'Kanban tábla', callback_data: '/kanban' },
+    ],
+    [
+      { text: 'Memória', callback_data: '/memoria' },
+      { text: 'Vészleállító', callback_data: '/stop' },
+    ],
+  ];
+}
+
+export function buildApprovalInlineKeyboard(approvalId: string) {
+  const shortId = approvalId.slice(0, 8);
+  return [
+    [
+      { text: 'Jóváhagyás', callback_data: `/approve ${shortId}` },
+      { text: 'Elutasítás', callback_data: `/elutasit ${shortId}` },
+    ],
+  ];
+}
+
+async function answerTelegramCallbackQuery(token: string, callbackQueryId: string, text?: string): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text: text?.slice(0, 180) }),
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch {
+    // ignore transient error
+  }
+}
+
 async function pollSingleBot(botKey: string, token: string, forcedAgentId?: string): Promise<void> {
   const offset = botOffsets.get(botKey) ?? 0;
   try {
@@ -328,10 +364,19 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
 
       const incoming = upd.message?.text ?? upd.callback_query?.data;
       if (incoming) {
+        if (upd.callback_query?.id) {
+          void answerTelegramCallbackQuery(token, upd.callback_query.id, 'Parancs feldolgozva');
+        }
         const reply = await processTelegramInput(incoming, forcedAgentId);
+        const trimmedCmd = incoming.trim();
+        const inlineButtons =
+          trimmedCmd === '/statusz' || trimmedCmd === '/status' || trimmedCmd === '/kanban'
+            ? buildTelegramStatusInlineKeyboard()
+            : undefined;
         await sendTelegramMessage(reply, {
           tokenOverride: token,
           chatIdOverride: chatStr,
+          inlineButtons,
         });
       }
     }

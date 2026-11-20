@@ -1,30 +1,40 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   CheckSquare,
+  Code2,
+  FileAudio,
   FolderPlus,
+  GitBranch,
   ImagePlus,
   Lightbulb,
   Mic,
   Play,
   Plus,
   Send,
+  Slash,
   Sparkles,
   Square,
+  StopCircle,
   Trash2,
+  Users,
   Volume2,
+  Wand2,
   X,
 } from 'lucide-react';
 import type {
   Agent,
   ChatThread,
+  ExecutionPreset,
   IdeaItem,
   IdeaStatus,
   KanbanCard,
   KanbanPriority,
   KanbanStatus,
   LanguageCode,
+  MediaArtifact,
   MessageAttachment,
+  PromptTemplate,
   SessionIsolationMode,
   Settings,
   UnifiedMessage,
@@ -38,7 +48,10 @@ interface Props {
   messages: UnifiedMessage[];
   kanban: KanbanCard[];
   ideas: IdeaItem[];
+  promptTemplates: PromptTemplate[];
+  artifacts: MediaArtifact[];
   settings: Settings;
+  externalDraft?: { text: string; nonce: number } | null;
   onRefreshState: () => Promise<void>;
 }
 
@@ -49,29 +62,51 @@ export const SwarmChatView: React.FC<Props> = ({
   messages,
   kanban,
   ideas,
+  promptTemplates,
+  artifacts,
   settings,
+  externalDraft,
   onRefreshState,
 }) => {
   const [selectedThreadId, setSelectedThreadId] = useState<string>(threads[0]?.id || 'thread-main');
   const [viewMode, setViewMode] = useState<'summary' | 'team'>('summary');
-  const [rightTab, setRightTab] = useState<'kanban' | 'ideas'>('kanban');
+  const [rightTab, setRightTab] = useState<'kanban' | 'ideas' | 'artifacts'>('kanban');
   const [targetAgentId, setTargetAgentId] = useState<string>('');
+  const [preset, setPreset] = useState<ExecutionPreset>(settings.defaultPreset || 'fast');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [streamingText, setStreamingText] = useState<string>('');
+  const [councilRunning, setCouncilRunning] = useState(false);
   const [listening, setListening] = useState(false);
+  const [continuousVoice, setContinuousVoice] = useState<boolean>(Boolean(settings.continuousVoiceMode));
   const [usedVoiceInput, setUsedVoiceInput] = useState(false);
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Prompt templates (M10)
+  const [showTplDrawer, setShowTplDrawer] = useState(false);
+  const [tplTitle, setTplTitle] = useState('');
+  const [tplCmd, setTplCmd] = useState('');
+  const [tplBody, setTplBody] = useState('');
+
+  // Media / Image Generation & Artifacts (Ú4, Ú18, Ú20)
+  const [imgBusy, setImgBusy] = useState(false);
+  const [mediaNotice, setMediaNotice] = useState<string | null>(null);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(artifacts[0]?.id || null);
+
+  // Kanban & Worker state
   const [workerRunning, setWorkerRunning] = useState(false);
   const [workerMsg, setWorkerMsg] = useState<string | null>(null);
   const [newThreadTitle, setNewThreadTitle] = useState('');
   const [newThreadFolder, setNewThreadFolder] = useState('Általános');
   const [newThreadIsolation, setNewThreadIsolation] = useState<SessionIsolationMode>('sandboxed');
 
-  // Rich Kanban state
   const [newCardTitle, setNewCardTitle] = useState('');
   const [newCardDesc, setNewCardDesc] = useState('');
   const [newCardPriority, setNewCardPriority] = useState<KanbanPriority>('medium');
+  const [newCardBlockedBy, setNewCardBlockedBy] = useState<string>('');
   const [swimlane, setSwimlane] = useState<'none' | 'priority' | 'assignee'>('none');
   const [showArchived, setShowArchived] = useState(false);
 
@@ -84,6 +119,18 @@ export const SwarmChatView: React.FC<Props> = ({
   const [expandedIdeaId, setExpandedIdeaId] = useState<string | null>(null);
   const [ideaComment, setIdeaComment] = useState('');
 
+  useEffect(() => {
+    if (externalDraft?.text) {
+      setInput(externalDraft.text);
+    }
+  }, [externalDraft]);
+
+  useEffect(() => {
+    if (!selectedArtifactId && artifacts.length > 0) {
+      setSelectedArtifactId(artifacts[0].id);
+    }
+  }, [artifacts, selectedArtifactId]);
+
   const userAgents = useMemo(() => agents.filter((a) => !a.isSupervisor), [agents]);
 
   const threadMessages = useMemo(() => {
@@ -93,6 +140,14 @@ export const SwarmChatView: React.FC<Props> = ({
     }
     return inThread;
   }, [messages, selectedThreadId, viewMode]);
+
+  const slashSuggestions = useMemo(() => {
+    if (!input.startsWith('/')) return [];
+    const q = input.toLowerCase();
+    return promptTemplates.filter(
+      (t) => t.command.toLowerCase().includes(q) || t.title.toLowerCase().includes(q.slice(1))
+    );
+  }, [input, promptTemplates]);
 
   const attachImageFile = (file: File) => {
     if (!file.type.startsWith('image/') || file.size > 6 * 1024 * 1024) return;
@@ -111,6 +166,39 @@ export const SwarmChatView: React.FC<Props> = ({
           name: file.name,
         },
       ]);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAudioUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const commaIdx = result.indexOf(',');
+      if (commaIdx === -1) return;
+      const base64 = result.slice(commaIdx + 1);
+      setMediaNotice('Hanganyag átírása folyamatban...');
+      try {
+        const res = await fetch('/api/media/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mimeType: file.type || 'audio/webm',
+            dataBase64: base64,
+            languageHint: language,
+          }),
+        });
+        const data = (await res.json()) as { text?: string; error?: string };
+        if (data.text) {
+          setInput((prev) => (prev ? `${prev} ${data.text}` : data.text || ''));
+          setUsedVoiceInput(true);
+          setMediaNotice('Hang átírva a szövegmezőbe.');
+        } else {
+          setMediaNotice(data.error || 'Hangátírás sikertelen.');
+        }
+      } catch (err) {
+        setMediaNotice(err instanceof Error ? err.message : 'Hálózati hiba');
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -150,39 +238,160 @@ export const SwarmChatView: React.FC<Props> = ({
     rec.start();
   };
 
-  const handleSend = async (e: React.FormEvent) => {
+  const handleSendStream = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!input.trim() && attachments.length === 0) || sending) return;
     const wasVoice = usedVoiceInput;
     const outboundAttachments = [...attachments];
+    const promptText = input.trim() || 'Elemezd a mellékelt képet.';
     setSending(true);
+    setStreamingText('');
+    setInput('');
+    setAttachments([]);
+    setUsedVoiceInput(false);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const res = await fetch('/api/chat/send', {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          threadId: selectedThreadId,
+          content: promptText,
+          targetAgentId: targetAgentId || null,
+          preset,
+          attachments: outboundAttachments.length > 0 ? outboundAttachments : undefined,
+        }),
+      });
+
+      let replyData: { coordinatorReply?: UnifiedMessage } | null = null;
+      if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = 'message';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const rawLine of lines) {
+            const line = rawLine.trimEnd();
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              const jsonStr = line.slice(5).trim();
+              if (!jsonStr) continue;
+              try {
+                const payload = JSON.parse(jsonStr) as { delta?: string; coordinatorReply?: UnifiedMessage; error?: string };
+                if (currentEvent === 'delta' && payload.delta) {
+                  setStreamingText((prev) => prev + payload.delta);
+                } else if (currentEvent === 'done') {
+                  replyData = payload;
+                } else if (currentEvent === 'error' && payload.error) {
+                  setMediaNotice(`Stream hiba: ${payload.error}`);
+                }
+              } catch {
+                // ignore partial line
+              }
+            }
+          }
+        }
+      }
+
+      setStreamingText('');
+      await onRefreshState();
+
+      const finalText = replyData?.coordinatorReply?.content;
+      if (settings.ttsEnabled && finalText) {
+        const responder = agents.find((a) => a.id === replyData?.coordinatorReply?.senderId);
+        const mode = responder?.voiceReplyMode || 'always';
+        const shouldSpeak = continuousVoice || mode === 'always' || (mode === 'on_voice' && wasVoice);
+        if (shouldSpeak) {
+          speakBrowserTts(finalText, language);
+          if (continuousVoice) {
+            setTimeout(() => handleVoiceDictate(), 900);
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        setMediaNotice(err instanceof Error ? err.message : 'Küldési hiba');
+      }
+    } finally {
+      abortRef.current = null;
+      setSending(false);
+      setStreamingText('');
+    }
+  };
+
+  const handleCouncil = async () => {
+    if (!input.trim() || councilRunning || sending) return;
+    setCouncilRunning(true);
+    setMediaNotice(null);
+    try {
+      const res = await fetch('/api/chat/council', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           threadId: selectedThreadId,
-          content: input.trim() || (outboundAttachments.length > 0 ? 'Elemezd a mellékelt képet.' : ''),
-          targetAgentId: targetAgentId || null,
-          attachments: outboundAttachments.length > 0 ? outboundAttachments : undefined,
+          content: input.trim(),
+          preset,
         }),
       });
-      const data = (await res.json()) as { coordinatorReply?: UnifiedMessage };
-      setInput('');
-      setAttachments([]);
-      setUsedVoiceInput(false);
-      await onRefreshState();
-      if (settings.ttsEnabled && data.coordinatorReply?.content) {
-        const responder = agents.find((a) => a.id === data.coordinatorReply?.senderId);
-        const mode = responder?.voiceReplyMode || 'always';
-        const shouldSpeak = mode === 'always' || (mode === 'on_voice' && wasVoice);
-        if (shouldSpeak) {
-          speakBrowserTts(data.coordinatorReply.content, language);
-        }
+      if (res.ok) {
+        setInput('');
+      } else {
+        const d = (await res.json()) as { error?: string };
+        setMediaNotice(d.error || 'Konzilium hiba');
       }
+      await onRefreshState();
     } finally {
-      setSending(false);
+      setCouncilRunning(false);
     }
+  };
+
+  const handleGenerateImage = async () => {
+    const prompt = input.trim();
+    if (!prompt || imgBusy) return;
+    setImgBusy(true);
+    setMediaNotice('Képgenerálás folyamatban...');
+    try {
+      const res = await fetch('/api/media/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = (await res.json()) as { artifact?: MediaArtifact; error?: string };
+      if (!res.ok || !data.artifact) {
+        setMediaNotice(data.error || 'Képgenerálás sikertelen');
+        return;
+      }
+      setMediaNotice(`Kép elkészült: ${data.artifact.title}`);
+      setSelectedArtifactId(data.artifact.id);
+      setRightTab('artifacts');
+      await onRefreshState();
+    } finally {
+      setImgBusy(false);
+    }
+  };
+
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tplTitle.trim() || !tplCmd.trim() || !tplBody.trim()) return;
+    await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: tplTitle, command: tplCmd, body: tplBody }),
+    });
+    setTplTitle('');
+    setTplCmd('');
+    setTplBody('');
+    await onRefreshState();
   };
 
   const handleRunKanbanWorker = async () => {
@@ -232,10 +441,12 @@ export const SwarmChatView: React.FC<Props> = ({
         status: 'todo',
         priority: newCardPriority,
         assignedAgentId: userAgents[0]?.id ?? null,
+        blockedBy: newCardBlockedBy ? [newCardBlockedBy] : [],
       }),
     });
     setNewCardTitle('');
     setNewCardDesc('');
+    setNewCardBlockedBy('');
     await onRefreshState();
   };
 
@@ -245,6 +456,13 @@ export const SwarmChatView: React.FC<Props> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
+    await onRefreshState();
+  };
+
+  const handleBindBranch = async (id: string) => {
+    const res = await fetch(`/api/kanban/${id}/branch`, { method: 'POST' });
+    const data = (await res.json()) as { branch?: string; message?: string };
+    if (data.message) setWorkerMsg(data.message);
     await onRefreshState();
   };
 
@@ -272,7 +490,6 @@ export const SwarmChatView: React.FC<Props> = ({
     await onRefreshState();
   };
 
-  // IdeaBox handlers
   const handleAddIdea = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ideaTitle.trim()) return;
@@ -324,6 +541,7 @@ export const SwarmChatView: React.FC<Props> = ({
   const visibleKanban = kanban.filter((c) => (showArchived ? c.archived : !c.archived));
   const inProgressCount = kanban.filter((c) => !c.archived && c.status === 'in_progress').length;
   const agingHours = settings.kanbanAgingHours || 48;
+  const selectedArtifact = artifacts.find((a) => a.id === selectedArtifactId) || artifacts[0] || null;
 
   const filteredIdeas = ideas.filter((i) => {
     if (ideaFilter === 'active') return i.status === 'new' || i.status === 'reviewed';
@@ -334,6 +552,10 @@ export const SwarmChatView: React.FC<Props> = ({
     const ageHours = Math.floor((Date.now() - Date.parse(card.updatedAt)) / 3_600_000);
     const isAged = card.status !== 'done' && ageHours >= agingHours;
     const assigneeName = agents.find((a) => a.id === card.assignedAgentId)?.name || 'Nincs felelős';
+    const blockingCards = (card.blockedBy || [])
+      .map((bid) => kanban.find((k) => k.id === bid))
+      .filter((k): k is KanbanCard => Boolean(k && k.status !== 'done'));
+
     return (
       <div
         key={card.id}
@@ -342,18 +564,32 @@ export const SwarmChatView: React.FC<Props> = ({
         }`}
       >
         <div className="flex items-start justify-between gap-2">
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-medium text-slate-900">{card.title}</div>
             <div className="text-[11px] font-mono text-slate-500">
-              [{card.priority || 'medium'}] · {assigneeName}
+              {card.priority || 'medium'} · {assigneeName}
+              {card.gitBranch ? ` · git:${card.gitBranch}` : ''}
               {isAged ? ` · BEAKADVA (${ageHours}h)` : ''}
             </div>
+            {blockingCards.length > 0 && (
+              <div className="text-[11px] font-mono text-amber-800">
+                Blokkolva: {blockingCards.map((b) => b.title).join(', ')}
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              title="Git Branch létrehozása / kötése ehhez a kártyához"
+              onClick={() => void handleBindBranch(card.id)}
+              className="text-slate-500 hover:text-slate-900"
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+            </button>
             <button
               type="button"
               title="AI részfeladat-bontás"
-              onClick={() => handleAiBreakdown(card.id)}
+              onClick={() => void handleAiBreakdown(card.id)}
               className="text-slate-500 hover:text-slate-900"
             >
               <Sparkles className="h-3.5 w-3.5" />
@@ -361,7 +597,7 @@ export const SwarmChatView: React.FC<Props> = ({
             <button
               type="button"
               title={card.archived ? 'Visszaállítás' : 'Archiválás'}
-              onClick={() => handleArchiveCard(card)}
+              onClick={() => void handleArchiveCard(card)}
               className="text-slate-400 hover:text-slate-700"
             >
               <Archive className="h-3.5 w-3.5" />
@@ -369,7 +605,7 @@ export const SwarmChatView: React.FC<Props> = ({
             <button
               type="button"
               aria-label={`Delete card ${card.title}`}
-              onClick={() => handleDeleteCard(card.id)}
+              onClick={() => void handleDeleteCard(card.id)}
               className="text-slate-400 hover:text-red-600"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -383,7 +619,7 @@ export const SwarmChatView: React.FC<Props> = ({
               <button
                 key={sub.id}
                 type="button"
-                onClick={() => handleToggleSubtask(card.id, sub.id)}
+                onClick={() => void handleToggleSubtask(card.id, sub.id)}
                 className="flex items-center gap-1.5 text-[11px] text-left text-slate-700 hover:text-slate-900 w-full"
               >
                 {sub.done ? (
@@ -402,8 +638,8 @@ export const SwarmChatView: React.FC<Props> = ({
               key={target}
               type="button"
               disabled={card.status === target}
-              onClick={() => handleMoveCard(card.id, target)}
-              className={`px-2 py-0.5 text-[11px] rounded border ${
+              onClick={() => void handleMoveCard(card.id, target)}
+              className={`px-2 py-0.5 text-[11px] rounded border whitespace-nowrap shrink-0 ${
                 card.status === target
                   ? 'bg-slate-900 text-white border-slate-900'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -423,7 +659,7 @@ export const SwarmChatView: React.FC<Props> = ({
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-      {/* Left: Thread Folders, Session Isolation & Unified Chat */}
+      {/* Left: Thread Folders, Streaming Unified Chat, Templates & Council Mode */}
       <div className="xl:col-span-7 bg-white border border-slate-200 rounded-xl flex flex-col min-h-[640px]">
         <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 overflow-x-auto">
@@ -501,9 +737,9 @@ export const SwarmChatView: React.FC<Props> = ({
         </form>
 
         <div className="flex-1 p-4 space-y-4 overflow-y-auto max-h-[430px]">
-          {threadMessages.length === 0 ? (
+          {threadMessages.length === 0 && !streamingText ? (
             <div className="text-sm text-slate-500 py-16 text-center">
-              Tiszta állapot — küldj egy üzenetet a Web UI-n, Telegramon, Discordon, Slacken vagy Föderáción át.
+              Tiszta állapot — küldj egy üzenetet, futtass Konziliumot vagy írj /parancsot a sablonokhoz.
             </div>
           ) : (
             threadMessages.map((m) => (
@@ -563,27 +799,157 @@ export const SwarmChatView: React.FC<Props> = ({
               </div>
             ))
           )}
+
+          {streamingText && (
+            <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-300 text-slate-900 mr-8 space-y-1">
+              <div className="text-xs font-mono text-slate-500">Élő válasz streamelése ({preset})...</div>
+              <div className="text-sm whitespace-pre-wrap leading-relaxed">{streamingText}</div>
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleSend} className="p-4 border-t border-slate-200 space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor="chat-target-agent" className="text-xs text-slate-500 whitespace-nowrap">
-              Címzett:
-            </label>
-            <select
-              id="chat-target-agent"
-              value={targetAgentId}
-              onChange={(e) => setTargetAgentId(e.target.value)}
-              className="px-2.5 py-1 text-xs border border-slate-300 rounded-md bg-white"
-            >
-              <option value="">Koordinátor (automatikus delegálás)</option>
-              {userAgents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  @{a.name} ({a.role})
-                </option>
+        {/* Prompt Template Manager Drawer */}
+        {showTplDrawer && (
+          <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-900">Prompt Sablonok (/parancs)</span>
+              <button type="button" onClick={() => setShowTplDrawer(false)} className="text-slate-500 hover:text-slate-900">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {promptTemplates.map((tpl) => (
+                <div key={tpl.id} className="inline-flex items-center gap-1 border border-slate-300 bg-white rounded px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInput(tpl.body);
+                      setShowTplDrawer(false);
+                    }}
+                    className="font-mono text-slate-800 hover:underline"
+                  >
+                    {tpl.command} · {tpl.title}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete template ${tpl.title}`}
+                    onClick={async () => {
+                      await fetch(`/api/templates/${tpl.id}`, { method: 'DELETE' });
+                      await onRefreshState();
+                    }}
+                    className="text-slate-400 hover:text-red-600"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
               ))}
-            </select>
+            </div>
+            <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <input
+                type="text"
+                value={tplTitle}
+                onChange={(e) => setTplTitle(e.target.value)}
+                placeholder="Sablon címe"
+                className="px-2 py-1 border border-slate-300 rounded bg-white"
+              />
+              <input
+                type="text"
+                value={tplCmd}
+                onChange={(e) => setTplCmd(e.target.value)}
+                placeholder="/parancs"
+                className="px-2 py-1 font-mono border border-slate-300 rounded bg-white"
+              />
+              <input
+                type="text"
+                value={tplBody}
+                onChange={(e) => setTplBody(e.target.value)}
+                placeholder="Sablon szövege..."
+                className="sm:col-span-2 px-2 py-1 border border-slate-300 rounded bg-white"
+              />
+              <button
+                type="submit"
+                className="sm:col-span-4 px-3 py-1 bg-slate-900 text-white rounded font-medium"
+              >
+                + Sablon Mentése
+              </button>
+            </form>
           </div>
+        )}
+
+        <form onSubmit={handleSendStream} className="p-4 border-t border-slate-200 space-y-2 relative">
+          {slashSuggestions.length > 0 && (
+            <div className="p-2 bg-white border border-slate-200 rounded-lg shadow-sm space-y-1 text-xs max-h-36 overflow-y-auto">
+              {slashSuggestions.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => setInput(tpl.body)}
+                  className="w-full text-left px-2 py-1 rounded hover:bg-slate-100 flex justify-between"
+                >
+                  <span className="font-mono font-semibold text-slate-900">{tpl.command}</span>
+                  <span className="text-slate-500 truncate ml-2">{tpl.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="chat-target-agent" className="text-xs text-slate-500 whitespace-nowrap">
+                Címzett:
+              </label>
+              <select
+                id="chat-target-agent"
+                value={targetAgentId}
+                onChange={(e) => setTargetAgentId(e.target.value)}
+                className="px-2.5 py-1 text-xs border border-slate-300 rounded-md bg-white"
+              >
+                <option value="">Koordinátor (automatikus delegálás)</option>
+                {userAgents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    @{a.name} ({a.role})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Execution preset"
+                value={preset}
+                onChange={(e) => setPreset(e.target.value as ExecutionPreset)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded-md bg-white"
+              >
+                <option value="fast">Gyors mód</option>
+                <option value="deep">Mély kutatás</option>
+                <option value="precise">Precíziós kód</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1 text-xs text-slate-600 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={continuousVoice}
+                  onChange={(e) => setContinuousVoice(e.target.checked)}
+                />
+                Folyamatos hangmód
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowTplDrawer((v) => !v)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                <Slash className="h-3 w-3" />
+                Sablonok ({promptTemplates.length})
+              </button>
+            </div>
+          </div>
+
+          {mediaNotice && (
+            <div className="text-xs font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded px-2.5 py-1">
+              {mediaNotice}
+            </div>
+          )}
+
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 pt-1">
               {attachments.map((att, idx) => (
@@ -609,7 +975,8 @@ export const SwarmChatView: React.FC<Props> = ({
               ))}
             </div>
           )}
-          <div className="flex items-center gap-2">
+
+          <div className="flex flex-wrap items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -618,6 +985,17 @@ export const SwarmChatView: React.FC<Props> = ({
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) attachImageFile(file);
+                e.target.value = '';
+              }}
+            />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleAudioUpload(file);
                 e.target.value = '';
               }}
             />
@@ -630,6 +1008,15 @@ export const SwarmChatView: React.FC<Props> = ({
             >
               <ImagePlus className="h-4 w-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => audioInputRef.current?.click()}
+              title="Hangfájl feltöltése és átírása (STT)"
+              aria-label="Hangfájl feltöltése"
+              className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+            >
+              <FileAudio className="h-4 w-4" />
+            </button>
             <input
               type="text"
               value={input}
@@ -637,12 +1024,13 @@ export const SwarmChatView: React.FC<Props> = ({
               onPaste={handlePaste}
               placeholder={tr(language, 'chatPlaceholder')}
               aria-label="Chat message"
-              className="flex-1 px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="flex-1 min-w-[180px] px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
             <button
               type="button"
               onClick={handleVoiceDictate}
               title="Hang diktálás (Web Speech STT)"
+              aria-label="Hang diktálás"
               className={`p-2 border rounded-lg ${
                 listening ? 'bg-red-600 text-white border-red-600' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
@@ -650,25 +1038,56 @@ export const SwarmChatView: React.FC<Props> = ({
               <Mic className="h-4 w-4" />
             </button>
             <button
-              type="submit"
-              disabled={sending || (!input.trim() && attachments.length === 0)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+              type="button"
+              disabled={!input.trim() || imgBusy}
+              onClick={() => void handleGenerateImage()}
+              title="AI Képgenerálás a beírt leírásból (Artifaktba menti)"
+              aria-label="AI Képgenerálás"
+              className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
-              <Send className="h-4 w-4" />
-              {tr(language, 'send')}
+              <Wand2 className="h-4 w-4" />
             </button>
+            <button
+              type="button"
+              disabled={!input.trim() || councilRunning || sending}
+              onClick={() => void handleCouncil()}
+              title="Többágenses Konzilium (párhuzamos vélemény + szintézis)"
+              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg text-slate-800 hover:bg-slate-50 disabled:opacity-40 whitespace-nowrap shrink-0"
+            >
+              <Users className="h-3.5 w-3.5" />
+              {councilRunning ? 'Konzilium...' : 'Konzilium'}
+            </button>
+            {sending ? (
+              <button
+                type="button"
+                onClick={() => abortRef.current?.abort()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-700 text-white rounded-lg hover:bg-red-800 whitespace-nowrap shrink-0"
+              >
+                <StopCircle className="h-4 w-4" />
+                Leállítás
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim() && attachments.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+              >
+                <Send className="h-4 w-4" />
+                {tr(language, 'send')}
+              </button>
+            )}
           </div>
         </form>
       </div>
 
-      {/* Right: Rich Kanban Board & Ötletláda (IdeaBox) */}
+      {/* Right: Kanban, Ötletláda & Interactive Artifacts */}
       <div className="xl:col-span-5 bg-white border border-slate-200 rounded-xl p-5 flex flex-col">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
             <button
               type="button"
               onClick={() => setRightTab('kanban')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md ${
+              className={`px-3 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
                 rightTab === 'kanban' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
@@ -677,12 +1096,22 @@ export const SwarmChatView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setRightTab('ideas')}
-              className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-md ${
+              className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
                 rightTab === 'ideas' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
               <Lightbulb className="h-3.5 w-3.5" />
               Ötletláda ({ideas.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightTab('artifacts')}
+              className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
+                rightTab === 'artifacts' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+              }`}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              Artifaktok ({artifacts.length})
             </button>
           </div>
 
@@ -727,6 +1156,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </div>
           )}
         </div>
+
         {workerMsg && rightTab === 'kanban' && (
           <div className="mt-2 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-mono text-slate-700">
             {workerMsg}
@@ -764,14 +1194,31 @@ export const SwarmChatView: React.FC<Props> = ({
                   {tr(language, 'addCard')}
                 </button>
               </div>
-              <input
-                type="text"
-                value={newCardDesc}
-                onChange={(e) => setNewCardDesc(e.target.value)}
-                placeholder="Részletek (opcionális)..."
-                aria-label="Kanban card description"
-                className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-md"
-              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={newCardDesc}
+                  onChange={(e) => setNewCardDesc(e.target.value)}
+                  placeholder="Részletek (opcionális)..."
+                  aria-label="Kanban card description"
+                  className="px-3 py-1.5 text-xs border border-slate-200 rounded-md"
+                />
+                <select
+                  value={newCardBlockedBy}
+                  onChange={(e) => setNewCardBlockedBy(e.target.value)}
+                  aria-label="Előfeltétel (blocked by)"
+                  className="px-2 py-1.5 text-xs border border-slate-200 rounded-md bg-white"
+                >
+                  <option value="">Nincs blokkoló előfeltétel</option>
+                  {kanban
+                    .filter((c) => !c.archived && c.status !== 'done')
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        Előfeltétel: {c.title}
+                      </option>
+                    ))}
+                </select>
+              </div>
             </form>
 
             <div className="flex-1 overflow-y-auto pt-4 space-y-4 max-h-[460px]">
@@ -827,7 +1274,7 @@ export const SwarmChatView: React.FC<Props> = ({
               )}
             </div>
           </>
-        ) : (
+        ) : rightTab === 'ideas' ? (
           <div className="flex-1 flex flex-col pt-3 space-y-3">
             <form onSubmit={handleAddIdea} className="space-y-2 pb-3 border-b border-slate-100">
               <div className="flex gap-2">
@@ -917,14 +1364,14 @@ export const SwarmChatView: React.FC<Props> = ({
                         <div className="flex gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handlePromoteIdea(idea.id, true)}
+                            onClick={() => void handlePromoteIdea(idea.id, true)}
                             className="px-2 py-1 text-[11px] font-medium bg-slate-900 text-white rounded"
                           >
                             Kanban + AI
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleIdeaStatus(idea.id, 'rejected')}
+                            onClick={() => void handleIdeaStatus(idea.id, 'rejected')}
                             className="px-2 py-1 text-[11px] border border-slate-300 rounded text-slate-600"
                           >
                             Elutasít
@@ -952,7 +1399,7 @@ export const SwarmChatView: React.FC<Props> = ({
                           />
                           <button
                             type="button"
-                            onClick={() => handleAddIdeaComment(idea.id)}
+                            onClick={() => void handleAddIdeaComment(idea.id)}
                             className="px-2.5 py-1 bg-slate-800 text-white rounded text-xs"
                           >
                             Küldés
@@ -964,6 +1411,71 @@ export const SwarmChatView: React.FC<Props> = ({
                 ))
               )}
             </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col pt-3 space-y-3">
+            {artifacts.length === 0 ? (
+              <div className="py-16 text-center text-xs text-slate-500">
+                Még nincs generált kép, SVG grafikon vagy interaktív HTML artifakt. Használd a varázspálcát a chatben vagy az SVG Generátort a Hubon.
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  {artifacts.map((art) => (
+                    <button
+                      key={art.id}
+                      type="button"
+                      onClick={() => setSelectedArtifactId(art.id)}
+                      className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap shrink-0 ${
+                        selectedArtifact?.id === art.id
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-slate-50 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {art.kind} · {art.title}
+                    </button>
+                  ))}
+                </div>
+                {selectedArtifact && (
+                  <div className="flex-1 border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-900">{selectedArtifact.title}</span>
+                      <button
+                        type="button"
+                        aria-label={`Delete artifact ${selectedArtifact.title}`}
+                        onClick={async () => {
+                          await fetch(`/api/artifacts/${selectedArtifact.id}`, { method: 'DELETE' });
+                          await onRefreshState();
+                        }}
+                        className="text-slate-400 hover:text-red-600"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {selectedArtifact.kind === 'image' ? (
+                      <img
+                        src={selectedArtifact.urlOrContent}
+                        alt={selectedArtifact.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full max-h-[380px] object-contain bg-white border border-slate-200 rounded"
+                      />
+                    ) : selectedArtifact.kind === 'chart_svg' ? (
+                      <div
+                        className="bg-white border border-slate-200 rounded p-2 overflow-auto"
+                        dangerouslySetInnerHTML={{ __html: selectedArtifact.urlOrContent }}
+                      />
+                    ) : (
+                      <iframe
+                        title={selectedArtifact.title}
+                        sandbox="allow-scripts"
+                        srcDoc={selectedArtifact.urlOrContent}
+                        className="w-full h-[380px] bg-white border border-slate-200 rounded"
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

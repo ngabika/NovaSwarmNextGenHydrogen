@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { Plus, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import type { LanguageCode } from '../../shared/types';
 import { tr } from '../locales/translations';
 
@@ -21,6 +21,7 @@ interface Props {
   sessions: TerminalSessionSummary[];
   onRefreshState: () => Promise<void>;
   onOpenSettings: () => void;
+  onSendToSwarm: (draftText: string) => void;
 }
 
 export const TerminalView: React.FC<Props> = ({
@@ -29,6 +30,7 @@ export const TerminalView: React.FC<Props> = ({
   sessions,
   onRefreshState,
   onOpenSettings,
+  onSendToSwarm,
 }) => {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     sessions[0]?.id ?? null
@@ -152,6 +154,21 @@ export const TerminalView: React.FC<Props> = ({
     await onRefreshState();
   };
 
+  const handleRunSnippet = (cmd: string) => {
+    if (!activeSessionId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: 'input', sessionId: activeSessionId, data: `${cmd}\n` }));
+  };
+
+  const handleSendBufferToSwarm = async () => {
+    if (!activeSessionId) return;
+    const res = await fetch(`/api/terminal/sessions/${activeSessionId}/buffer?lines=50`);
+    if (!res.ok) return;
+    const data = (await res.json()) as { buffer?: string };
+    const text = (data.buffer || '').trim();
+    if (!text) return;
+    onSendToSwarm(`Elemezd ezt a terminál kimenetet (utolsó 50 sor):\n\`\`\`\n${text.slice(-3000)}\n\`\`\``);
+  };
+
   if (!hostPermissionsGranted) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-2xl">
@@ -198,7 +215,7 @@ export const TerminalView: React.FC<Props> = ({
                 <button
                   type="button"
                   aria-label={`Close terminal session ${s.id}`}
-                  onClick={() => handleCloseSession(s.id)}
+                  onClick={() => void handleCloseSession(s.id)}
                   className="p-1.5 text-slate-400 hover:text-red-600 rounded"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -208,14 +225,42 @@ export const TerminalView: React.FC<Props> = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleCreateSession}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {tr(language, 'terminalNewSession')}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {activeSessionId && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleRunSnippet('df -h && free -m')}
+                className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                df/free
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunSnippet('systemctl list-units --failed')}
+                className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                systemd
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendBufferToSwarm()}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-900 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Küldés a Rajnak (50 sor)
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleCreateSession()}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {tr(language, 'terminalNewSession')}
+          </button>
+        </div>
       </div>
 
       {error && (

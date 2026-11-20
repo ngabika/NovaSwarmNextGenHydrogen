@@ -1,5 +1,6 @@
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import type { McpAuthType, McpServer } from '../../shared/types';
+import type { McpAuthType, McpServer, McpTransport } from '../../shared/types';
 import {
   appendAuditLog,
   getMcpCredentialSecret,
@@ -13,6 +14,9 @@ export interface CatalogTemplate {
   description: string;
   endpointUrl: string;
   authType: McpAuthType;
+  transport?: McpTransport;
+  command?: string;
+  args?: string[];
   kind: 'mcp' | 'skill';
   code?: string;
 }
@@ -20,14 +24,21 @@ export interface CatalogTemplate {
 export function registerMcpServer(input: {
   name: string;
   description: string;
-  endpointUrl: string;
+  endpointUrl?: string;
+  transport?: McpTransport;
+  command?: string;
+  args?: string[];
   authType: McpAuthType;
 }): McpServer {
+  const transport: McpTransport = input.transport || 'http';
   const server: McpServer = {
     id: `mcp-${crypto.randomUUID().slice(0, 8)}`,
     name: input.name.trim(),
     description: input.description.trim(),
-    endpointUrl: input.endpointUrl.trim(),
+    endpointUrl: (input.endpointUrl || (transport === 'stdio' ? `stdio://${input.command || ''}` : '')).trim(),
+    transport,
+    command: input.command?.trim() || undefined,
+    args: Array.isArray(input.args) ? input.args.map((a) => String(a).trim()).filter(Boolean) : undefined,
     authType: input.authType,
     hasCredentials: false,
     oauthConfigured: false,
@@ -47,7 +58,7 @@ export function registerMcpServer(input: {
     type: 'system',
     sourceAgentId: 'mcp-manager',
     sourceAgentName: 'MCP Kezelő',
-    message: `MCP szerver regisztrálva: ${server.name} (${server.endpointUrl})`,
+    message: `MCP szerver regisztrálva (${transport}): ${server.name} (${transport === 'stdio' ? `${server.command} ${(server.args || []).join(' ')}` : server.endpointUrl})`,
   });
 
   return server;
@@ -76,9 +87,99 @@ export function updateMcpCredentials(
 }
 
 /**
- * REAL network connection probe (Section 3.3 & 12.2).
- * Never uses artificial delays or fake "connected" status — runs a real HTTP probe
- * against the configured endpoint with stored credentials and reports actual result.
+ * M20: Execute a short-lived stdio JSON-RPC 2.0 session (initialize -> request) with 6s timeout.
+ */
+async function invokeStdioJsonRpc(
+  command: string,
+  args: string[],
+  method: string,
+  params: Record<string, unknown>,
+  envOverrides?: Record<string, string>
+): Promise<{ result?: unknown; error?: { message?: string } }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...(envOverrides || {}) },
+    });
+
+    let stdoutBuf = '';
+    let stderrBuf = '';
+    let finished = false;
+    const targetId = 2;
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // ignore
+        }
+        reject(new Error(`stdio MCP időtúllépés (6s) — ${command}`));
+      }
+    }, 6000);
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString('utf8');
+      const lines = stdoutBuf.split('\n');
+      stdoutBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const msg = JSON.parse(trimmed) as { id?: number; result?: unknown; error?: { message?: string } };
+          if (msg.id === targetId && !finished) {
+            finished = true;
+            clearTimeout(timer);
+            try {
+              child.kill('SIGTERM');
+            } catch {
+              // ignore
+            }
+            resolve(msg);
+            return;
+          }
+        } catch {
+          // ignore non-JSON log lines
+        }
+      }
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrBuf += chunk.toString('utf8');
+    });
+
+    child.on('error', (err) => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
+        reject(new Error(`stdio MCP indítási hiba (${command}): ${err.message}`));
+      }
+    });
+
+    child.on('exit', (code) => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
+        reject(new Error(`stdio MCP folyamat kilépett (code=${code}): ${stderrBuf.slice(0, 200)}`));
+      }
+    });
+
+    const initMsg = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'novaswarm', version: '2.0.0' } },
+    });
+    const notifyMsg = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+    const reqMsg = JSON.stringify({ jsonrpc: '2.0', id: targetId, method, params });
+
+    child.stdin?.write(`${initMsg}\n${notifyMsg}\n${reqMsg}\n`);
+  });
+}
+
+/**
+ * REAL network / stdio connection probe.
  */
 export async function testMcpConnection(mcpId: string): Promise<McpServer> {
   const state = getState();
@@ -100,50 +201,90 @@ export async function testMcpConnection(mcpId: string): Promise<McpServer> {
     return getState().mcpServers.find((m) => m.id === mcpId)!;
   }
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (srv.authType === 'apikey' && creds?.apiKey) {
-    headers['Authorization'] = `Bearer ${creds.apiKey}`;
-  } else if (srv.authType === 'basic' && creds?.username) {
-    const token = Buffer.from(`${creds.username}:${creds.password || ''}`).toString('base64');
-    headers['Authorization'] = `Basic ${token}`;
-  } else if (srv.authType === 'oauth2' && creds?.accessToken) {
-    headers['Authorization'] = `Bearer ${creds.accessToken}`;
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
   const now = new Date().toISOString();
 
-  try {
-    const res = await fetch(srv.endpointUrl, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+  if (srv.transport === 'stdio') {
+    if (!srv.command?.trim()) {
+      updateState((s) => {
+        const target = s.mcpServers.find((m) => m.id === mcpId);
+        if (target) {
+          target.status = 'error';
+          target.lastCheckedAt = now;
+          target.lastCheckMessage = 'Hiányzó stdio parancs';
+        }
+      });
+      return getState().mcpServers.find((m) => m.id === mcpId)!;
+    }
 
-    const isOk = res.ok;
-    updateState((s) => {
-      const target = s.mcpServers.find((m) => m.id === mcpId);
-      if (target) {
-        target.status = isOk ? 'connected' : 'error';
-        target.lastCheckedAt = now;
-        target.lastCheckMessage = isOk
-          ? `Valós kapcsolat rendben (HTTP ${res.status})`
-          : `Sikertelen válasz (HTTP ${res.status} ${res.statusText})`;
-      }
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    const msg = err instanceof Error ? err.message : String(err);
-    updateState((s) => {
-      const target = s.mcpServers.find((m) => m.id === mcpId);
-      if (target) {
-        target.status = 'disconnected';
-        target.lastCheckedAt = now;
-        target.lastCheckMessage = `Hálózati hiba: ${msg}`;
-      }
-    });
+    try {
+      const resp = await invokeStdioJsonRpc(srv.command, srv.args || [], 'tools/list', {}, creds || undefined);
+      const ok = !resp.error;
+      updateState((s) => {
+        const target = s.mcpServers.find((m) => m.id === mcpId);
+        if (target) {
+          target.status = ok ? 'connected' : 'error';
+          target.lastCheckedAt = now;
+          target.lastCheckMessage = ok
+            ? `Valós stdio JSON-RPC kapcsolat rendben (${srv.command})`
+            : `stdio hiba: ${resp.error?.message}`;
+        }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      updateState((s) => {
+        const target = s.mcpServers.find((m) => m.id === mcpId);
+        if (target) {
+          target.status = 'disconnected';
+          target.lastCheckedAt = now;
+          target.lastCheckMessage = msg;
+        }
+      });
+    }
+  } else {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (srv.authType === 'apikey' && creds?.apiKey) {
+      headers['Authorization'] = `Bearer ${creds.apiKey}`;
+    } else if (srv.authType === 'basic' && creds?.username) {
+      const token = Buffer.from(`${creds.username}:${creds.password || ''}`).toString('base64');
+      headers['Authorization'] = `Basic ${token}`;
+    } else if (srv.authType === 'oauth2' && creds?.accessToken) {
+      headers['Authorization'] = `Bearer ${creds.accessToken}`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const res = await fetch(srv.endpointUrl, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const isOk = res.ok;
+      updateState((s) => {
+        const target = s.mcpServers.find((m) => m.id === mcpId);
+        if (target) {
+          target.status = isOk ? 'connected' : 'error';
+          target.lastCheckedAt = now;
+          target.lastCheckMessage = isOk
+            ? `Valós kapcsolat rendben (HTTP ${res.status})`
+            : `Sikertelen válasz (HTTP ${res.status} ${res.statusText})`;
+        }
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      const msg = err instanceof Error ? err.message : String(err);
+      updateState((s) => {
+        const target = s.mcpServers.find((m) => m.id === mcpId);
+        if (target) {
+          target.status = 'disconnected';
+          target.lastCheckedAt = now;
+          target.lastCheckMessage = `Hálózati hiba: ${msg}`;
+        }
+      });
+    }
   }
 
   const finalSrv = getState().mcpServers.find((m) => m.id === mcpId)!;
@@ -158,9 +299,6 @@ export async function testMcpConnection(mcpId: string): Promise<McpServer> {
   return finalSrv;
 }
 
-/**
- * Fetches an external MCP/skill JSON catalog URL (Section 12.3).
- */
 export async function fetchExternalCatalog(catalogUrl: string): Promise<CatalogTemplate[]> {
   const res = await fetch(catalogUrl, { signal: AbortSignal.timeout(6000) });
   if (!res.ok) {
@@ -168,12 +306,11 @@ export async function fetchExternalCatalog(catalogUrl: string): Promise<CatalogT
   }
   const json = (await res.json()) as { items?: CatalogTemplate[] } | CatalogTemplate[];
   const items = Array.isArray(json) ? json : json.items ?? [];
-  return items.filter((item) => item && typeof item.name === 'string' && typeof item.endpointUrl === 'string');
+  return items.filter(
+    (item) => item && typeof item.name === 'string' && (typeof item.endpointUrl === 'string' || typeof item.command === 'string')
+  );
 }
 
-/**
- * Generates real Google OAuth2 authorization URL when GOOGLE_CLIENT_ID is configured (Section 12.4).
- */
 export function buildGoogleOAuthUrl(redirectUri: string): { configured: boolean; url: string | null; reason?: string } {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
   if (!clientId) {
@@ -226,7 +363,7 @@ function buildMcpAuthHeaders(srv: McpServer, creds: Record<string, string> | nul
 }
 
 /**
- * Queries a registered MCP HTTP/JSON-RPC 2.0 server for available tools (`tools/list`).
+ * Queries a registered MCP HTTP or stdio JSON-RPC 2.0 server for available tools (`tools/list`).
  */
 export async function listMcpTools(
   mcpId: string,
@@ -237,8 +374,19 @@ export async function listMcpTools(
   if (!srv) throw new Error(`MCP szerver nem található: ${mcpId}`);
 
   const creds = getMcpCredentialSecret(mcpId);
-  const headers = buildMcpAuthHeaders(srv, creds);
 
+  if (srv.transport === 'stdio') {
+    if (!srv.command?.trim()) throw new Error(`MCP stdio parancs hiányzik (${srv.name}).`);
+    const data = (await invokeStdioJsonRpc(srv.command, srv.args || [], 'tools/list', {}, creds || undefined)) as {
+      result?: { tools?: McpToolInfo[] };
+      error?: { message?: string };
+    };
+    if (data.error?.message) throw new Error(`MCP stdio hiba (${srv.name}): ${data.error.message}`);
+    const tools = data.result?.tools ?? [];
+    return { mcpId: srv.id, mcpName: srv.name, tools: Array.isArray(tools) ? tools : [], raw: data };
+  }
+
+  const headers = buildMcpAuthHeaders(srv, creds);
   const res = await fetchImpl(srv.endpointUrl, {
     method: 'POST',
     headers,
@@ -266,7 +414,7 @@ export async function listMcpTools(
 }
 
 /**
- * Invokes an arbitrary MCP tool (`tools/call`) via JSON-RPC 2.0 HTTP POST using stored encrypted credentials.
+ * Invokes an MCP tool (`tools/call`) via HTTP JSON-RPC 2.0 or stdio child process.
  */
 export async function callMcpTool(
   mcpId: string,
@@ -280,27 +428,39 @@ export async function callMcpTool(
   if (!toolName.trim()) throw new Error('MCP toolName kötelező.');
 
   const creds = getMcpCredentialSecret(mcpId);
-  const headers = buildMcpAuthHeaders(srv, creds);
 
-  const res = await fetchImpl(srv.endpointUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: { name: toolName.trim(), arguments: args },
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) {
-    throw new Error(`MCP tools/call sikertelen (${srv.name}/${toolName}): HTTP ${res.status}`);
-  }
-
-  const data = (await res.json()) as {
+  let data: {
     result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean } | unknown;
     error?: { message?: string };
   };
+
+  if (srv.transport === 'stdio') {
+    if (!srv.command?.trim()) throw new Error(`MCP stdio parancs hiányzik (${srv.name}).`);
+    data = (await invokeStdioJsonRpc(
+      srv.command,
+      srv.args || [],
+      'tools/call',
+      { name: toolName.trim(), arguments: args },
+      creds || undefined
+    )) as typeof data;
+  } else {
+    const headers = buildMcpAuthHeaders(srv, creds);
+    const res = await fetchImpl(srv.endpointUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: { name: toolName.trim(), arguments: args },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      throw new Error(`MCP tools/call sikertelen (${srv.name}/${toolName}): HTTP ${res.status}`);
+    }
+    data = (await res.json()) as typeof data;
+  }
 
   if (data.error?.message) {
     return { ok: false, output: `MCP hiba: ${data.error.message}`, raw: data };

@@ -23,11 +23,13 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
 
 type TranslationKeys = {
   appName: string;
+  navOverview: string;
   navSwarm: string;
   navAgents: string;
   navMemory: string;
   navModels: string;
   navMcp: string;
+  navEcosystem: string;
   navTerminal: string;
   navSystem: string;
   navSettings: string;
@@ -106,11 +108,13 @@ type TranslationKeys = {
 
 const EN: TranslationKeys = {
   appName: 'NovaSwarm',
+  navOverview: 'Overview',
   navSwarm: 'Swarm & Kanban',
   navAgents: 'Org & Agents',
   navMemory: 'Memory & Dreaming',
   navModels: 'Models & Router',
   navMcp: 'MCP & Skills',
+  navEcosystem: 'Automation & Hub',
   navTerminal: 'Terminal',
   navSystem: 'System & Docs',
   navSettings: 'Settings',
@@ -189,11 +193,13 @@ const EN: TranslationKeys = {
 
 const HU: TranslationKeys = {
   appName: 'NovaSwarm',
+  navOverview: 'Áttekintő',
   navSwarm: 'Raj & Kanban',
   navAgents: 'Szervezet & Ágensek',
   navMemory: 'Memória & Álmodás',
   navModels: 'Modellek & Router',
   navMcp: 'MCP & Skillek',
+  navEcosystem: 'Automatizálás & Hub',
   navTerminal: 'Terminál',
   navSystem: 'Rendszer & Doksik',
   navSettings: 'Beállítások',
