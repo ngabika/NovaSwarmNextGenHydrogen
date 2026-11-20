@@ -93,7 +93,7 @@ export const McpSkillsView: React.FC<Props> = ({
   const [webSearchProvider, setWebSearchProvider] = useState<string | null>(null);
   const [browserInfo, setBrowserInfo] = useState<{ available: boolean; binary: string | null } | null>(null);
   const [browserUrl, setBrowserUrl] = useState('https://example.com');
-  const [browserOut, setBrowserOut] = useState<{ title?: string; text?: string; screenshotBase64?: string; error?: string } | null>(null);
+  const [browserOut, setBrowserOut] = useState<{ title?: string; textPreview?: string; text?: string; screenshotBase64?: string; error?: string } | null>(null);
   const [browserBusy, setBrowserBusy] = useState(false);
 
   useEffect(() => {
@@ -311,6 +311,7 @@ export const McpSkillsView: React.FC<Props> = ({
       });
       const data = (await res.json()) as {
         title?: string;
+        textPreview?: string;
         text?: string;
         screenshotBase64?: string;
         error?: string;
@@ -762,7 +763,11 @@ export const McpSkillsView: React.FC<Props> = ({
                   className="max-h-36 rounded border border-slate-200"
                 />
               )}
-              {browserOut.text && <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">{browserOut.text.slice(0, 800)}</pre>}
+              {(browserOut.textPreview || browserOut.text) && (
+                <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">
+                  {(browserOut.textPreview || browserOut.text || '').slice(0, 800)}
+                </pre>
+              )}
             </div>
           )}
         </div>

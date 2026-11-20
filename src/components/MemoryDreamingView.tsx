@@ -49,10 +49,21 @@ interface GraphEdge {
 }
 
 interface RagDoc {
-  filename: string;
-  chunks: number;
+  name: string;
   sizeBytes: number;
-  indexedAt: string;
+  updatedAt: string;
+}
+
+interface OfflineStats {
+  ragDocsCount: number;
+  memoryCount: number;
+  vaultFilesCount: number;
+}
+
+interface OfflineSearchResult {
+  memoryHits: Array<{ entity: string; content: string; score: number }>;
+  localDocHits: Array<{ file: string; excerpt: string }>;
+  manPageExcerpt: string | null;
 }
 
 export const MemoryDreamingView: React.FC<Props> = ({
@@ -86,8 +97,8 @@ export const MemoryDreamingView: React.FC<Props> = ({
   const [ragDocs, setRagDocs] = useState<RagDoc[]>([]);
   const [ragStatus, setRagStatus] = useState<string | null>(null);
   const [offlineQuery, setOfflineQuery] = useState('');
-  const [offlineStats, setOfflineStats] = useState<{ totalArticles: number; topics: string[] } | null>(null);
-  const [offlineMatches, setOfflineMatches] = useState<Array<{ title: string; category: string; content: string }>>([]);
+  const [offlineStats, setOfflineStats] = useState<OfflineStats | null>(null);
+  const [offlineResult, setOfflineResult] = useState<OfflineSearchResult | null>(null);
 
   // Wiki Editor state
   const [wikiSelectedPath, setWikiSelectedPath] = useState('');
@@ -121,7 +132,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
         setRagDocs(rd.documents || []);
       }
       if (offRes.ok) {
-        const os = (await offRes.json()) as { stats?: { totalArticles: number; topics: string[] } };
+        const os = (await offRes.json()) as { stats?: OfflineStats };
         if (os.stats) setOfflineStats(os.stats);
       }
     } catch {
@@ -233,10 +244,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name, contentBase64: base64 }),
       });
-      const data = (await res.json()) as { chunksIndexed?: number; error?: string };
+      const data = (await res.json()) as { chunksCreated?: number; error?: string };
       setRagStatus(
         res.ok
-          ? `Sikeresen indexelve: ${file.name} (${data.chunksIndexed ?? 0} vektoros darab)`
+          ? `Sikeresen indexelve: ${file.name} (${data.chunksCreated ?? 0} vektoros darab)`
           : data.error || 'RAG indexelési hiba'
       );
       await onRefreshState();
@@ -250,11 +261,17 @@ export const MemoryDreamingView: React.FC<Props> = ({
     const res = await fetch(`/api/offline/search?q=${encodeURIComponent(offlineQuery.trim())}`);
     if (res.ok) {
       const data = (await res.json()) as {
-        stats?: { totalArticles: number; topics: string[] };
-        matches?: Array<{ title: string; category: string; content: string }>;
+        stats?: OfflineStats;
+        memoryHits?: OfflineSearchResult['memoryHits'];
+        localDocHits?: OfflineSearchResult['localDocHits'];
+        manPageExcerpt?: string | null;
       };
       if (data.stats) setOfflineStats(data.stats);
-      setOfflineMatches(data.matches || []);
+      setOfflineResult({
+        memoryHits: data.memoryHits || [],
+        localDocHits: data.localDocHits || [],
+        manPageExcerpt: data.manPageExcerpt || null,
+      });
     }
   };
 
@@ -483,7 +500,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                           <div className="font-mono">
                             <span className="font-semibold uppercase text-slate-900">{tier}</span> ·{' '}
                             <span className="font-semibold text-slate-800">{m.entity}</span> ·{' '}
-                            <span>{m.tags.map((t) => `#${t}`).join(' ')}</span>
+                            <span>{(m.tags || []).map((t) => `#${t}`).join(' ')}</span>
                           </div>
                           <span className="font-mono tabular-nums">
                             sal={salience.toFixed(2)}
@@ -774,10 +791,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 <p className="text-xs text-slate-500">Nincs még feltöltött dokumentum a rag-docs/ mappában.</p>
               ) : (
                 ragDocs.map((d) => (
-                  <div key={d.filename} className="p-3 bg-slate-50 border border-slate-200 rounded flex justify-between text-xs">
-                    <span className="font-mono font-semibold text-slate-900">{d.filename}</span>
+                  <div key={d.name} className="p-3 bg-slate-50 border border-slate-200 rounded flex justify-between text-xs">
+                    <span className="font-mono font-semibold text-slate-900">{d.name}</span>
                     <span className="font-mono text-slate-500 tabular-nums">
-                      {d.chunks} darab · {(d.sizeBytes / 1024).toFixed(1)} KB
+                      {(d.sizeBytes / 1024).toFixed(1)} KB · {new Date(d.updatedAt).toLocaleDateString()}
                     </span>
                   </div>
                 ))
@@ -786,14 +803,14 @@ export const MemoryDreamingView: React.FC<Props> = ({
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <BookOpen className="h-4 w-4 text-slate-700" />
                 Offline Túlélő Tudáscsomag (Internet nélkül is elérhető)
               </h3>
               {offlineStats && (
                 <span className="text-xs font-mono text-slate-500 tabular-nums">
-                  {offlineStats.totalArticles} beépített cikk
+                  {offlineStats.ragDocsCount} doksi · {offlineStats.memoryCount} memória · {offlineStats.vaultFilesCount} wiki
                 </span>
               )}
             </div>
@@ -810,19 +827,39 @@ export const MemoryDreamingView: React.FC<Props> = ({
               </button>
             </form>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {offlineMatches.length === 0 ? (
+              {!offlineResult ? (
                 <p className="text-xs text-slate-500">
-                  Témák: {offlineStats?.topics.join(' · ') || 'Linux, Docker, Hálózat, Biztonság, Raspberry Pi'}
+                  Helyi keresés internet nélkül a tartós memóriákban, feltöltött RAG dokumentumokban, Obsidian jegyzetekben és a Linux man oldalakban.
                 </p>
+              ) : offlineResult.memoryHits.length === 0 &&
+                offlineResult.localDocHits.length === 0 &&
+                !offlineResult.manPageExcerpt ? (
+                <p className="text-xs text-slate-500">Nincs találat erre a kifejezésre a helyi tudástárban.</p>
               ) : (
-                offlineMatches.map((m, idx) => (
-                  <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
-                    <div className="font-semibold text-slate-900">
-                      {m.title} · <span className="font-mono text-slate-500">{m.category}</span>
+                <>
+                  {offlineResult.memoryHits.map((m, idx) => (
+                    <div key={`mem-${idx}`} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
+                      <div className="font-semibold text-slate-900">
+                        Memória: {m.entity} · <span className="font-mono text-slate-500">score={m.score}</span>
+                      </div>
+                      <p className="text-slate-700 whitespace-pre-wrap">{m.content}</p>
                     </div>
-                    <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">{m.content}</pre>
-                  </div>
-                ))
+                  ))}
+                  {offlineResult.localDocHits.map((d, idx) => (
+                    <div key={`doc-${idx}`} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
+                      <div className="font-mono font-semibold text-slate-900">{d.file}</div>
+                      <p className="text-slate-700 whitespace-pre-wrap">{d.excerpt}</p>
+                    </div>
+                  ))}
+                  {offlineResult.manPageExcerpt && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
+                      <div className="font-semibold text-slate-900">Linux man oldal kivonat</div>
+                      <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">
+                        {offlineResult.manPageExcerpt}
+                      </pre>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

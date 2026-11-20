@@ -19,7 +19,7 @@ import type {
   UnifiedMessage,
 } from '../../shared/types';
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -357,6 +357,13 @@ export function createDefaultGatewayAnalytics(): GatewayAnalytics {
       ollama: 0,
     },
     spendByModel: {},
+    providerHealth: {
+      gemini: { provider: 'gemini', totalCalls: 0, failedCalls: 0, avgLatencyMs: 0, lastLatencyMs: null },
+      openai: { provider: 'openai', totalCalls: 0, failedCalls: 0, avgLatencyMs: 0, lastLatencyMs: null },
+      anthropic: { provider: 'anthropic', totalCalls: 0, failedCalls: 0, avgLatencyMs: 0, lastLatencyMs: null },
+      openrouter: { provider: 'openrouter', totalCalls: 0, failedCalls: 0, avgLatencyMs: 0, lastLatencyMs: null },
+      ollama: { provider: 'ollama', totalCalls: 0, failedCalls: 0, avgLatencyMs: 0, lastLatencyMs: null },
+    },
   };
 }
 
@@ -487,6 +494,11 @@ export function createDefaultSettings(): Settings {
     homeAssistantHasToken: hasNamedSecret('home_assistant_token'),
     mqttBrokerHost: '',
     mqttBrokerPort: 1883,
+    ollamaAutoUnloadMinutes: 15,
+    weatherLocation: 'Budapest',
+    piperTtsBinary: 'piper',
+    wakeWordEnabled: false,
+    wakeWordPhrase: 'nova',
     dashboardWidgets: createDefaultDashboardWidgets(),
   };
 }
@@ -606,6 +618,19 @@ export function createInitialState(): NovaSwarmState {
     focusSessions: [],
     expenses: [],
     sslTargets: [],
+    researchReports: [],
+    savedApiRequests: [],
+    databaseConnections: [],
+    watchedPages: [],
+    flashcards: [],
+    dailyJournals: [],
+    sharedLists: [
+      { id: 'list-default', name: 'Bevásárlólista', items: [] },
+    ],
+    subscriptions: [],
+    agentBenchmarks: [],
+    dynamicTools: [],
+    missions: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -740,6 +765,20 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     focusSessions: Array.isArray(source.focusSessions) ? source.focusSessions : [],
     expenses: Array.isArray(source.expenses) ? source.expenses : [],
     sslTargets: Array.isArray(source.sslTargets) ? source.sslTargets : [],
+    researchReports: Array.isArray(source.researchReports) ? source.researchReports : [],
+    savedApiRequests: Array.isArray(source.savedApiRequests) ? source.savedApiRequests : [],
+    databaseConnections: Array.isArray(source.databaseConnections) ? source.databaseConnections : [],
+    watchedPages: Array.isArray(source.watchedPages) ? source.watchedPages : [],
+    flashcards: Array.isArray(source.flashcards) ? source.flashcards : [],
+    dailyJournals: Array.isArray(source.dailyJournals) ? source.dailyJournals : [],
+    sharedLists:
+      Array.isArray(source.sharedLists) && source.sharedLists.length > 0
+        ? source.sharedLists
+        : base.sharedLists,
+    subscriptions: Array.isArray(source.subscriptions) ? source.subscriptions : [],
+    agentBenchmarks: Array.isArray(source.agentBenchmarks) ? source.agentBenchmarks : [],
+    dynamicTools: Array.isArray(source.dynamicTools) ? source.dynamicTools : [],
+    missions: Array.isArray(source.missions) ? source.missions : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),
@@ -749,6 +788,10 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
       },
       spendByModel: {
         ...(source.gatewayAnalytics?.spendByModel || {}),
+      },
+      providerHealth: {
+        ...base.gatewayAnalytics.providerHealth!,
+        ...(source.gatewayAnalytics?.providerHealth || {}),
       },
     },
     quotas: {

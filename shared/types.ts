@@ -82,6 +82,11 @@ export interface Agent {
   activeHoursEnd?: number;
   maxRunsPerHour?: number;
   runTimestamps?: string[];
+  /** M40: Per-agent fallback model chain */
+  modelChain?: Array<{ providerId: ProviderId; modelId: string }>;
+  /** Ú55: Agent capability benchmark */
+  benchmarkScore?: number;
+  lastBenchmarkedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -107,8 +112,13 @@ export interface KanbanCard {
   project?: string;
   /** M16: Card dependencies that must be 'done' before autonomous worker runs this card */
   blockedBy?: string[];
-  /** M17: Isolated git branch bound to this Kanban task */
+  /** M17 & M31: Isolated git branch and optional git worktree path bound to this Kanban task */
   gitBranch?: string;
+  worktreePath?: string;
+  /** M58: Sprint / timebox estimation vs actual tracking */
+  sprintName?: string;
+  estimatedMinutes?: number;
+  actualMinutes?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -265,6 +275,8 @@ export interface DreamJournalEntry {
     skillDraftsCreated?: number;
   };
   narrative: string;
+  /** M46: Plain-language morning summary */
+  morningDigest?: string;
   costUsd: number;
   usedLocalOllama: boolean;
 }
@@ -321,9 +333,23 @@ export interface UnifiedMessage {
   attachments?: MessageAttachment[];
   modelUsed?: string;
   providerUsed?: ProviderId;
+  /** M34: Per-bubble token & latency readout */
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
   costUsd?: number;
   toolTrace?: ToolExecutionStep[];
   artifactIds?: string[];
+  /** M36: Council consensus voting matrix */
+  councilVotes?: Array<{
+    agentId: string;
+    agentName: string;
+    verdict: 'approve' | 'caution' | 'reject';
+    confidence: number;
+    rationale: string;
+  }>;
+  /** M32: Message fork ancestry */
+  forkedFromMessageId?: string;
   timestamp: string;
 }
 
@@ -402,8 +428,20 @@ export interface VirtualKey {
   enabled: boolean;
   totalRequests: number;
   totalTokens: number;
+  /** M42: Optional expiry & LAN IP CIDR allowlist */
+  expiresAt?: string;
+  allowedIps?: string[];
   createdAt: string;
   lastUsedAt: string | null;
+}
+
+export interface ProviderHealthMetric {
+  provider: ProviderId;
+  totalCalls: number;
+  failedCalls: number;
+  avgLatencyMs: number;
+  lastLatencyMs: number | null;
+  lastErrorAt?: string;
 }
 
 export interface GatewayAnalytics {
@@ -414,6 +452,8 @@ export interface GatewayAnalytics {
   guardrailsBlocked: number;
   spendByProvider: Record<ProviderId, number>;
   spendByModel: Record<string, number>;
+  /** M39: Per-provider live latency & error leaderboard */
+  providerHealth?: Record<ProviderId, ProviderHealthMetric>;
 }
 
 /** Multi-Channel Connectors & Pairing */
@@ -590,17 +630,25 @@ export interface WatchedRepo {
   lastError?: string;
 }
 
-/** Ú17: Visual Workflow Automation */
+/** Ú17 & M51: Visual Workflow Automation & Multi-Step Pipelines */
+export interface WorkflowStep {
+  type: 'agent_prompt' | 'web_search' | 'kanban_create' | 'notify' | 'http_call';
+  target: string;
+  payload: string;
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
   enabled: boolean;
-  triggerType: 'manual' | 'cron' | 'webhook' | 'uptime_down' | 'feed_item';
+  triggerType: 'manual' | 'cron' | 'webhook' | 'uptime_down' | 'feed_item' | 'ha_state';
   triggerConfig: string;
   conditionExpr?: string;
   actionType: 'agent_prompt' | 'kanban_create' | 'notify';
   actionTarget: string;
   actionPayload: string;
+  /** M51: Optional sequential pipeline steps */
+  steps?: WorkflowStep[];
   lastRunAt: string | null;
   lastStatus?: string;
   runCount: number;
@@ -753,8 +801,150 @@ export interface Settings {
   homeAssistantHasToken: boolean;
   mqttBrokerHost: string;
   mqttBrokerPort: number;
+  /** M41, M60, Ú45, Ú46, Ú59: Ollama auto-unload, Weather, Voice & Mobile */
+  ollamaAutoUnloadMinutes: number;
+  weatherLocation: string;
+  piperTtsBinary: string;
+  wakeWordEnabled: boolean;
+  wakeWordPhrase: string;
   /** M30: Overview Widgets */
   dashboardWidgets: DashboardWidgetConfig[];
+}
+
+/** Ú31: Deep Research Report */
+export interface ResearchReport {
+  id: string;
+  query: string;
+  subQueries: string[];
+  summaryMarkdown: string;
+  sources: Array<{ title: string; url: string }>;
+  createdAt: string;
+}
+
+/** Ú32: Saved API Studio Request */
+export interface SavedApiRequest {
+  id: string;
+  name: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url: string;
+  headersJson: string;
+  body: string;
+  lastStatus?: number;
+  lastLatencyMs?: number;
+  lastResponse?: string;
+  updatedAt: string;
+}
+
+/** Ú33: Database Explorer Connection */
+export interface DatabaseConnection {
+  id: string;
+  name: string;
+  engine: 'sqlite' | 'postgres';
+  target: string;
+  lastTestedAt?: string;
+  status?: string;
+}
+
+/** Ú36: Page Watchdog */
+export interface WatchedPage {
+  id: string;
+  name: string;
+  url: string;
+  lastHash?: string;
+  lastExcerpt?: string;
+  lastCheckedAt?: string;
+  lastChangedAt?: string;
+  changeCount: number;
+  lastError?: string;
+}
+
+/** Ú48: Spaced Repetition Flashcard (SM-2) */
+export interface FlashcardItem {
+  id: string;
+  front: string;
+  back: string;
+  tags: string[];
+  easeFactor: number;
+  intervalDays: number;
+  repetitions: number;
+  nextReviewAt: string;
+  createdAt: string;
+}
+
+/** Ú50 & M47: Second Brain Daily Journal */
+export interface DailyJournalEntry {
+  id: string;
+  date: string;
+  mood: number;
+  energy: number;
+  topGoals: string[];
+  completedNotes: string;
+  gratitudeOrNotes: string;
+  obsidianPath?: string;
+  createdAt: string;
+}
+
+/** Ú51: Shared Lists synced with Telegram */
+export interface SharedListItem {
+  id: string;
+  text: string;
+  done: boolean;
+  addedBy: string;
+  createdAt: string;
+}
+
+export interface SharedList {
+  id: string;
+  name: string;
+  items: SharedListItem[];
+}
+
+/** Ú52: Subscriptions & Warranties */
+export interface SubscriptionItem {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  currency: string;
+  billingCycle: 'monthly' | 'yearly' | 'once';
+  nextDueDate: string;
+  reminderDaysBefore: number;
+  notes?: string;
+}
+
+/** Ú55: Agent Benchmark Run */
+export interface AgentBenchmarkRun {
+  id: string;
+  agentId: string;
+  agentName: string;
+  score: number;
+  passed: number;
+  total: number;
+  avgLatencyMs: number;
+  details: string[];
+  createdAt: string;
+}
+
+/** B1 & B2: Autonomous Mission & Dynamic Custom Tool */
+export interface DynamicToolDef {
+  id: string;
+  name: string;
+  description: string;
+  kind: 'http_get' | 'http_post' | 'sandbox_js';
+  targetOrCode: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface AutonomousMission {
+  id: string;
+  goal: string;
+  agentId: string;
+  status: 'running' | 'completed' | 'failed';
+  steps: Array<{ title: string; status: 'pending' | 'done' | 'failed'; detail: string }>;
+  finalSummary?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface BackupPoint {
@@ -823,6 +1013,18 @@ export interface NovaSwarmState {
   focusSessions: FocusSession[];
   expenses: ExpenseRecord[];
   sslTargets: SslWatchTarget[];
+  /** Ú31–Ú55 & B1–B2 collections */
+  researchReports: ResearchReport[];
+  savedApiRequests: SavedApiRequest[];
+  databaseConnections: DatabaseConnection[];
+  watchedPages: WatchedPage[];
+  flashcards: FlashcardItem[];
+  dailyJournals: DailyJournalEntry[];
+  sharedLists: SharedList[];
+  subscriptions: SubscriptionItem[];
+  agentBenchmarks: AgentBenchmarkRun[];
+  dynamicTools: DynamicToolDef[];
+  missions: AutonomousMission[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }

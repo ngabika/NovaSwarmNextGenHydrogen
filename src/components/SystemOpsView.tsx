@@ -111,9 +111,18 @@ export const SystemOpsView: React.FC<Props> = ({
     error?: string;
   } | null>(null);
   const [systemdAnalysis, setSystemdAnalysis] = useState<string | null>(null);
-  const [lanData, setLanData] = useState<{ devices: Array<{ ip: string; mac: string; iface: string }>; source: string } | null>(null);
-  const [vpnData, setVpnData] = useState<{ tailscale?: { status: string; details: string }; wireguard?: { status: string; details: string } } | null>(null);
-  const [diskData, setDiskData] = useState<{ filesystems: Array<{ filesystem: string; size: string; used: string; avail: string; usePercent: string; mount: string }> } | null>(null);
+  const [lanData, setLanData] = useState<{
+    devices: Array<{ ip: string; mac: string; iface: string; state?: string }>;
+    method: string;
+  } | null>(null);
+  const [vpnData, setVpnData] = useState<{
+    tailscale?: { installed: boolean; running: boolean; ip?: string; dnsName?: string; peers: number; rawError?: string };
+    wireguard?: { installed: boolean; active: boolean; output?: string };
+  } | null>(null);
+  const [diskData, setDiskData] = useState<{
+    dfOutput: string;
+    blockDevices: Array<{ name: string; size: string; mountpoint: string | null; smartHealth?: string }>;
+  } | null>(null);
   const [rsyncTarget, setRsyncTarget] = useState(settings.backupRsyncTarget || '');
   const [infraMsg, setInfraMsg] = useState<string | null>(null);
 
@@ -127,10 +136,8 @@ export const SystemOpsView: React.FC<Props> = ({
 
   // Diagnostics & Safe .env Editor (M25, M26)
   const [diagData, setDiagData] = useState<{
-    nodeVersion: string;
-    platform: string;
-    arch: string;
-    checks: Array<{ name: string; ok: boolean; details: string }>;
+    checkedAt: string;
+    checks: Array<{ name: string; ok: boolean; detail: string }>;
   } | null>(null);
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
   const [envMsg, setEnvMsg] = useState<string | null>(null);
@@ -930,8 +937,8 @@ export const SystemOpsView: React.FC<Props> = ({
                         onClick={async () => {
                           setSystemdAnalysis(`Elemzés (${u.unit})...`);
                           const r = await fetch(`/api/infra/systemd/${encodeURIComponent(u.unit)}/analyze`, { method: 'POST' });
-                          const d = (await r.json()) as { analysis?: string; logs?: string };
-                          setSystemdAnalysis(d.analysis || d.logs || 'Kész.');
+                          const d = (await r.json()) as { aiAnalysis?: string; logs?: string };
+                          setSystemdAnalysis(d.aiAnalysis || d.logs || 'Kész.');
                         }}
                         className="px-2 py-0.5 text-[11px] bg-slate-900 text-white rounded shrink-0"
                       >
@@ -956,11 +963,11 @@ export const SystemOpsView: React.FC<Props> = ({
                 <Network className="h-4 w-4 text-slate-700" />
                 Helyi Hálózat (LAN ARP/Szomszédok)
               </h3>
-              <div className="text-[11px] font-mono text-slate-500">Forrás: {lanData?.source || '-'}</div>
+              <div className="text-[11px] font-mono text-slate-500">Forrás: {lanData?.method || '-'}</div>
               <div className="space-y-1 max-h-44 overflow-y-auto font-mono text-[11px]">
                 {(lanData?.devices || []).map((d, i) => (
                   <div key={i} className="p-1.5 bg-slate-50 border border-slate-200 rounded">
-                    {d.ip} · {d.mac} · {d.iface}
+                    {d.ip} · {d.mac} · {d.iface} {d.state ? `(${d.state})` : ''}
                   </div>
                 ))}
               </div>
@@ -972,27 +979,54 @@ export const SystemOpsView: React.FC<Props> = ({
                 VPN Állapot (Tailscale & WireGuard)
               </h3>
               <div className="p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] space-y-1">
-                <div>Tailscale: {vpnData?.tailscale?.status || 'n/a'}</div>
-                {vpnData?.tailscale?.details && <div className="text-slate-600">{vpnData.tailscale.details}</div>}
+                <div>
+                  Tailscale:{' '}
+                  {vpnData?.tailscale
+                    ? vpnData.tailscale.installed
+                      ? vpnData.tailscale.running
+                        ? `Fut (${vpnData.tailscale.ip || 'IP n/a'}, ${vpnData.tailscale.peers} peer)`
+                        : 'Telepítve (nem fut)'
+                      : 'Nincs telepítve'
+                    : 'Betöltés...'}
+                </div>
+                {vpnData?.tailscale?.rawError && (
+                  <div className="text-slate-600">{vpnData.tailscale.rawError}</div>
+                )}
               </div>
               <div className="p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] space-y-1">
-                <div>WireGuard: {vpnData?.wireguard?.status || 'n/a'}</div>
-                {vpnData?.wireguard?.details && <div className="text-slate-600">{vpnData.wireguard.details}</div>}
+                <div>
+                  WireGuard:{' '}
+                  {vpnData?.wireguard
+                    ? vpnData.wireguard.installed
+                      ? vpnData.wireguard.active
+                        ? 'Aktív'
+                        : 'Telepítve (inaktív)'
+                      : 'Nincs telepítve'
+                    : 'Betöltés...'}
+                </div>
+                {vpnData?.wireguard?.output && (
+                  <div className="text-slate-600 truncate">{vpnData.wireguard.output}</div>
+                )}
               </div>
             </div>
 
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <HardDrive className="h-4 w-4 text-slate-700" />
-                Lemezek (df) & Rsync Külső Mentés
+                Lemezek (df / SMART) & Rsync Mentés
               </h3>
               <div className="space-y-1 max-h-28 overflow-y-auto font-mono text-[11px]">
-                {(diskData?.filesystems || []).map((f, i) => (
-                  <div key={i} className="flex justify-between p-1 bg-slate-50 border border-slate-200 rounded">
-                    <span className="truncate">{f.mount}</span>
-                    <span>{f.used}/{f.size} ({f.usePercent})</span>
+                {(diskData?.blockDevices || []).map((b, i) => (
+                  <div key={i} className="flex justify-between gap-2 p-1 bg-slate-50 border border-slate-200 rounded">
+                    <span className="truncate">/dev/{b.name} {b.mountpoint ? `(${b.mountpoint})` : ''}</span>
+                    <span className="shrink-0">{b.size} {b.smartHealth ? `· ${b.smartHealth}` : ''}</span>
                   </div>
                 ))}
+                {diskData?.dfOutput && (
+                  <pre className="p-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] overflow-x-auto">
+                    {diskData.dfOutput}
+                  </pre>
+                )}
               </div>
               <div className="flex gap-1.5 pt-2">
                 <input
@@ -1115,14 +1149,14 @@ export const SystemOpsView: React.FC<Props> = ({
               {diagData ? (
                 <div className="space-y-1.5 text-xs">
                   <div className="font-mono text-slate-500">
-                    Node {diagData.nodeVersion} · {diagData.platform}/{diagData.arch}
+                    Ellenőrizve: {new Date(diagData.checkedAt).toLocaleTimeString()}
                   </div>
-                  {diagData.checks.map((chk, idx) => (
+                  {(diagData.checks || []).map((chk, idx) => (
                     <div key={idx} className="p-2 bg-slate-50 border border-slate-200 rounded flex justify-between gap-2 font-mono">
                       <span className={chk.ok ? 'text-emerald-800 font-semibold' : 'text-amber-800 font-semibold'}>
                         [{chk.ok ? 'OK' : 'WARN'}] {chk.name}
                       </span>
-                      <span className="text-slate-600 truncate">{chk.details}</span>
+                      <span className="text-slate-600 truncate">{chk.detail}</span>
                     </div>
                   ))}
                 </div>
