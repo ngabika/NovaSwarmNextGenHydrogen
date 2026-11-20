@@ -15,6 +15,7 @@ import {
   runSandboxedCodeInterpreter,
 } from '../automation/workflowsAndProductivity';
 import { checkSslCertificate, executeSshProfileCommand } from '../infra/hostAdmin';
+import { exploreDatabase } from '../infra/superAdmin';
 import {
   callHomeAssistantService,
   publishMqttMessage,
@@ -22,6 +23,12 @@ import {
 } from '../integrations/ecosystem';
 import { callMcpTool, listMcpTools } from '../mcp/manager';
 import { addPersistentMemory, searchMemories } from '../memory/vectorStore';
+import {
+  executeApiStudioRequest,
+  executeDynamicTool,
+  fetchOpenMeteoWeather,
+  runDeepResearch,
+} from '../power/universalSuite';
 import { generateImageArtifactWithGemini } from '../providers/router';
 import { searchOfflineKnowledgePack } from '../rag/documents';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
@@ -65,7 +72,19 @@ Elérhető eszközök:
 21. ssh_exec: {"profileId": "...", "command": "..."} — távoli parancs futtatása SSH flottán.
 22. check_ssl: {"host": "example.com", "port": 443} — TLS/SSL tanúsítvány lejáratának ellenőrzése.
 23. schedule_reminder: {"title": "...", "startAt": "ISO-8601", "notes": "..."} — naptár esemény / emlékeztető mentése.
+24. deep_research: {"query": "..."} — többforrásos mélykutatás és hivatkozott jelentés készítése.
+25. http_request: {"method": "GET|POST|PUT", "url": "https://...", "body": "..."} — élő REST/API kérés végrehajtása.
+26. db_query: {"engine": "sqlite|postgres", "target": "...", "sql": "SELECT ..."} — írásvédett SQL adatbázis lekérdezés.
+27. weather: {"location": "Budapest"} — valós idejű Open-Meteo időjárás és napi előrejelzés.
 Ha már minden adat megvan a válaszadáshoz, válaszolj normál szöveggel (<tool_call> nélkül).`;
+
+export function buildDynamicToolsInstruction(): string {
+  const dyn = getState().dynamicTools.filter((d) => d.enabled);
+  if (dyn.length === 0) return '';
+  return `Dinamikus felhasználói eszközök (meghívhatók névvel vagy dyn:<név> alakban):\n${dyn
+    .map((d) => `- ${d.name} (${d.kind}): ${d.description}`)
+    .join('\n')}`;
+}
 
 export interface ParsedToolCall {
   name: string;
@@ -133,6 +152,9 @@ export async function executeAgentTool(params: {
       const destructive = detectDestructiveOperation(command);
       if (destructive.isDestructive && destructive.type && destructive.title) {
         const req = requireDestructiveApproval(destructive.type, destructive.title, command, agent.name);
+        void import('../telegram/bot')
+          .then((m) => m.notifyApprovalToTelegram(req))
+          .catch(() => {});
         const msg = `Jóváhagyási sorba téve (${req.id}): ${destructive.title}`;
         return {
           step: { tool: 'exec_shell', args: { command }, ok: false, sandboxed: false, outputPreview: msg },
@@ -622,6 +644,75 @@ export async function executeAgentTool(params: {
       return {
         step: { tool: 'schedule_reminder', args: { title, startAt }, ok: true, sandboxed: isSandboxed, outputPreview: ev.id },
         observation: `Naptár emlékeztető rögzítve: ${ev.title} (${ev.startAt})`,
+      };
+    }
+
+    /** Ú31: Deep Research Tool */
+    if (toolName === 'deep_research') {
+      if (!agent.webSearchEnabled) throw new Error('Webes kutatás le van tiltva ehhez az ágenshez.');
+      const query = String(args.query || '').trim();
+      if (!query) throw new Error('query paraméter kötelező.');
+      const report = await runDeepResearch(query);
+      return {
+        step: { tool: 'deep_research', args: { query }, ok: true, sandboxed: isSandboxed, outputPreview: `${report.sources.length} forrás` },
+        observation: report.summaryMarkdown.slice(0, 3500),
+      };
+    }
+
+    /** Ú32: HTTP / REST API Tool */
+    if (toolName === 'http_request') {
+      if (!agent.webSearchEnabled) throw new Error('Külső HTTP kérés le van tiltva ehhez az ágenshez.');
+      const url = String(args.url || '').trim();
+      const method = (String(args.method || 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE');
+      const res = await executeApiStudioRequest({
+        name: `Agent HTTP: ${url.slice(0, 30)}`,
+        method,
+        url,
+        body: args.body ? String(args.body) : '',
+        headersJson: args.headers ? JSON.stringify(args.headers) : '{}',
+        save: false,
+      });
+      return {
+        step: { tool: 'http_request', args: { method, url }, ok: res.status < 400, sandboxed: isSandboxed, outputPreview: `HTTP ${res.status} (${res.latencyMs}ms)` },
+        observation: `HTTP ${res.status} (${res.latencyMs}ms):\n${res.responseBody.slice(0, 3000)}`,
+      };
+    }
+
+    /** Ú33: Read-only DB Explorer Tool */
+    if (toolName === 'db_query') {
+      if (isSandboxed) throw new Error('Elszigetelt szálban a helyi adatbázis lekérdezés tiltva.');
+      const res = await exploreDatabase({
+        connectionId: args.connectionId ? String(args.connectionId) : undefined,
+        engine: args.engine === 'postgres' ? 'postgres' : 'sqlite',
+        target: args.target ? String(args.target) : undefined,
+        sql: String(args.sql || ''),
+      });
+      return {
+        step: { tool: 'db_query', args: { sql: args.sql }, ok: res.ok, sandboxed: false, outputPreview: res.ok ? `${res.rowCount} sor` : res.error || 'hiba' },
+        observation: res.ok ? JSON.stringify(res.rows.slice(0, 20), null, 2) : `DB hiba: ${res.error}`,
+      };
+    }
+
+    /** Ú59: Live Weather Tool */
+    if (toolName === 'weather') {
+      const loc = args.location ? String(args.location) : undefined;
+      const w = await fetchOpenMeteoWeather(loc);
+      return {
+        step: { tool: 'weather', args: { location: w.location }, ok: w.ok, sandboxed: isSandboxed, outputPreview: w.ok ? `${w.temperatureC}°C ${w.condition}` : w.error || 'hiba' },
+        observation: w.ok
+          ? `${w.location}: ${w.temperatureC}°C, ${w.condition}, szél ${w.windKmh} km/h (napi min/max: ${w.dailyMinC}°C / ${w.dailyMaxC}°C)`
+          : `Időjárás hiba: ${w.error}`,
+      };
+    }
+
+    /** B2: Dynamic User-Registered Runtime Tool Dispatch */
+    const cleanDynName = toolName.replace(/^dyn:/, '');
+    const dynDef = getState().dynamicTools.find((d) => d.enabled && d.name === cleanDynName);
+    if (dynDef) {
+      const out = await executeDynamicTool(dynDef, args);
+      return {
+        step: { tool: toolName, args, ok: out.ok, sandboxed: dynDef.kind === 'sandbox_js', outputPreview: out.output.slice(0, 180) },
+        observation: out.output.slice(0, 3500),
       };
     }
 

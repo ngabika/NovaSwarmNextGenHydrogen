@@ -29,6 +29,7 @@ import { buildProgressiveSkillsIndex } from '../skills/loader';
 import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../state/store';
 import {
   AGENT_TOOLS_INSTRUCTION,
+  buildDynamicToolsInstruction,
   executeAgentTool,
   parseAllToolCallsFromResponse,
 } from './tools';
@@ -93,6 +94,8 @@ export function buildDynamicAgentSystemPrompt(
       : state.mcpServers;
   const mcpSummary = allowedMcps.map((m) => `- ${m.id}: ${m.name} (${m.transport || 'http'}, ${m.status})`).join('\n');
 
+  const dynamicToolsIdx = buildDynamicToolsInstruction();
+
   return [
     `Te vagy ${agent.name}, szerepköröd: ${agent.role}.`,
     agent.systemPrompt,
@@ -109,6 +112,7 @@ export function buildDynamicAgentSystemPrompt(
     memories ? `Kapcsolódó tartós memóriák:\n${memories}` : '',
     skillsIndex ? `Elérhető ellenőrzött skillek (progressive disclosure):\n${skillsIndex}` : '',
     AGENT_TOOLS_INSTRUCTION,
+    dynamicToolsIdx,
     `Rendszer önismeret:\n${SELF_DOCUMENTATION_TEXT}`,
     PROMPT_INJECTION_DEFENSE_RULE,
     `Válaszolj a felhasználó nyelvén (${state.settings.language}). Ha egy képességed nem lett ténylegesen végrehajtva eszközzel, SOHA ne állítsd, hogy végrehajtottad.`,
@@ -281,9 +285,13 @@ export async function runAgentWithTools(params: {
   model: string;
   provider: Agent['providerId'];
   costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
   toolTrace: ToolExecutionStep[];
   artifactIds: string[];
 }> {
+  const startedAt = Date.now();
   const state = getState();
   const systemInstruction = buildDynamicAgentSystemPrompt(params.agent, params.isolationMode);
   const maxSteps = Math.max(1, Math.min(20, params.maxSteps ?? state.settings.maxToolSteps ?? 12));
@@ -292,6 +300,9 @@ export async function runAgentWithTools(params: {
   const artifactIds: string[] = [];
   let runningPrompt = params.prompt;
   let totalCost = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let retryCount = 0;
   let lastModel = params.agent.modelId;
   let lastProvider = params.agent.providerId;
 
@@ -313,6 +324,8 @@ export async function runAgentWithTools(params: {
       : await invokeWithFailover(invokeReq, params.routerDeps);
 
     totalCost = Number((totalCost + res.costUsd).toFixed(6));
+    totalInputTokens += res.inputTokens ?? 0;
+    totalOutputTokens += res.outputTokens ?? 0;
     lastModel = res.model;
     lastProvider = res.provider;
 
@@ -323,6 +336,9 @@ export async function runAgentWithTools(params: {
         model: lastModel,
         provider: lastProvider,
         costUsd: totalCost,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        latencyMs: Date.now() - startedAt,
         toolTrace,
         artifactIds,
       };
@@ -340,14 +356,23 @@ export async function runAgentWithTools(params: {
     );
 
     const obsBlocks: string[] = [];
+    let anyFailed = false;
     for (let idx = 0; idx < outcomes.length; idx++) {
       const outcome = outcomes[idx];
       toolTrace.push(outcome.step);
+      if (!outcome.step.ok) anyFailed = true;
       if (outcome.createdArtifactId) artifactIds.push(outcome.createdArtifactId);
       obsBlocks.push(`[Eszköz hívás #${step + 1}.${idx + 1}: ${calls[idx].name}]\n[Eredmény]:\n${outcome.observation}`);
     }
 
-    runningPrompt = `${runningPrompt}\n\n${obsBlocks.join('\n\n')}\n\nFolytasd a feladatot vagy adj végleges választ a felhasználónak.`;
+    /** M35: Self-healing tool retry injection */
+    let healHint = '';
+    if (anyFailed && retryCount < 2) {
+      retryCount += 1;
+      healHint = `\n\n[Öngyógyító Tool Figyelmeztetés (${retryCount}/2)]: Egy vagy több eszköz hívás sikertelen volt. Elemezd a pontos hibaüzenetet, javítsd az argumentumokat vagy útvonalat, és próbáld meg újra vagy válassz alternatív eszközt!`;
+    }
+
+    runningPrompt = `${runningPrompt}\n\n${obsBlocks.join('\n\n')}${healHint}\n\nFolytasd a feladatot vagy adj végleges választ a felhasználónak.`;
   }
 
   return {
@@ -355,6 +380,9 @@ export async function runAgentWithTools(params: {
     model: lastModel,
     provider: lastProvider,
     costUsd: totalCost,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    latencyMs: Date.now() - startedAt,
     toolTrace,
     artifactIds,
   };
@@ -508,6 +536,9 @@ export async function handleUserTurn(params: {
   let modelUsed = targetAgent.modelId;
   let providerUsed = targetAgent.providerId;
   let costUsd = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let latencyMs = 0;
   let toolTrace: ToolExecutionStep[] = [];
   let artifactIds: string[] = [];
 
@@ -526,6 +557,9 @@ export async function handleUserTurn(params: {
     modelUsed = res.model;
     providerUsed = res.provider;
     costUsd = res.costUsd;
+    inputTokens = res.inputTokens;
+    outputTokens = res.outputTokens;
+    latencyMs = res.latencyMs;
     toolTrace = res.toolTrace;
     artifactIds = res.artifactIds;
   } catch (err) {
@@ -541,6 +575,9 @@ export async function handleUserTurn(params: {
     content: replyText,
     modelUsed,
     providerUsed,
+    inputTokens,
+    outputTokens,
+    latencyMs,
     costUsd,
     toolTrace,
     artifactIds: artifactIds.length > 0 ? artifactIds : undefined,
@@ -599,7 +636,7 @@ export async function handleCouncilTurn(params: {
     activeAgents.map(async (ag) => {
       const res = await runAgentWithTools({
         agent: ag,
-        prompt: `Konzilium szakértői véleménykérés (szerepköröd: ${ag.role}):\n${params.content}\n\nAdj tömör, határozott állásfoglalást a saját szakterületed szemszögéből!`,
+        prompt: `Konzilium szakértői véleménykérés (szerepköröd: ${ag.role}):\n${params.content}\n\nAdj tömör, határozott állásfoglalást a saját szakterületed szemszögéből, és a legvégén adj egyetlen sort ebben a formában: [SZAVAZAT: approve|caution|reject, BIZALOM: 85]`,
         complexity: 'simple',
         preset: params.preset || 'deep',
         isolationMode: 'sandboxed',
@@ -611,7 +648,23 @@ export async function handleCouncilTurn(params: {
   );
 
   const opinions: UnifiedMessage[] = [];
+  const councilVotes: NonNullable<UnifiedMessage['councilVotes']> = [];
+
   for (const { ag, res } of results) {
+    const vMatch = res.text.match(/\[SZAVAZAT:\s*(approve|caution|reject)[^\d]*(\d{1,3})?\]/i);
+    const verdict = (vMatch?.[1]?.toLowerCase() as 'approve' | 'caution' | 'reject') ||
+      (/\b(elutasít|kockázat|veszély|reject|nem ajánlott)\b/i.test(res.text)
+        ? 'caution'
+        : 'approve');
+    const confidence = Math.min(100, Math.max(10, Number(vMatch?.[2] || 82)));
+    councilVotes.push({
+      agentId: ag.id,
+      agentName: ag.name,
+      verdict,
+      confidence,
+      rationale: res.text.replace(/\[SZAVAZAT:[^\]]+\]/i, '').trim().slice(0, 140),
+    });
+
     opinions.push(
       appendUnifiedMessage({
         threadId: params.threadId,
@@ -622,6 +675,9 @@ export async function handleCouncilTurn(params: {
         content: res.text,
         modelUsed: res.model,
         providerUsed: res.provider,
+        inputTokens: res.inputTokens,
+        outputTokens: res.outputTokens,
+        latencyMs: res.latencyMs,
         costUsd: res.costUsd,
         toolTrace: res.toolTrace,
       })
@@ -633,6 +689,7 @@ export async function handleCouncilTurn(params: {
     .map((r) => `### ${r.ag.name} (${r.ag.role}):\n${r.res.text}`)
     .join('\n\n')}`;
 
+  const synthT0 = Date.now();
   const synth = await invokeWithFailover(
     {
       prompt: synthesisPrompt,
@@ -654,10 +711,74 @@ export async function handleCouncilTurn(params: {
     content: synth.text,
     modelUsed: synth.model,
     providerUsed: synth.provider,
+    inputTokens: synth.inputTokens,
+    outputTokens: synth.outputTokens,
+    latencyMs: Date.now() - synthT0,
     costUsd: synth.costUsd,
+    councilVotes,
   });
 
   return { userMessage, opinions, consensusReply };
+}
+
+/** M32: Fork a chat thread from a specific message into an isolated sandboxed branch */
+export function forkThreadFromMessage(sourceThreadId: string, messageId: string): {
+  newThreadId: string;
+  copiedMessages: number;
+} {
+  const state = getState();
+  const srcThread = state.threads.find((t) => t.id === sourceThreadId);
+  const threadMsgs = state.messages.filter((m) => m.threadId === sourceThreadId);
+  const idx = threadMsgs.findIndex((m) => m.id === messageId);
+  if (idx < 0) throw new Error('A megadott üzenet nem található ebben a beszélgetési szálban.');
+
+  const slice = threadMsgs.slice(0, idx + 1);
+  const newThreadId = `thread-fork-${crypto.randomUUID().slice(0, 6)}`;
+  const now = new Date().toISOString();
+
+  updateState((s) => {
+    s.threads.unshift({
+      id: newThreadId,
+      title: `Elágazás: ${srcThread?.title || 'Beszélgetés'}`,
+      folder: srcThread?.folder || 'Általános',
+      isolationMode: 'sandboxed',
+      channelSource: 'web',
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const m of slice) {
+      s.messages.push({
+        ...m,
+        id: crypto.randomUUID(),
+        threadId: newThreadId,
+        forkedFromMessageId: m.id === messageId ? messageId : m.forkedFromMessageId,
+      });
+    }
+  });
+
+  return { newThreadId, copiedMessages: slice.length };
+}
+
+/** M32: Regenerate the last user turn cleanly */
+export async function regenerateLastTurn(
+  threadId: string,
+  preset?: ExecutionPreset,
+  routerDeps?: RouterDependencies
+) {
+  const state = getState();
+  const threadMsgs = state.messages.filter((m) => m.threadId === threadId);
+  const lastUser = [...threadMsgs].reverse().find((m) => m.senderType === 'user');
+  if (!lastUser) throw new Error('Nincs újragenerálható felhasználói kérdés ebben a szálban.');
+
+  return handleUserTurn({
+    threadId,
+    content: lastUser.content,
+    channel: lastUser.channel === 'swarm_internal' ? 'web' : lastUser.channel,
+    targetAgentId: lastUser.targetAgentId,
+    preset,
+    attachments: lastUser.attachments,
+    routerDeps,
+  });
 }
 
 /** Kanban AI Auto-Breakdown */

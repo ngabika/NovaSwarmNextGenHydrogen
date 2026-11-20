@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { GitBranch, Globe, Plus, RefreshCw, Send, Share2, Shield, Trash2 } from 'lucide-react';
+import { Gauge, GitBranch, Globe, Plus, RefreshCw, Send, Share2, Shield, Trash2 } from 'lucide-react';
 import type {
   Agent,
+  AgentBenchmarkRun,
   FederationPeer,
   KanbanCard,
   LanguageCode,
@@ -18,6 +19,7 @@ interface Props {
   kanban: KanbanCard[];
   federationPeers: FederationPeer[];
   federationEnabled: boolean;
+  agentBenchmarks?: AgentBenchmarkRun[];
   onRefreshState: () => Promise<void>;
 }
 
@@ -37,10 +39,12 @@ const AgentTreeNode: React.FC<{
       activeHoursStart: number;
       activeHoursEnd: number;
       maxRunsPerHour: number;
+      modelChain: string[];
     }
   ) => Promise<void>;
+  onRunBenchmark: (agentId: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-}> = ({ agent, allAgents, mcpServers, depth, onToggle, onSavePolicy, onDelete }) => {
+}> = ({ agent, allAgents, mcpServers, depth, onToggle, onSavePolicy, onRunBenchmark, onDelete }) => {
   const children = allAgents.filter((a) => a.parentAgentId === agent.id);
   const [editingBot, setEditingBot] = useState(false);
   const [tgToken, setTgToken] = useState('');
@@ -50,6 +54,8 @@ const AgentTreeNode: React.FC<{
   const [activeHoursStart, setActiveHoursStart] = useState<number>(agent.activeHoursStart ?? 0);
   const [activeHoursEnd, setActiveHoursEnd] = useState<number>(agent.activeHoursEnd ?? 23);
   const [maxRunsPerHour, setMaxRunsPerHour] = useState<number>(agent.maxRunsPerHour ?? 60);
+  const [chainText, setChainText] = useState<string>((agent.modelChain || []).join(', '));
+  const [benchBusy, setBenchBusy] = useState(false);
 
   const toggleMcpId = (id: string) => {
     setAllowedMcpIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -74,6 +80,7 @@ const AgentTreeNode: React.FC<{
               {(agent.dailySpendUsd ?? 0).toFixed(4)}
               {agent.dailyBudgetUsd ? ` / $${agent.dailyBudgetUsd.toFixed(2)}` : ''}
               {agent.telegramHasToken ? ' · Dedikált TG Bot' : ''}
+              {typeof agent.benchmarkScore === 'number' ? ` · Benchmark: ${agent.benchmarkScore}%` : ''}
               {agent.allowedMcpIds && agent.allowedMcpIds.length > 0
                 ? ` · MCP:${agent.allowedMcpIds.length}`
                 : ' · MCP:Mind'}
@@ -105,6 +112,22 @@ const AgentTreeNode: React.FC<{
             </button>
             {!agent.isSupervisor && (
               <>
+                <button
+                  type="button"
+                  disabled={benchBusy}
+                  onClick={async () => {
+                    setBenchBusy(true);
+                    try {
+                      await onRunBenchmark(agent.id);
+                    } finally {
+                      setBenchBusy(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0 disabled:opacity-50"
+                >
+                  <Gauge className="h-3.5 w-3.5" />
+                  {benchBusy ? 'Teszt...' : 'Benchmark'}
+                </button>
                 <button
                   type="button"
                   onClick={() => setEditingBot((v) => !v)}
@@ -222,6 +245,19 @@ const AgentTreeNode: React.FC<{
               </div>
             )}
 
+            <div>
+              <label className="text-[11px] text-slate-500 block mb-1">
+                Modell Failover Lánc (M40 · vesszővel elválasztva, pl. openrouter:deepseek/deepseek-chat, ollama:qwen2.5:3b)
+              </label>
+              <input
+                type="text"
+                value={chainText}
+                onChange={(e) => setChainText(e.target.value)}
+                placeholder="provider:model, provider:model"
+                className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded"
+              />
+            </div>
+
             <button
               type="button"
               onClick={async () => {
@@ -233,6 +269,10 @@ const AgentTreeNode: React.FC<{
                   activeHoursStart,
                   activeHoursEnd,
                   maxRunsPerHour,
+                  modelChain: chainText
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
                 });
                 setTgToken('');
                 setEditingBot(false);
@@ -254,6 +294,7 @@ const AgentTreeNode: React.FC<{
           depth={depth + 1}
           onToggle={onToggle}
           onSavePolicy={onSavePolicy}
+          onRunBenchmark={onRunBenchmark}
           onDelete={onDelete}
         />
       ))}
@@ -268,6 +309,7 @@ export const OrgAgentsView: React.FC<Props> = ({
   kanban,
   federationPeers,
   federationEnabled,
+  agentBenchmarks = [],
   onRefreshState,
 }) => {
   const [name, setName] = useState('');
@@ -338,6 +380,7 @@ export const OrgAgentsView: React.FC<Props> = ({
       activeHoursStart: number;
       activeHoursEnd: number;
       maxRunsPerHour: number;
+      modelChain: string[];
     }
   ) => {
     await fetch(`/api/agents/${agentId}`, {
@@ -351,8 +394,14 @@ export const OrgAgentsView: React.FC<Props> = ({
         activeHoursStart: payload.activeHoursStart,
         activeHoursEnd: payload.activeHoursEnd,
         maxRunsPerHour: payload.maxRunsPerHour,
+        modelChain: payload.modelChain,
       }),
     });
+    await onRefreshState();
+  };
+
+  const handleRunBenchmark = async (agentId: string) => {
+    await fetch(`/api/agents/${agentId}/benchmark`, { method: 'POST' });
     await onRefreshState();
   };
 
@@ -434,10 +483,25 @@ export const OrgAgentsView: React.FC<Props> = ({
                 depth={0}
                 onToggle={handleToggle}
                 onSavePolicy={handleSavePolicy}
+                onRunBenchmark={handleRunBenchmark}
                 onDelete={handleDelete}
               />
             ))}
           </div>
+
+          {agentBenchmarks.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+              <div className="text-xs font-semibold text-slate-900">Legutóbbi Ágens Benchmark Eredmények</div>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {agentBenchmarks.slice(-6).reverse().map((b) => (
+                  <div key={b.id} className="p-2 bg-slate-50 border border-slate-200 rounded flex justify-between text-xs font-mono tabular-nums">
+                    <span>{b.agentName} · {b.passed}/{b.total} teszt</span>
+                    <span>{b.score}% · {b.avgLatencyMs}ms</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <form
@@ -575,6 +639,17 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={async () => {
+                await fetch('/api/federation/ping-all', { method: 'POST' });
+                await onRefreshState();
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Mind Pingelése
+            </button>
+            <button
+              type="button"
               onClick={() => void handleSyncSharedMemory()}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
@@ -599,6 +674,33 @@ export const OrgAgentsView: React.FC<Props> = ({
             </button>
           </div>
         </div>
+
+        {/* Ú58: Live Federation Topology SVG Graph */}
+        {federationPeers.length > 0 && (
+          <div className="border border-slate-200 rounded-lg bg-slate-50 p-2 overflow-x-auto">
+            <svg viewBox="0 0 600 150" className="w-full min-w-[460px] h-36" role="img" aria-label="Federation topology">
+              {federationPeers.map((p, idx) => {
+                const spacing = 460 / Math.max(1, federationPeers.length);
+                const px = 70 + idx * spacing + spacing / 2;
+                const py = 112;
+                const stroke = p.status === 'online' ? '#047857' : p.status === 'offline' ? '#b91c1c' : '#94a3b8';
+                return (
+                  <g key={p.id}>
+                    <line x1={300} y1={32} x2={px} y2={py - 14} stroke={stroke} strokeWidth={1.8} />
+                    <rect x={px - 58} y={py - 14} width={116} height={28} rx={4} fill="#ffffff" stroke={stroke} strokeWidth={1.5} />
+                    <text x={px} y={py + 3} textAnchor="middle" fontSize="10" fontFamily="monospace" fill="#0f172a">
+                      {p.name.slice(0, 14)} ({p.status})
+                    </text>
+                  </g>
+                );
+              })}
+              <rect x={225} y={14} width={150} height={28} rx={4} fill="#0f172a" />
+              <text x={300} y={32} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#ffffff">
+                Helyi Csomópont ({agents.filter((a) => !a.isSupervisor).length} ágens)
+              </text>
+            </svg>
+          </div>
+        )}
 
         <form onSubmit={handleAddPeer} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
           <input

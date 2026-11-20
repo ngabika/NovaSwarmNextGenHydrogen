@@ -72,11 +72,13 @@ export const McpSkillsView: React.FC<Props> = ({
   // Google OAuth info
   const [oauthMessage, setOauthMessage] = useState<string | null>(null);
 
-  // Dynamic Skill creation & pitfalls
+  // Dynamic Skill creation & pitfalls + GitHub import (Ú60)
   const [skillName, setSkillName] = useState('');
   const [skillDesc, setSkillDesc] = useState('');
   const [skillCode, setSkillCode] = useState('console.log("Skill sandbox verification OK");');
   const [pitfallDrafts, setPitfallDrafts] = useState<Record<string, string>>({});
+  const [ghSkillUrl, setGhSkillUrl] = useState('');
+  const [ghSkillMsg, setGhSkillMsg] = useState<string | null>(null);
 
   // Multi-Channel Connectors & Bidirectional Polling (M18)
   const [chType, setChType] = useState<ChannelConnectorType>('discord');
@@ -626,6 +628,49 @@ export const McpSkillsView: React.FC<Props> = ({
                 Dry-Run Sandbox Teszt & Aktiválás
               </button>
             </form>
+
+            {/* Ú60: GitHub Skill Import + Static Security Scan */}
+            <div className="pt-2 border-t border-slate-200 space-y-2">
+              <div className="text-xs font-semibold text-slate-700">GitHub Skill Biztonsági Audit & Import (Ú60)</div>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={ghSkillUrl}
+                  onChange={(e) => setGhSkillUrl(e.target.value)}
+                  placeholder="https://raw.githubusercontent.com/.../skill.js"
+                  className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!ghSkillUrl.trim()) return;
+                    setGhSkillMsg('Biztonsági ellenőrzés fut...');
+                    const r = await fetch('/api/skills/import-github', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ url: ghSkillUrl.trim() }),
+                    });
+                    const d = (await r.json()) as {
+                      ok?: boolean;
+                      findings?: string[];
+                      error?: string;
+                      skill?: { name: string };
+                    };
+                    if (!r.ok) {
+                      setGhSkillMsg(`ELUTASÍTVA: ${d.error || ''} ${(d.findings || []).join(' | ')}`);
+                    } else {
+                      setGhSkillMsg(`Importálva és jóváhagyva: ${d.skill?.name}`);
+                      setGhSkillUrl('');
+                      await onRefreshState();
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
+                >
+                  Import & Audit
+                </button>
+              </div>
+              {ghSkillMsg && <div className="text-[11px] font-mono text-slate-700">{ghSkillMsg}</div>}
+            </div>
 
             <div className="space-y-2.5 pt-2 max-h-[280px] overflow-y-auto">
               {skills.map((sk) => (

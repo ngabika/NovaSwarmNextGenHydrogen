@@ -25,6 +25,7 @@ type TranslationKeys = {
   appName: string;
   navOverview: string;
   navSwarm: string;
+  navWorkbench: string;
   navAgents: string;
   navMemory: string;
   navModels: string;
@@ -110,6 +111,7 @@ const EN: TranslationKeys = {
   appName: 'NovaSwarm',
   navOverview: 'Overview',
   navSwarm: 'Swarm & Kanban',
+  navWorkbench: 'AI Studio & Tools',
   navAgents: 'Org & Agents',
   navMemory: 'Memory & Dreaming',
   navModels: 'Models & Router',
@@ -195,6 +197,7 @@ const HU: TranslationKeys = {
   appName: 'NovaSwarm',
   navOverview: 'Áttekintő',
   navSwarm: 'Raj & Kanban',
+  navWorkbench: 'AI Stúdió & Eszközök',
   navAgents: 'Szervezet & Ágensek',
   navMemory: 'Memória & Álmodás',
   navModels: 'Modellek & Router',

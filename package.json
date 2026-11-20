@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=1 --test-force-exit tests/*.test.ts"
+    "test": "tsx --test --test-concurrency=1 --test-force-exit tests/*.test.ts",
+    "cli": "tsx scripts/novaswarm-cli.ts"
   },
   "dependencies": {
     "@google/genai": "^3.6.0",

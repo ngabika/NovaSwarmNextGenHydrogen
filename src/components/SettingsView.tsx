@@ -304,6 +304,60 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
+            <label htmlFor="set-ollama-unload" className="block text-xs font-medium text-slate-700 mb-1">
+              Ollama Automatikus RAM Kiürítés (perc, 0 = ki)
+            </label>
+            <input
+              id="set-ollama-unload"
+              type="number"
+              min="0"
+              max="240"
+              value={form.ollamaAutoUnloadMinutes ?? 15}
+              onChange={(e) => setForm({ ...form, ollamaAutoUnloadMinutes: Number(e.target.value) })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-weather-loc" className="block text-xs font-medium text-slate-700 mb-1">
+              Időjárás Település (Open-Meteo, kulcs nélküli)
+            </label>
+            <input
+              id="set-weather-loc"
+              type="text"
+              value={form.weatherLocation || 'Budapest'}
+              onChange={(e) => setForm({ ...form, weatherLocation: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-piper-bin" className="block text-xs font-medium text-slate-700 mb-1">
+              Piper Neurális TTS Parancs / Útvonal (opcionális)
+            </label>
+            <input
+              id="set-piper-bin"
+              type="text"
+              value={form.piperTtsBinary || 'piper'}
+              onChange={(e) => setForm({ ...form, piperTtsBinary: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-wake-phrase" className="block text-xs font-medium text-slate-700 mb-1">
+              Ébresztőszó (Wake Word · Ú45)
+            </label>
+            <input
+              id="set-wake-phrase"
+              type="text"
+              value={form.wakeWordPhrase || 'szia nova'}
+              onChange={(e) => setForm({ ...form, wakeWordPhrase: e.target.value })}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
             <label htmlFor="set-tg-chat" className="block text-xs font-medium text-slate-700 mb-1">
               Telegram Chat / Csoport ID
             </label>
@@ -645,7 +699,15 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={form.ttsHostSpeakerEnabled}
               onChange={(e) => setForm({ ...form, ttsHostSpeakerEnabled: e.target.checked })}
             />
-            <span>Gazdagép hangszóró TTS (espeak-ng)</span>
+            <span>Gazdagép hangszóró TTS (Piper neurális / espeak-ng)</span>
+          </label>
+          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.wakeWordEnabled)}
+              onChange={(e) => setForm({ ...form, wakeWordEnabled: e.target.checked })}
+            />
+            <span>Kézmentes Ébresztőszó Figyelés aktív a Raj Chatben (Wake Word)</span>
           </label>
         </div>
       </form>

@@ -333,6 +333,22 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
     }
   }
 
+  const morningDigest = [
+    `Mit tanultam éjjel (${new Date().toLocaleDateString('hu-HU')}):`,
+    promoted.length > 0
+      ? `• ${promoted.length} új tartós emlék elmentve (${promoted.slice(0, 3).map((p) => p.entity).join(', ')})`
+      : '• Nem keletkezett új tartós emlék ebben a ciklusban',
+    contradictionsResolved > 0
+      ? `• ${contradictionsResolved} elavult információ felülírva frissebb ténnyel`
+      : null,
+    skillDraftsCreated > 0
+      ? `• ${skillDraftsCreated} új skill-tervezet javasolva a Skillek műhelyben`
+      : null,
+    themes.length > 0 ? `• Fő témák: ${themes.join(', ')}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   const journalEntry: DreamJournalEntry = {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
@@ -344,6 +360,7 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
       skillDraftsCreated,
     },
     narrative,
+    morningDigest,
     costUsd,
     usedLocalOllama,
   };

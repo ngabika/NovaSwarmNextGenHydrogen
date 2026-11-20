@@ -91,6 +91,20 @@ export interface TerminalSessionInfo {
   shell: string;
 }
 
+export interface TerminalRecordingFrame {
+  offsetMs: number;
+  dir: 'in' | 'out';
+  data: string;
+}
+
+export interface TerminalRecording {
+  sessionId: string;
+  initiator: string;
+  shell: string;
+  createdAt: string;
+  frames: TerminalRecordingFrame[];
+}
+
 interface InternalPtySession {
   info: TerminalSessionInfo;
   ptyProcess: PtyLikeProcess;
@@ -98,12 +112,49 @@ interface InternalPtySession {
   lineBuffer: string;
   outputLines: string[];
   partialLine: string;
+  startedAtMs: number;
+  frames: TerminalRecordingFrame[];
 }
 
 const sessions = new Map<string, InternalPtySession>();
+const archivedRecordings = new Map<string, TerminalRecording>();
 
 export function listTerminalSessions(): TerminalSessionInfo[] {
   return Array.from(sessions.values()).map((s) => s.info);
+}
+
+export function getTerminalRecording(sessionId: string): TerminalRecording | null {
+  const active = sessions.get(sessionId);
+  if (active) {
+    return {
+      sessionId: active.info.id,
+      initiator: active.info.initiator,
+      shell: active.info.shell,
+      createdAt: active.info.createdAt,
+      frames: active.frames,
+    };
+  }
+  return archivedRecordings.get(sessionId) ?? null;
+}
+
+export function listTerminalRecordings(): Array<Omit<TerminalRecording, 'frames'> & { frameCount: number; active: boolean }> {
+  const activeList = Array.from(sessions.values()).map((s) => ({
+    sessionId: s.info.id,
+    initiator: s.info.initiator,
+    shell: s.info.shell,
+    createdAt: s.info.createdAt,
+    frameCount: s.frames.length,
+    active: true,
+  }));
+  const pastList = Array.from(archivedRecordings.values()).map((r) => ({
+    sessionId: r.sessionId,
+    initiator: r.initiator,
+    shell: r.shell,
+    createdAt: r.createdAt,
+    frameCount: r.frames.length,
+    active: false,
+  }));
+  return [...activeList, ...pastList];
 }
 
 /** M24: Read last N lines from a terminal session's rolling circular buffer (ANSI stripped) */
@@ -170,9 +221,20 @@ export function createTerminalSession(params: {
     lineBuffer: '',
     outputLines: [],
     partialLine: '',
+    startedAtMs: Date.now(),
+    frames: [],
   };
 
   ptyProcess.onData((data) => {
+    session.frames.push({
+      offsetMs: Date.now() - session.startedAtMs,
+      dir: 'out',
+      data: data.slice(0, 2000),
+    });
+    if (session.frames.length > 500) {
+      session.frames = session.frames.slice(-500);
+    }
+
     const normalized = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const parts = (session.partialLine + normalized).split('\n');
     session.partialLine = parts.pop() ?? '';
@@ -191,6 +253,17 @@ export function createTerminalSession(params: {
   });
 
   ptyProcess.onExit(({ exitCode }) => {
+    archivedRecordings.set(id, {
+      sessionId: id,
+      initiator: info.initiator,
+      shell: info.shell,
+      createdAt: info.createdAt,
+      frames: [...session.frames],
+    });
+    if (archivedRecordings.size > 15) {
+      const oldest = archivedRecordings.keys().next().value;
+      if (oldest) archivedRecordings.delete(oldest);
+    }
     for (const ws of session.clients) {
       if (ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'exit', sessionId: id, exitCode }));
@@ -240,6 +313,14 @@ export function writeToTerminalSession(sessionId: string, data: string, actor = 
     }
   }
 
+  session.frames.push({
+    offsetMs: Date.now() - session.startedAtMs,
+    dir: 'in',
+    data: data.slice(0, 500),
+  });
+  if (session.frames.length > 500) {
+    session.frames = session.frames.slice(-500);
+  }
   session.ptyProcess.write(data);
 }
 
@@ -265,6 +346,13 @@ export function attachWebSocketToSession(sessionId: string, ws: WebSocket): void
 export function closeTerminalSession(sessionId: string): void {
   const session = sessions.get(sessionId);
   if (!session) return;
+  archivedRecordings.set(sessionId, {
+    sessionId,
+    initiator: session.info.initiator,
+    shell: session.info.shell,
+    createdAt: session.info.createdAt,
+    frames: [...session.frames],
+  });
   try {
     session.ptyProcess.kill();
   } catch {

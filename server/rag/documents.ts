@@ -84,8 +84,33 @@ export function chunkText(text: string, maxChars = 750, overlap = 100): string[]
   return chunks.filter((c) => c.length > 10);
 }
 
+/** M45: Syntax/AST-boundary-aware chunking for source files & CSV summaries */
+export function chunkSourceCode(code: string, maxChars = 900): string[] {
+  const lines = code.replace(/\r\n/g, '\n').split('\n');
+  const chunks: string[] = [];
+  let buf: string[] = [];
+  let bufLen = 0;
+  const boundaryRe = /^(export\s+)?(async\s+)?(function|class|interface|type|const\s+\w+\s*=|def\s+|fn\s+|func\s+|#+\s+)/;
+
+  for (const line of lines) {
+    if (bufLen + line.length + 1 > maxChars && buf.length > 0 && boundaryRe.test(line.trim())) {
+      chunks.push(buf.join('\n').trim());
+      buf = [];
+      bufLen = 0;
+    } else if (bufLen + line.length + 1 > maxChars * 1.35 && buf.length > 0) {
+      chunks.push(buf.join('\n').trim());
+      buf = [];
+      bufLen = 0;
+    }
+    buf.push(line);
+    bufLen += line.length + 1;
+  }
+  if (buf.length > 0) chunks.push(buf.join('\n').trim());
+  return chunks.filter((c) => c.length > 10).slice(0, 45);
+}
+
 /**
- * Ú3: Document Ingestion & Local RAG pipeline (TXT, MD, CSV, JSON, HTML, PDF)
+ * Ú3 & M45: Document Ingestion & Local RAG pipeline (TXT, MD, CSV, JSON, HTML, PDF, Source Code)
  */
 export async function ingestDocumentToRag(params: {
   filename: string;
@@ -101,22 +126,28 @@ export async function ingestDocumentToRag(params: {
   fs.writeFileSync(path.join(RAG_DOCS_DIR, safeName), buf);
 
   const lower = safeName.toLowerCase();
+  const isCodeFile = /\.(ts|tsx|js|jsx|mjs|cjs|py|sh|yaml|yml|go|rs|sql)$/i.test(lower);
+  const isCsvFile = /\.csv$/i.test(lower);
   let extractedText = '';
   if (lower.endsWith('.pdf') || params.mimeType === 'application/pdf') {
     extractedText = extractTextFromPdfBuffer(buf);
   } else if (lower.endsWith('.html') || lower.endsWith('.htm')) {
     extractedText = cleanHtmlToMarkdown(buf.toString('utf8')).text;
+  } else if (isCsvFile) {
+    const rows = buf.toString('utf8').split(/\r?\n/).filter(Boolean);
+    const header = rows[0] || '';
+    extractedText = `CSV Táblázat (${safeName}, ${rows.length} sor) — Oszlopok: ${header}\n` + rows.slice(0, 120).join('\n');
   } else {
     extractedText = buf.toString('utf8');
   }
 
-  const chunks = chunkText(extractedText, 750, 80);
+  const chunks = isCodeFile ? chunkSourceCode(extractedText, 900) : chunkText(extractedText, 750, 80);
   const memoryIds: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
     const entry = await addPersistentMemoryAsync({
       entity: `Dokumentum: ${safeName}`,
       content: `[Forrás: ${safeName} #${i + 1}/${chunks.length}]\n${chunks[i]}`,
-      tags: Array.from(new Set([...(params.tags || []), 'rag', 'document', safeName])),
+      tags: Array.from(new Set([...(params.tags || []), 'rag', isCodeFile ? 'code' : 'document', safeName])),
       links: ['Helyi RAG Tudástár', safeName],
       importanceScore: 0.85,
       tier: 'hot',

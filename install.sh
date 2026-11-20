@@ -221,12 +221,25 @@ fi
 
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 TARGET_URL="http://${LAN_IP:-localhost}:${APP_PORT}"
+
+# Install global 'novaswarm' terminal CLI wrapper (Ú56)
+if [ -d /usr/local/bin ]; then
+  TMP_CLI=$(mktemp)
+  cat > "${TMP_CLI}" <<EOF
+#!/usr/bin/env bash
+exec "${TSX_BIN}" "${NOVASWARM_DIR}/scripts/novaswarm-cli.ts" "\$@"
+EOF
+  chmod +x "${TMP_CLI}"
+  ${SUDO:-} mv "${TMP_CLI}" /usr/local/bin/novaswarm 2>/dev/null || rm -f "${TMP_CLI}"
+fi
+
 echo "============================================================"
 echo "  Telepítés kész! Nyisd meg:"
 echo "  Lokálisan: http://localhost:${APP_PORT}"
 if [ -n "${LAN_IP}" ]; then
   echo "  Hálózaton: http://${LAN_IP}:${APP_PORT}"
 fi
+echo "  Terminál CLI: novaswarm status | novaswarm ask \"...\" | novaswarm doctor"
 echo "  Minden további beállítás a grafikus Setup Wizardban történik."
 echo "============================================================"
 

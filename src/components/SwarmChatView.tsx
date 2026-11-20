@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
+  Check,
   CheckSquare,
   Code2,
+  Copy,
   FileAudio,
   FolderPlus,
   GitBranch,
@@ -11,6 +13,7 @@ import {
   Mic,
   Play,
   Plus,
+  RefreshCw,
   Send,
   Slash,
   Sparkles,
@@ -107,8 +110,12 @@ export const SwarmChatView: React.FC<Props> = ({
   const [newCardDesc, setNewCardDesc] = useState('');
   const [newCardPriority, setNewCardPriority] = useState<KanbanPriority>('medium');
   const [newCardBlockedBy, setNewCardBlockedBy] = useState<string>('');
+  const [newCardSprint, setNewCardSprint] = useState('');
+  const [newCardEstMins, setNewCardEstMins] = useState('');
   const [swimlane, setSwimlane] = useState<'none' | 'priority' | 'assignee'>('none');
   const [showArchived, setShowArchived] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   // Ötletláda (IdeaBox) state
   const [ideaTitle, setIdeaTitle] = useState('');
@@ -237,6 +244,61 @@ export const SwarmChatView: React.FC<Props> = ({
     rec.onend = () => setListening(false);
     rec.start();
   };
+
+  // Ú45: Hands-free wake-word listener when enabled in Settings
+  useEffect(() => {
+    if (!settings.wakeWordEnabled || listening) return;
+    const SpeechRec =
+      (window as unknown as { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    let cancelled = false;
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.speechLocale || 'hu-HU';
+    const wakePhrase = (settings.wakeWordPhrase || 'szia nova').toLowerCase();
+
+    rec.onresult = (ev: { results?: ArrayLike<ArrayLike<{ transcript?: string }>> }) => {
+      const len = ev.results?.length || 0;
+      if (len === 0) return;
+      const phrase = (ev.results?.[len - 1]?.[0]?.transcript || '').toLowerCase();
+      if (phrase.includes(wakePhrase)) {
+        const after = phrase.split(wakePhrase).slice(1).join(' ').trim();
+        if (after) {
+          setInput(after);
+          setUsedVoiceInput(true);
+        } else {
+          rec.stop();
+          handleVoiceDictate();
+        }
+      }
+    };
+    rec.onend = () => {
+      if (!cancelled && settings.wakeWordEnabled) {
+        try {
+          rec.start();
+        } catch {
+          // ignore already started / permission denied
+        }
+      }
+    };
+    try {
+      rec.start();
+    } catch {
+      // browser blocked auto-mic without gesture
+    }
+    return () => {
+      cancelled = true;
+      try {
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, [settings.wakeWordEnabled, settings.wakeWordPhrase, language, listening]);
 
   const handleSendStream = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -442,11 +504,15 @@ export const SwarmChatView: React.FC<Props> = ({
         priority: newCardPriority,
         assignedAgentId: userAgents[0]?.id ?? null,
         blockedBy: newCardBlockedBy ? [newCardBlockedBy] : [],
+        sprintName: newCardSprint.trim() || undefined,
+        estimatedMinutes: newCardEstMins ? Number(newCardEstMins) : undefined,
       }),
     });
     setNewCardTitle('');
     setNewCardDesc('');
     setNewCardBlockedBy('');
+    setNewCardSprint('');
+    setNewCardEstMins('');
     await onRefreshState();
   };
 
@@ -464,6 +530,60 @@ export const SwarmChatView: React.FC<Props> = ({
     const data = (await res.json()) as { branch?: string; message?: string };
     if (data.message) setWorkerMsg(data.message);
     await onRefreshState();
+  };
+
+  const handleToggleWorktree = async (card: KanbanCard) => {
+    const res = await fetch(`/api/kanban/${card.id}/worktree`, {
+      method: card.worktreePath ? 'DELETE' : 'POST',
+    });
+    const data = (await res.json()) as { message?: string; error?: string };
+    setWorkerMsg(data.message || data.error || 'Worktree frissítve.');
+    await onRefreshState();
+  };
+
+  const handleForkFromMessage = async (messageId: string) => {
+    const res = await fetch('/api/chat/fork', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: selectedThreadId, messageId }),
+    });
+    const data = (await res.json()) as { thread?: ChatThread; error?: string };
+    if (data.thread) {
+      setSelectedThreadId(data.thread.id);
+      setMediaNotice(`Új elágazó szál létrehozva: ${data.thread.title}`);
+      await onRefreshState();
+    } else if (data.error) {
+      setMediaNotice(data.error);
+    }
+  };
+
+  const handleRegenerateLast = async () => {
+    if (regenerating || sending) return;
+    setRegenerating(true);
+    setMediaNotice('Utolsó válasz újragenerálása...');
+    try {
+      const res = await fetch('/api/chat/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: selectedThreadId, preset }),
+      });
+      const d = (await res.json()) as { error?: string };
+      if (!res.ok) setMediaNotice(d.error || 'Újragenerálás sikertelen.');
+      else setMediaNotice('Utolsó válasz sikeresen újragenerálva.');
+      await onRefreshState();
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const handleCopyMessage = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1500);
+    } catch {
+      // clipboard blocked
+    }
   };
 
   const handleAiBreakdown = async (id: string) => {
@@ -568,7 +688,10 @@ export const SwarmChatView: React.FC<Props> = ({
             <div className="text-sm font-medium text-slate-900">{card.title}</div>
             <div className="text-[11px] font-mono text-slate-500">
               {card.priority || 'medium'} · {assigneeName}
+              {card.sprintName ? ` · sprint:${card.sprintName}` : ''}
+              {typeof card.estimatedMinutes === 'number' ? ` · ${card.actualMinutes ?? 0}/${card.estimatedMinutes}p` : ''}
               {card.gitBranch ? ` · git:${card.gitBranch}` : ''}
+              {card.worktreePath ? ` · wt:${card.worktreePath}` : ''}
               {isAged ? ` · BEAKADVA (${ageHours}h)` : ''}
             </div>
             {blockingCards.length > 0 && (
@@ -585,6 +708,16 @@ export const SwarmChatView: React.FC<Props> = ({
               className="text-slate-500 hover:text-slate-900"
             >
               <GitBranch className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title={card.worktreePath ? 'Worktree leválasztása' : 'Izolált Git Worktree csatolása (M31)'}
+              onClick={() => void handleToggleWorktree(card)}
+              className={`px-1 py-0.5 text-[10px] font-mono border rounded ${
+                card.worktreePath ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-500 border-slate-300 hover:text-slate-900'
+              }`}
+            >
+              WT
             </button>
             <button
               type="button"
@@ -742,7 +875,7 @@ export const SwarmChatView: React.FC<Props> = ({
               Tiszta állapot — küldj egy üzenetet, futtass Konziliumot vagy írj /parancsot a sablonokhoz.
             </div>
           ) : (
-            threadMessages.map((m) => (
+            threadMessages.map((m, msgIdx) => (
               <div
                 key={m.id}
                 className={`p-3.5 rounded-lg border ${
@@ -753,15 +886,47 @@ export const SwarmChatView: React.FC<Props> = ({
                     : 'bg-slate-50 border-slate-200 text-slate-900 mr-8'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2 text-xs opacity-75 mb-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-80 mb-1.5">
                   <span className="font-semibold">
                     {m.senderName} · {m.channel}
                     {m.modelUsed ? ` · ${m.modelUsed}` : ''}
+                    {(m.inputTokens || m.outputTokens || m.latencyMs) && (
+                      <span className="font-mono font-normal ml-1.5 tabular-nums">
+                        [{m.inputTokens ?? 0}↑/{m.outputTokens ?? 0}↓ tok{m.latencyMs ? ` · ${m.latencyMs}ms` : ''}]
+                      </span>
+                    )}
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono tabular-nums">
                       {new Date(m.timestamp).toLocaleTimeString()}
                     </span>
+                    <button
+                      type="button"
+                      title="Szál elágaztatása innen (Fork M32)"
+                      onClick={() => void handleForkFromMessage(m.id)}
+                      className="hover:opacity-100 opacity-70"
+                    >
+                      <GitBranch className="h-3.5 w-3.5" />
+                    </button>
+                    {m.senderType === 'agent' && msgIdx === threadMessages.length - 1 && (
+                      <button
+                        type="button"
+                        disabled={regenerating}
+                        title="Utolsó válasz újragenerálása (M32)"
+                        onClick={() => void handleRegenerateLast()}
+                        className="hover:opacity-100 opacity-70 disabled:opacity-30"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${regenerating ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      title="Másolás vágólapra (M37)"
+                      onClick={() => void handleCopyMessage(m.id, m.content)}
+                      className="hover:opacity-100 opacity-70"
+                    >
+                      {copiedId === m.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
                     <button
                       type="button"
                       aria-label={`${tr(language, 'ttsSpeak')}: ${m.senderName}`}
@@ -772,7 +937,36 @@ export const SwarmChatView: React.FC<Props> = ({
                     </button>
                   </div>
                 </div>
-                <div className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                <div className="text-sm whitespace-pre-wrap leading-relaxed font-sans">
+                  {m.content.split(/(```[\s\S]*?```)/g).map((part, pIdx) =>
+                    part.startsWith('```') && part.endsWith('```') ? (
+                      <pre
+                        key={pIdx}
+                        className="my-2 p-2.5 bg-slate-900 text-slate-100 rounded-md font-mono text-xs overflow-x-auto"
+                      >
+                        {part.replace(/^```[^\n]*\n?/, '').replace(/```$/, '')}
+                      </pre>
+                    ) : (
+                      <React.Fragment key={pIdx}>{part}</React.Fragment>
+                    )
+                  )}
+                </div>
+                {m.councilVotes && m.councilVotes.length > 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200">
+                    <div className="text-[11px] font-semibold text-slate-700 mb-1">Konzilium Szavazási Mátrix (M36)</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] font-mono">
+                      {m.councilVotes.map((v, vi) => (
+                        <div key={vi} className="p-1.5 bg-white border border-slate-200 rounded">
+                          <span className="font-semibold text-slate-900">{v.agentName}</span> ·{' '}
+                          <span className={v.verdict === 'approve' ? 'text-emerald-700' : v.verdict === 'reject' ? 'text-red-700' : 'text-amber-700'}>
+                            {v.verdict.toUpperCase()} ({v.confidence}%)
+                          </span>
+                          <div className="text-slate-600 font-sans truncate">{v.rationale}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {m.attachments && m.attachments.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {m.attachments.map((att, idx) =>
@@ -1218,6 +1412,21 @@ export const SwarmChatView: React.FC<Props> = ({
                       </option>
                     ))}
                 </select>
+                <input
+                  type="text"
+                  value={newCardSprint}
+                  onChange={(e) => setNewCardSprint(e.target.value)}
+                  placeholder="Sprint neve (opc.)"
+                  className="px-3 py-1.5 text-xs border border-slate-200 rounded-md"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={newCardEstMins}
+                  onChange={(e) => setNewCardEstMins(e.target.value)}
+                  placeholder="Becsült idő (perc, opc.)"
+                  className="px-3 py-1.5 text-xs font-mono border border-slate-200 rounded-md"
+                />
               </div>
             </form>
 

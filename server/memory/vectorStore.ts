@@ -572,3 +572,119 @@ export function deleteVaultNote(relPath: string, vaultBaseDir = VAULT_DIR): void
   }
 }
 
+/** M43: Memory Time Machine — restore an older superseded memory back to active HOT tier */
+export function restoreSupersededMemory(memoryId: string): MemoryEntry {
+  let restored: MemoryEntry | undefined;
+  updateState((s) => {
+    const target = s.memories.find((m) => m.id === memoryId);
+    if (!target) throw new Error('Memória bejegyzés nem található.');
+    const newerId = target.supersededBy;
+    target.supersededBy = undefined;
+    target.tier = 'hot';
+    target.salience = 0.95;
+    target.lastAccessedAt = new Date().toISOString();
+    if (newerId) {
+      const newerRef = s.memories.find((m) => m.id === newerId);
+      if (newerRef && newerRef.supersedesId === target.id) {
+        newerRef.tier = 'cold';
+      }
+    }
+    restored = target;
+  });
+  if (!restored) throw new Error('Memória visszaállítása sikertelen.');
+  appendAuditLog({
+    type: 'memory',
+    sourceAgentId: 'memory-time-machine',
+    sourceAgentName: 'Memória Időgép',
+    message: `Korábbi memória visszaállítva aktív HOT rétegre: [${restored.entity}] ${restored.content.slice(0, 80)}`,
+    verifiedExecution: true,
+  });
+  return restored;
+}
+
+/** M47: Obsidian Vault Full-Text Search, Backlinks & Daily Note Generator */
+export function searchObsidianVault(query: string, vaultBaseDir = VAULT_DIR): Array<{
+  path: string;
+  title: string;
+  excerpt: string;
+  matches: number;
+}> {
+  const notes = listObsidianNotes(vaultBaseDir);
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return notes.slice(0, 30).map((n) => ({
+      path: n.path,
+      title: n.content.match(/^#\s+(.+)$/m)?.[1] || path.basename(n.path, '.md'),
+      excerpt: n.content.replace(/^---[\s\S]*?---/, '').trim().slice(0, 180),
+      matches: 1,
+    }));
+  }
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const hits: Array<{ path: string; title: string; excerpt: string; matches: number }> = [];
+  for (const note of notes) {
+    const lower = `${note.path}\n${note.content}`.toLowerCase();
+    let count = 0;
+    for (const tok of tokens) {
+      if (lower.includes(tok)) count++;
+    }
+    if (count > 0) {
+      const firstPos = Math.max(0, lower.indexOf(tokens[0]) - 60);
+      hits.push({
+        path: note.path,
+        title: note.content.match(/^#\s+(.+)$/m)?.[1] || path.basename(note.path, '.md'),
+        excerpt: note.content.slice(firstPos, firstPos + 200).replace(/\s+/g, ' ').trim(),
+        matches: count,
+      });
+    }
+  }
+  return hits.sort((a, b) => b.matches - a.matches).slice(0, 30);
+}
+
+export function getVaultBacklinks(targetNotePath: string, vaultBaseDir = VAULT_DIR): Array<{
+  sourcePath: string;
+  context: string;
+}> {
+  const notes = listObsidianNotes(vaultBaseDir);
+  const baseName = path.basename(targetNotePath, '.md').toLowerCase();
+  const targetClean = targetNotePath.replace(/\.md$/i, '').toLowerCase();
+  const backlinks: Array<{ sourcePath: string; context: string }> = [];
+
+  for (const n of notes) {
+    if (n.path === targetNotePath) continue;
+    const wikiRe = /\[\[([^\]]+)\]\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = wikiRe.exec(n.content)) !== null) {
+      const linkVal = m[1].split('|')[0].trim().toLowerCase();
+      if (linkVal === baseName || linkVal === targetClean || linkVal.includes(baseName)) {
+        const start = Math.max(0, m.index - 40);
+        backlinks.push({
+          sourcePath: n.path,
+          context: n.content.slice(start, start + 120).replace(/\s+/g, ' ').trim(),
+        });
+        break;
+      }
+    }
+  }
+  return backlinks;
+}
+
+export function ensureDailyObsidianNote(
+  dateStr = new Date().toISOString().slice(0, 10),
+  appendSection?: string,
+  vaultBaseDir = VAULT_DIR
+): { path: string; content: string } {
+  const rel = `daily/${dateStr}.md`;
+  const abs = resolveSafeVaultPath(rel, vaultBaseDir);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  let content = '';
+  if (fs.existsSync(abs)) {
+    content = fs.readFileSync(abs, 'utf8');
+  } else {
+    content = `---\ndate: ${dateStr}\ntags: [daily, second-brain]\n---\n\n# Napi Jegyzet — ${dateStr}\n\n[[Álmodási Ciklus]] · [[Rendszer Tudásbázis]]\n\n`;
+  }
+  if (appendSection?.trim()) {
+    content = `${content.trimEnd()}\n\n${appendSection.trim()}\n`;
+  }
+  fs.writeFileSync(abs, content, 'utf8');
+  return { path: path.relative(vaultBaseDir, abs), content };
+}

@@ -1,7 +1,14 @@
 import crypto from 'node:crypto';
+import type { ApprovalRequest } from '../../shared/types';
 import { handleUserTurn, resolveTargetAgent } from '../agents/engine';
 import { resolvePairingRequest } from '../channels/connectors';
 import { searchMemories } from '../memory/vectorStore';
+import {
+  addSharedListItem,
+  fetchOpenMeteoWeather,
+  getOrCreateDefaultSharedList,
+  runAutonomousMission,
+} from '../power/universalSuite';
 import { invokeWithFailover } from '../providers/router';
 import { activateKillSwitch, resolveApproval } from '../security/permissionGate';
 import {
@@ -177,6 +184,34 @@ export async function processTelegramInput(
     return `OTA Verzió: helyi=${ota.currentVersion}, távoli=${ota.latestVersion ?? 'ismeretlen'}, frissítés elérhető=${ota.updateAvailable ? 'IGEN' : 'NEM'}`;
   }
 
+  /** Ú51: Bidirectional Shared List command (/lista & /lista <tétel>) */
+  if (text === '/lista' || text.startsWith('/lista ')) {
+    const item = text.replace(/^\/lista\s*/i, '').trim();
+    if (!item) {
+      const list = getOrCreateDefaultSharedList();
+      if (list.items.length === 0) return `A közös lista (${list.name}) jelenleg üres. Írd be: /lista tej`;
+      return `${list.name}:\n${list.items.slice(0, 20).map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n')}`;
+    }
+    const list = addSharedListItem('Bevásárlólista', item, 'Telegram');
+    return `Hozzáadva a közös listához (${list.name}): "${item}" (${list.items.length} tétel)`;
+  }
+
+  /** Ú59: Live Weather via /idojaras */
+  if (text === '/idojaras' || text.startsWith('/idojaras ')) {
+    const loc = text.replace(/^\/idojaras\s*/i, '').trim() || undefined;
+    const w = await fetchOpenMeteoWeather(loc);
+    return w.ok
+      ? `Időjárás (${w.location}): ${w.temperatureC}°C · ${w.condition} · Szél: ${w.windKmh} km/h (Min/Max: ${w.dailyMinC}°C / ${w.dailyMaxC}°C)`
+      : `Időjárás lekérdezés hiba: ${w.error}`;
+  }
+
+  /** B1: Autonomous Mission via /mission <goal> */
+  if (text.startsWith('/mission ')) {
+    const goal = text.replace(/^\/mission\s+/i, '').trim();
+    const mission = await runAutonomousMission(goal, forcedAgentId);
+    return `Autonóm küldetés (${mission.status}): ${mission.goal}\n${mission.steps.map((s) => `- [${s.status}] ${s.title}`).join('\n')}`;
+  }
+
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {
     const query = text.replace(/^\/(keres|ask)\s+/i, '').trim();
     const memMatches = searchMemories(query, 4, { reinforce: true });
@@ -259,6 +294,14 @@ export function buildApprovalInlineKeyboard(approvalId: string) {
       { text: 'Elutasítás', callback_data: `/elutasit ${shortId}` },
     ],
   ];
+}
+
+/** M49: Push destructive approval requests directly to Telegram with 1-tap inline buttons */
+export async function notifyApprovalToTelegram(req: ApprovalRequest): Promise<{ sent: boolean; reason?: string }> {
+  return sendTelegramMessage(
+    `Jóváhagyás szükséges:\n• Művelet: ${req.title}\n• Célpont: ${req.commandOrTarget}\n• Kérte: ${req.requestedBy}\n• ID: ${req.id.slice(0, 8)}`,
+    { inlineButtons: buildApprovalInlineKeyboard(req.id) }
+  );
 }
 
 async function answerTelegramCallbackQuery(token: string, callbackQueryId: string, text?: string): Promise<void> {

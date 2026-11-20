@@ -194,9 +194,11 @@ function makeCacheKey(
   systemInstruction?: string,
   preset?: ExecutionPreset
 ): string {
+  const normPrompt = (prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const normSys = (systemInstruction || '').trim().replace(/\s+/g, ' ').toLowerCase();
   return crypto
     .createHash('sha256')
-    .update(`${provider}|${model}|${preset || 'fast'}|${systemInstruction || ''}|${prompt}`)
+    .update(`${provider}|${model}|${preset || 'fast'}|${normSys}|${normPrompt}`)
     .digest('hex');
 }
 
@@ -527,6 +529,57 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   return { models: discovered, errors };
 }
 
+let lastOllamaActivityMs = 0;
+
+/** M41: Unload Ollama model from RAM immediately (keep_alive: 0) */
+export async function unloadOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
+  const s = getState().settings;
+  const baseUrl = s.ollamaUrl.replace(/\/$/, '');
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: s.ollamaModel,
+        prompt: '',
+        keep_alive: 0,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      return { ok: false, model: s.ollamaModel, message: `Ollama HTTP ${res.status}` };
+    }
+    lastOllamaActivityMs = 0;
+    return { ok: true, model: s.ollamaModel, message: `${s.ollamaModel} sikeresen kirakva a RAM-ból (keep_alive: 0).` };
+  } catch (err) {
+    return {
+      ok: false,
+      model: s.ollamaModel,
+      message: `Ollama nem érhető el: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+export async function checkOllamaIdleUnload(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const s = getState().settings;
+  const mins = s.ollamaAutoUnloadMinutes ?? 0;
+  if (mins <= 0 || lastOllamaActivityMs === 0) return false;
+  if (Date.now() - lastOllamaActivityMs >= mins * 60_000) {
+    const out = await unloadOllamaModel(fetchImpl);
+    if (out.ok) {
+      appendAuditLog({
+        type: 'system',
+        sourceAgentId: 'ollama-unloader',
+        sourceAgentName: 'Ollama Memória Őr',
+        message: out.message,
+        verifiedExecution: true,
+      });
+    }
+    return out.ok;
+  }
+  return false;
+}
+
 /** M6: Warm up Ollama model into RAM for instant low-latency replies */
 export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
   const s = getState().settings;
@@ -546,6 +599,7 @@ export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<
     if (!res.ok) {
       return { ok: false, model: s.ollamaModel, message: `Ollama HTTP ${res.status}` };
     }
+    lastOllamaActivityMs = Date.now();
     return { ok: true, model: s.ollamaModel, message: `${s.ollamaModel} előtöltve (${s.ollamaKeepAlive || '5m'}, num_ctx=${s.ollamaNumCtx || 2048}).` };
   } catch (err) {
     return {
@@ -1284,15 +1338,78 @@ async function invokeWithFailoverInternal(
     }
   }
 
-  const chain: ProviderId[] = forceOllama
-    ? ['ollama']
-    : Array.from(
-        new Set<ProviderId>([
-          req.preferredProvider ?? state.settings.primaryProvider,
-          state.settings.secondaryProvider,
-          'ollama',
-        ])
-      );
+  // M39 & M40: Build target candidate chain (agent modelChain + health-aware adaptive ordering)
+  const recordProviderHealth = (provider: ProviderId, ok: boolean, latencyMs: number) => {
+    updateState((s) => {
+      s.gatewayAnalytics.providerHealth = s.gatewayAnalytics.providerHealth || ({} as NonNullable<typeof s.gatewayAnalytics.providerHealth>);
+      const curr = s.gatewayAnalytics.providerHealth[provider] || {
+        provider,
+        totalCalls: 0,
+        failedCalls: 0,
+        avgLatencyMs: 0,
+        lastLatencyMs: null,
+      };
+      curr.totalCalls += 1;
+      if (!ok) {
+        curr.failedCalls += 1;
+        curr.lastErrorAt = new Date().toISOString();
+      } else {
+        curr.lastLatencyMs = latencyMs;
+        const okCount = Math.max(1, curr.totalCalls - curr.failedCalls);
+        curr.avgLatencyMs = Math.round((curr.avgLatencyMs * (okCount - 1) + latencyMs) / okCount);
+      }
+      s.gatewayAnalytics.providerHealth[provider] = curr;
+    });
+  };
+
+  const agentRef = req.agentId ? state.agents.find((a) => a.id === req.agentId) : undefined;
+  const rawSteps: Array<{ provider: ProviderId; model?: string }> = [];
+
+  if (forceOllama) {
+    rawSteps.push({ provider: 'ollama', model: req.preferredModel });
+  } else {
+    if (req.preferredProvider) {
+      rawSteps.push({ provider: req.preferredProvider, model: req.preferredModel });
+    }
+    if (agentRef?.modelChain && agentRef.modelChain.length > 0) {
+      for (const link of agentRef.modelChain) {
+        if (link?.providerId) {
+          rawSteps.push({ provider: link.providerId, model: link.modelId });
+        }
+      }
+    }
+    const baseProviders: ProviderId[] = [
+      state.settings.primaryProvider,
+      state.settings.secondaryProvider,
+      'ollama',
+    ];
+    // M39: When no explicit preferredProvider is forced and agent has no modelChain, adaptively rank healthy/fast providers higher
+    if (!req.preferredProvider && (!agentRef?.modelChain || agentRef.modelChain.length === 0) && state.gatewayAnalytics.providerHealth) {
+      const healthMap = state.gatewayAnalytics.providerHealth;
+      baseProviders.sort((a, b) => {
+        if (a === 'ollama' && b !== 'ollama') return 1;
+        if (b === 'ollama' && a !== 'ollama') return -1;
+        const ha = healthMap[a];
+        const hb = healthMap[b];
+        if (!ha || ha.totalCalls < 2 || !hb || hb.totalCalls < 2) return 0;
+        const errRateA = ha.failedCalls / ha.totalCalls;
+        const errRateB = hb.failedCalls / hb.totalCalls;
+        if (Math.abs(errRateA - errRateB) > 0.15) return errRateA - errRateB;
+        return (ha.avgLatencyMs || 9999) - (hb.avgLatencyMs || 9999);
+      });
+    }
+    for (const bp of baseProviders) {
+      rawSteps.push({ provider: bp, model: bp === req.preferredProvider ? req.preferredModel : undefined });
+    }
+  }
+
+  const seenStep = new Set<string>();
+  const targetChain = rawSteps.filter((st) => {
+    const key = `${st.provider}:${st.model || 'auto'}`;
+    if (seenStep.has(key)) return false;
+    seenStep.add(key);
+    return true;
+  });
 
   const allowCache =
     !onChunk &&
@@ -1302,9 +1419,21 @@ async function invokeWithFailoverInternal(
     !req.audio &&
     (!req.tools || req.tools.length === 0);
 
-  const primaryCandidateModel = selectModelForProvider(chain[0], req.complexity ?? 'simple', state, req.preferredModel);
+  const firstStep = targetChain[0];
+  const primaryCandidateModel = selectModelForProvider(
+    firstStep.provider,
+    req.complexity ?? 'simple',
+    state,
+    firstStep.model
+  );
   if (allowCache) {
-    const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction, effectivePreset);
+    const cacheKey = makeCacheKey(
+      firstStep.provider,
+      primaryCandidateModel,
+      req.prompt,
+      req.systemInstruction,
+      effectivePreset
+    );
     const cached = responseCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       updateState((s) => {
@@ -1330,13 +1459,15 @@ async function invokeWithFailoverInternal(
   const failureSummaries: string[] = [];
   let backoffMs = 150;
 
-  for (const provider of chain) {
-    const model = selectModelForProvider(provider, req.complexity ?? 'simple', state, req.preferredModel);
+  for (const stepTarget of targetChain) {
+    const provider = stepTarget.provider;
+    const model = selectModelForProvider(provider, req.complexity ?? 'simple', state, stepTarget.model);
     const pricing = classifyModelPricing(model, provider);
     const contextWin = provider === 'ollama' ? state.settings.ollamaNumCtx || 2048 : pricing.contextWindow;
     const diet = applyContextDiet(req.prompt, contextWin);
 
     if (provider === 'ollama') {
+      const t0 = Date.now();
       try {
         const res = await callProvider({
           provider: 'ollama',
@@ -1354,6 +1485,8 @@ async function invokeWithFailoverInternal(
           toolChoice: req.toolChoice,
           onChunk,
         });
+        lastOllamaActivityMs = Date.now();
+        recordProviderHealth('ollama', true, Date.now() - t0);
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: true });
         return {
@@ -1368,6 +1501,7 @@ async function invokeWithFailoverInternal(
           attempts,
         };
       } catch (err) {
+        recordProviderHealth('ollama', false, Date.now() - t0);
         const msg = err instanceof Error ? err.message : String(err);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: false, error: msg });
         failureSummaries.push(`[ollama]: ${msg}`);
@@ -1387,6 +1521,7 @@ async function invokeWithFailoverInternal(
       if (!picked) break;
       triedIds.add(picked.entry.id);
 
+      const t0 = Date.now();
       try {
         const res = await callProvider({
           provider,
@@ -1403,6 +1538,7 @@ async function invokeWithFailoverInternal(
           onChunk,
         });
 
+        recordProviderHealth(provider, true, Date.now() - t0);
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
         const costUsd = Number(
           (
@@ -1439,7 +1575,13 @@ async function invokeWithFailoverInternal(
             const firstKey = responseCache.keys().next().value;
             if (firstKey) responseCache.delete(firstKey);
           }
-          const cacheKey = makeCacheKey(chain[0], primaryCandidateModel, req.prompt, req.systemInstruction, effectivePreset);
+          const cacheKey = makeCacheKey(
+            firstStep.provider,
+            primaryCandidateModel,
+            req.prompt,
+            req.systemInstruction,
+            effectivePreset
+          );
           responseCache.set(cacheKey, {
             text: outGuard.sanitizedText,
             provider,
@@ -1462,6 +1604,7 @@ async function invokeWithFailoverInternal(
           attempts,
         };
       } catch (err) {
+        recordProviderHealth(provider, false, Date.now() - t0);
         const msg = err instanceof Error ? err.message : String(err);
         const isCooldownWorthy = /\b(429|500|502|503|504|rate limit|quota)\b/i.test(msg);
         updateState((s) => {

@@ -25,14 +25,17 @@ import {
   auditRecentCycle,
   breakdownKanbanCardWithAi,
   createAgent,
+  forkThreadFromMessage,
   handleCouncilTurn,
   handleUserTurn,
+  regenerateLastTurn,
   runAutonomousKanbanWorkerTick,
   SELF_DOCUMENTATION_TEXT,
 } from '../agents/engine';
 import {
   buildSvgChartArtifact,
   createCustomWebhook,
+  evaluateHomeAssistantWorkflowTriggers,
   executeWorkflow,
   exportSanitizedBundle,
   importSanitizedBundle,
@@ -85,6 +88,26 @@ import {
   updateSafeEnvConfig,
 } from '../infra/hostAdmin';
 import {
+  computeSecurityHardeningScore,
+  decryptFileAes256,
+  encryptFileAes256,
+  ensureKanbanWorktree,
+  executeSshFleetBulk,
+  exploreDatabase,
+  generateDockerComposeTemplate,
+  generateReverseProxyTemplate,
+  getOtaCommitHistory,
+  inspectFirewallAndOpenPorts,
+  inspectHardwareSensorsAndGpio,
+  inspectLinuxCronAndTimers,
+  inspectReverseProxyConfigs,
+  inspectSystemdDependenciesAndResources,
+  proposeUfwRule,
+  removeKanbanWorktree,
+  rollbackOtaToCommit,
+  runNetworkDiagnostics,
+} from '../infra/superAdmin';
+import {
   callHomeAssistantService,
   categorizeMerchant,
   generateDailyBriefingText,
@@ -93,6 +116,7 @@ import {
   publishMqttMessage,
   queryHomeAssistantStates,
   refreshAllRssFeeds,
+  fetchEmailBodyByUid,
   sendEmailViaSmtp,
   syncRecentEmailsViaImap,
   syncWatchedGithubRepo,
@@ -110,13 +134,47 @@ import {
   addPersistentMemory,
   addPersistentMemoryAsync,
   deleteVaultNote,
+  ensureDailyObsidianNote,
   getMemoryGraphData,
+  getVaultBacklinks,
   listObsidianNotes,
   readVaultNote,
+  restoreSupersededMemory,
   runSalienceDecayAndTiering,
   saveVaultNote,
   searchMemoriesAsync,
+  searchObsidianVault,
 } from '../memory/vectorStore';
+import {
+  addFlashcard,
+  addSharedListItem,
+  addSubscription,
+  aiCompareTexts,
+  chapterizeAudioBase64,
+  checkPasswordStrengthAndBreach,
+  checkWatchedPages,
+  computeSideBySideDiff,
+  executeApiStudioRequest,
+  exportFlashcardsCsv,
+  extractYoutubeTranscriptAndCards,
+  fetchOpenMeteoWeather,
+  generateStructuredReport,
+  getOrCreateDefaultSharedList,
+  getSubscriptionSummary,
+  registerDynamicTool,
+  removeSharedListItem,
+  reviewFlashcardSM2,
+  reviewGitDiffOrPr,
+  runAgentCapabilityBenchmark,
+  runAutonomousMission,
+  runDeepResearch,
+  runPromptArena,
+  runSwarmAutoDoctor,
+  saveDailyJournalEntry,
+  scanAndImportGithubSkill,
+  toggleSharedListItem,
+  translateTextForInterpreter,
+} from '../power/universalSuite';
 import {
   addProviderKey,
   clearResponseCache,
@@ -128,6 +186,7 @@ import {
   removeProviderKey,
   resetProviderCooldowns,
   transcribeAudioBuffer,
+  unloadOllamaModel,
   warmOllamaModel,
 } from '../providers/router';
 import {
@@ -186,11 +245,13 @@ import {
   runUptimeChecks,
   speakOnHostSpeaker,
 } from '../system/ops';
-import { processTelegramInput, sendTelegramMessage } from '../telegram/bot';
+import { notifyApprovalToTelegram, processTelegramInput, sendTelegramMessage } from '../telegram/bot';
 import {
   closeTerminalSession,
   createTerminalSession,
   getTerminalBuffer,
+  getTerminalRecording,
+  listTerminalRecordings,
   listTerminalSessions,
 } from '../terminal/ptyManager';
 import {
@@ -198,6 +259,8 @@ import {
   performWebSearch,
   runHeadlessBrowserAction,
 } from '../web/searchAndBrowser';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export function createApiRouter(broadcastEvent: (type: string, payload?: unknown) => void): express.Router {
   const router = express.Router();
@@ -546,6 +609,21 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         if (Array.isArray(patch.dashboardWidgets)) {
           s.settings.dashboardWidgets = patch.dashboardWidgets as DashboardWidgetConfig[];
         }
+        if (typeof patch.ollamaAutoUnloadMinutes === 'number') {
+          s.settings.ollamaAutoUnloadMinutes = Math.max(0, Math.round(patch.ollamaAutoUnloadMinutes));
+        }
+        if (typeof patch.weatherLocation === 'string' && patch.weatherLocation.trim()) {
+          s.settings.weatherLocation = patch.weatherLocation.trim();
+        }
+        if (typeof patch.piperTtsBinary === 'string') {
+          s.settings.piperTtsBinary = patch.piperTtsBinary.trim();
+        }
+        if (typeof patch.wakeWordEnabled === 'boolean') {
+          s.settings.wakeWordEnabled = patch.wakeWordEnabled;
+        }
+        if (typeof patch.wakeWordPhrase === 'string' && patch.wakeWordPhrase.trim()) {
+          s.settings.wakeWordPhrase = patch.wakeWordPhrase.trim().toLowerCase();
+        }
         if (typeof patch.telegramToken === 'string' && patch.telegramToken.trim()) {
           setTelegramTokenSecret(patch.telegramToken.trim());
           s.settings.telegramHasToken = true;
@@ -622,17 +700,21 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/gateway/virtual-keys', (req, res) => {
     try {
-      const { name, maxBudgetUsd, rpmLimit, allowedModels } = req.body as {
+      const { name, maxBudgetUsd, rpmLimit, allowedModels, expiresAt, allowedIps } = req.body as {
         name: string;
         maxBudgetUsd?: number;
         rpmLimit?: number;
         allowedModels?: string[];
+        expiresAt?: string;
+        allowedIps?: string[];
       };
       const created = createVirtualKey({
         name: name || 'Client Key',
         maxBudgetUsd,
         rpmLimit,
         allowedModels,
+        expiresAt,
+        allowedIps,
       });
       broadcastEvent('state:updated');
       res.json(created);
@@ -669,6 +751,12 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/providers/ollama/warm', async (_req, res) => {
     const outcome = await warmOllamaModel();
+    broadcastEvent('state:updated');
+    res.json(outcome);
+  });
+
+  router.post('/providers/ollama/unload', async (_req, res) => {
+    const outcome = await unloadOllamaModel();
     broadcastEvent('state:updated');
     res.json(outcome);
   });
@@ -792,6 +880,33 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       });
       broadcastEvent('state:updated');
       res.json(result);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/chat/fork', (req, res) => {
+    try {
+      const { threadId, messageId } = req.body as { threadId: string; messageId: string };
+      if (!threadId || !messageId) return res.status(400).json({ error: 'Szál és üzenet ID kötelező.' });
+      const out = forkThreadFromMessage(threadId, messageId);
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/chat/regenerate', async (req, res) => {
+    try {
+      const { threadId, preset } = req.body as { threadId?: string; preset?: ExecutionPreset };
+      const state = getState();
+      const out = await regenerateLastTurn(
+        threadId || state.threads[0]?.id || 'thread-main',
+        preset || state.settings.defaultPreset
+      );
+      broadcastEvent('state:updated');
+      res.json(out);
     } catch (err) {
       handleErr(res, err);
     }
@@ -951,6 +1066,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       if (typeof patch.dailyBudgetUsd === 'number') target.dailyBudgetUsd = Math.max(0, patch.dailyBudgetUsd);
       if (patch.voiceReplyMode) target.voiceReplyMode = patch.voiceReplyMode;
       if (Array.isArray(patch.allowedMcpIds)) target.allowedMcpIds = patch.allowedMcpIds;
+      if (Array.isArray(patch.modelChain)) target.modelChain = patch.modelChain;
       if (typeof patch.activeHoursStart === 'number') {
         target.activeHoursStart = Math.max(0, Math.min(23, Math.round(patch.activeHoursStart)));
       }
@@ -990,8 +1106,18 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   // Rich Kanban (Priority, Subtasks, AI Auto-Breakdown, Dependencies M16, Git Branch M17)
   router.post('/kanban', (req, res) => {
-    const { title, description, status, assignedAgentId, priority, project, blockedBy, gitBranch } =
-      req.body as Partial<KanbanCard>;
+    const {
+      title,
+      description,
+      status,
+      assignedAgentId,
+      priority,
+      project,
+      blockedBy,
+      gitBranch,
+      sprintName,
+      estimatedMinutes,
+    } = req.body as Partial<KanbanCard>;
     if (!title?.trim()) return res.status(400).json({ error: 'Kártya címe kötelező.' });
     const now = new Date().toISOString();
     const card: KanbanCard = {
@@ -1006,6 +1132,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       project: project?.trim() || undefined,
       blockedBy: Array.isArray(blockedBy) ? blockedBy : [],
       gitBranch: gitBranch?.trim() || undefined,
+      sprintName: sprintName?.trim() || undefined,
+      estimatedMinutes: typeof estimatedMinutes === 'number' && Number.isFinite(estimatedMinutes) ? estimatedMinutes : undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -1023,7 +1151,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   });
 
   router.patch('/kanban/:id', (req, res) => {
-    const { status, title, description, assignedAgentId, priority, archived, blockedBy, gitBranch } = req.body as {
+    const { status, title, description, assignedAgentId, priority, archived, blockedBy, gitBranch, sprintName, estimatedMinutes, actualMinutes } = req.body as {
       status?: KanbanStatus;
       title?: string;
       description?: string;
@@ -1032,6 +1160,9 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       archived?: boolean;
       blockedBy?: string[];
       gitBranch?: string;
+      sprintName?: string;
+      estimatedMinutes?: number;
+      actualMinutes?: number;
     };
     let card: KanbanCard | null = null;
     updateState((s) => {
@@ -1045,6 +1176,9 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       if (typeof archived === 'boolean') target.archived = archived;
       if (Array.isArray(blockedBy)) target.blockedBy = blockedBy;
       if (typeof gitBranch === 'string') target.gitBranch = gitBranch.trim() || undefined;
+      if (typeof sprintName === 'string') target.sprintName = sprintName.trim() || undefined;
+      if (typeof estimatedMinutes === 'number') target.estimatedMinutes = Math.max(0, estimatedMinutes);
+      if (typeof actualMinutes === 'number') target.actualMinutes = Math.max(0, actualMinutes);
       target.updatedAt = new Date().toISOString();
       card = target;
     });
@@ -1055,6 +1189,22 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/kanban/:id/branch', (req, res) => {
     const outcome = ensureKanbanGitBranch(req.params.id);
+    broadcastEvent('state:updated');
+    res.json(outcome);
+  });
+
+  router.post('/kanban/:id/worktree', (req, res) => {
+    try {
+      const outcome = ensureKanbanWorktree(req.params.id);
+      broadcastEvent('state:updated');
+      res.json(outcome);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.delete('/kanban/:id/worktree', (req, res) => {
+    const outcome = removeKanbanWorktree(req.params.id);
     broadcastEvent('state:updated');
     res.json(outcome);
   });
@@ -1260,6 +1410,38 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.get('/memory/vault', (_req, res) => {
     res.json({ notes: listObsidianNotes() });
+  });
+
+  router.post('/memories/:id/restore', (req, res) => {
+    try {
+      const restored = restoreSupersededMemory(req.params.id);
+      broadcastEvent('state:updated');
+      res.json({ memory: restored });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/memory/wiki/search', (req, res) => {
+    const q = String(req.query.q || '');
+    res.json({ hits: searchObsidianVault(q) });
+  });
+
+  router.get('/memory/wiki/backlinks', (req, res) => {
+    const relPath = String(req.query.path || '');
+    if (!relPath) return res.json({ backlinks: [] });
+    res.json({ backlinks: getVaultBacklinks(relPath) });
+  });
+
+  router.post('/memory/wiki/daily', (req, res) => {
+    try {
+      const { date, section } = req.body as { date?: string; section?: string };
+      const note = ensureDailyObsidianNote(date, section);
+      broadcastEvent('state:updated');
+      res.json({ note });
+    } catch (err) {
+      handleErr(res, err);
+    }
   });
 
   // Ú23: Interactive Obsidian/Markdown Wiki Editor
@@ -1656,6 +1838,13 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json({ peer });
   });
 
+  router.post('/federation/ping-all', async (_req, res) => {
+    const peers = getState().federationPeers;
+    const results = await Promise.all(peers.map((p) => pingFederationPeer(p.id)));
+    broadcastEvent('state:updated');
+    res.json({ peers: results.filter(Boolean) });
+  });
+
   router.post('/federation/send', async (req, res) => {
     try {
       const { address, content, fromAgent } = req.body as {
@@ -1804,6 +1993,16 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json({ sessionId: req.params.id, buffer: getTerminalBuffer(req.params.id, lines) });
   });
 
+  router.get('/terminal/recordings', (_req, res) => {
+    res.json({ recordings: listTerminalRecordings() });
+  });
+
+  router.get('/terminal/recordings/:id', (req, res) => {
+    const rec = getTerminalRecording(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'Terminál felvétel nem található.' });
+    res.json({ recording: rec });
+  });
+
   // Approvals & Kill Switch
   router.post('/approvals/:id/resolve', (req, res) => {
     const { decision } = req.body as { decision: 'approved' | 'rejected' };
@@ -1859,10 +2058,53 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         commitMessage: commitMessage || `feat(selfmod): update ${targetPath}`,
         agentId: agentId || 'user',
       });
-      if (result.pendingApproval) {
-        void sendTelegramMessage(
-          `Érzékeny önmódosítási kérelem: ${targetPath}\nJóváhagyás: /approve ${result.approvalId?.slice(0, 8)}`
-        );
+      if (result.pendingApproval && result.approvalId) {
+        const reqObj = getState().approvals.find((a) => a.id === result.approvalId);
+        if (reqObj) void notifyApprovalToTelegram(reqObj);
+        else {
+          void sendTelegramMessage(
+            `Érzékeny önmódosítási kérelem: ${targetPath}\nJóváhagyás: /approve ${result.approvalId.slice(0, 8)}`
+          );
+        }
+      }
+      broadcastEvent('state:updated');
+      res.json(result);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  /** M33: Scoped search-and-replace self-modification patch */
+  router.post('/selfmod/apply-diff', (req, res) => {
+    try {
+      const { targetPath, search, replace, commitMessage, agentId } = req.body as {
+        targetPath: string;
+        search: string;
+        replace: string;
+        commitMessage?: string;
+        agentId?: string;
+      };
+      if (!targetPath?.trim() || typeof search !== 'string' || !search.length) {
+        return res.status(400).json({ error: 'Célfájl és keresendő blokk kötelező.' });
+      }
+      const abs = path.resolve(process.cwd(), targetPath.replace(/^\/+/, ''));
+      if (!abs.startsWith(process.cwd() + path.sep) || !fs.existsSync(abs)) {
+        return res.status(404).json({ error: 'Fájl nem található a projektben.' });
+      }
+      const original = fs.readFileSync(abs, 'utf8');
+      if (!original.includes(search)) {
+        return res.status(400).json({ error: 'A keresett kódrészlet nem található pontos egyezéssel a fájlban.' });
+      }
+      const updated = original.replace(search, replace ?? '');
+      const result = applyGuardedSelfModification({
+        targetPath,
+        newContent: updated,
+        commitMessage: commitMessage || `patch(selfmod): update ${targetPath}`,
+        agentId: agentId || 'user',
+      });
+      if (result.pendingApproval && result.approvalId) {
+        const reqObj = getState().approvals.find((a) => a.id === result.approvalId);
+        if (reqObj) void notifyApprovalToTelegram(reqObj);
       }
       broadcastEvent('state:updated');
       res.json(result);
@@ -1888,9 +2130,13 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.post('/system/os-upgrade', (_req, res) => {
     try {
       const queued = requestOsPackageUpgrade('Web UI');
-      void sendTelegramMessage(
-        `OS csomagfrissítés jóváhagyásra vár: ${queued.command}\nJóváhagyás: /approve ${queued.queuedApprovalId.slice(0, 8)}`
-      );
+      const reqObj = getState().approvals.find((a) => a.id === queued.queuedApprovalId);
+      if (reqObj) void notifyApprovalToTelegram(reqObj);
+      else {
+        void sendTelegramMessage(
+          `OS csomagfrissítés jóváhagyásra vár: ${queued.command}\nJóváhagyás: /approve ${queued.queuedApprovalId.slice(0, 8)}`
+        );
+      }
       broadcastEvent('state:updated');
       res.json(queued);
     } catch (err) {
@@ -1911,6 +2157,31 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     const result = applyOtaUpdate();
     broadcastEvent('state:updated');
     res.json(result);
+  });
+
+  router.get('/system/ota/commits', (_req, res) => {
+    res.json({ commits: getOtaCommitHistory(12) });
+  });
+
+  router.post('/system/ota/rollback', (req, res) => {
+    try {
+      const { hash } = req.body as { hash: string };
+      const out = rollbackOtaToCommit(hash || '');
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/system/hardening', (_req, res) => {
+    res.json(computeSecurityHardeningScore());
+  });
+
+  router.post('/system/doctor', async (_req, res) => {
+    const out = await runSwarmAutoDoctor();
+    broadcastEvent('state:updated');
+    res.json(out);
   });
 
   router.get('/system/docs', (_req, res) => {
@@ -2064,6 +2335,10 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json(await inspectAndAnalyzeSystemdUnit(req.params.unit));
   });
 
+  router.get('/infra/systemd/:unit/details', (req, res) => {
+    res.json(inspectSystemdDependenciesAndResources(req.params.unit));
+  });
+
   router.get('/infra/lan', (_req, res) => {
     res.json(scanLanDevices());
   });
@@ -2125,6 +2400,89 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     } catch (err) {
       handleErr(res, err);
     }
+  });
+
+  router.post('/infra/ssh/bulk', async (req, res) => {
+    try {
+      const { profileIds, command } = req.body as { profileIds?: string[]; command: string };
+      if (!command?.trim()) return res.status(400).json({ error: 'Parancs kötelező.' });
+      const results = await executeSshFleetBulk(profileIds || [], command.trim());
+      broadcastEvent('state:updated');
+      res.json({ results });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  // SuperAdmin Linux Infrastructure Endpoints (Ú37–Ú42, Ú57)
+  router.get('/infra/firewall', (_req, res) => {
+    res.json(inspectFirewallAndOpenPorts());
+  });
+
+  router.post('/infra/firewall/rule', (req, res) => {
+    try {
+      const { rule } = req.body as { rule: string };
+      const out = proposeUfwRule(rule || '');
+      const reqObj = getState().approvals.find((a) => a.id === out.approvalId);
+      if (reqObj) void notifyApprovalToTelegram(reqObj);
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/infra/hardware', (_req, res) => {
+    res.json(inspectHardwareSensorsAndGpio());
+  });
+
+  router.post('/infra/network', async (req, res) => {
+    try {
+      const { targetHost } = req.body as { targetHost: string };
+      res.json(await runNetworkDiagnostics(targetHost || '1.1.1.1'));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/infra/cron', (_req, res) => {
+    res.json(inspectLinuxCronAndTimers());
+  });
+
+  router.post('/infra/vault/encrypt', (req, res) => {
+    try {
+      const { relPath, passphrase } = req.body as { relPath: string; passphrase: string };
+      res.json(encryptFileAes256(relPath || '', passphrase || ''));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/infra/vault/decrypt', (req, res) => {
+    try {
+      const { relEncPath, passphrase } = req.body as { relEncPath: string; passphrase: string };
+      res.json(decryptFileAes256(relEncPath || '', passphrase || ''));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/infra/proxy', (_req, res) => {
+    res.json(inspectReverseProxyConfigs());
+  });
+
+  router.post('/infra/proxy/template', (req, res) => {
+    const { kind, domain, upstreamPort } = req.body as {
+      kind: 'nginx' | 'caddy';
+      domain: string;
+      upstreamPort?: number;
+    };
+    res.json({ template: generateReverseProxyTemplate(kind || 'caddy', domain || 'novaswarm.local', upstreamPort) });
+  });
+
+  router.post('/infra/docker/compose', (req, res) => {
+    const { stack } = req.body as { stack: 'searxng' | 'mosquitto' | 'ntfy' | 'uptime_kuma' | 'postgres' };
+    res.json({ yaml: generateDockerComposeTemplate(stack || 'searxng') });
   });
 
   router.post('/infra/ssl', async (req, res) => {
@@ -2209,16 +2567,27 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json(outcome);
   });
 
+  router.get('/email/body/:uid', async (req, res) => {
+    const uid = Number(req.params.uid);
+    if (!Number.isFinite(uid) || uid <= 0) return res.status(400).json({ error: 'Érvénytelen levél UID.' });
+    res.json(await fetchEmailBodyByUid(uid));
+  });
+
   router.post('/email/send', async (req, res) => {
     try {
-      const { to, subject, text, requireApproval } = req.body as {
+      const { to, subject, text, inReplyTo, requireApproval } = req.body as {
         to: string;
         subject: string;
         text: string;
+        inReplyTo?: string;
         requireApproval?: boolean;
       };
       if (!to?.trim() || !subject?.trim()) return res.status(400).json({ error: 'Címzett és tárgy kötelező.' });
-      const outcome = await sendEmailViaSmtp({ to, subject, text: text || '', requireApproval });
+      const outcome = await sendEmailViaSmtp({ to, subject, text: text || '', inReplyTo, requireApproval });
+      if (outcome.approvalId) {
+        const reqObj = getState().approvals.find((a) => a.id === outcome.approvalId);
+        if (reqObj) void notifyApprovalToTelegram(reqObj);
+      }
       broadcastEvent('state:updated');
       res.json(outcome);
     } catch (err) {
@@ -2287,6 +2656,12 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     const outcome = await callHomeAssistantService(domain, service, entityId);
     broadcastEvent('state:updated');
     res.json(outcome);
+  });
+
+  router.post('/smarthome/ha/evaluate', async (_req, res) => {
+    const triggered = await evaluateHomeAssistantWorkflowTriggers();
+    if (triggered > 0) broadcastEvent('state:updated');
+    res.json({ triggered });
   });
 
   router.post('/smarthome/mqtt/publish', async (req, res) => {
@@ -2368,8 +2743,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   // Ú17 & Ú19: Workflows & Custom Webhooks
   router.post('/workflows', (req, res) => {
     const body = req.body as Partial<WorkflowDefinition>;
-    if (!body.name?.trim() || !body.actionPayload?.trim()) {
-      return res.status(400).json({ error: 'Név és művelet payload kötelező.' });
+    if (!body.name?.trim() || (!body.actionPayload?.trim() && (!body.steps || body.steps.length === 0))) {
+      return res.status(400).json({ error: 'Név és művelet payload (vagy lépés-lánc) kötelező.' });
     }
     const wf: WorkflowDefinition = {
       id: `wf-${crypto.randomUUID().slice(0, 6)}`,
@@ -2380,7 +2755,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       conditionExpr: body.conditionExpr?.trim() || undefined,
       actionType: body.actionType || 'agent_prompt',
       actionTarget: body.actionTarget || '',
-      actionPayload: body.actionPayload.trim(),
+      actionPayload: (body.actionPayload || body.steps?.[0]?.payload || '').trim(),
+      steps: Array.isArray(body.steps) ? body.steps : undefined,
       lastRunAt: null,
       runCount: 0,
     };
@@ -2566,6 +2942,383 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       const outcome = importSanitizedBundle(req.body || {});
       broadcastEvent('state:updated');
       res.json(outcome);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  // Universal Power Suite (Ú31–Ú60 & B1–B2)
+  router.post('/agents/:id/benchmark', async (req, res) => {
+    try {
+      const run = await runAgentCapabilityBenchmark(req.params.id);
+      broadcastEvent('state:updated');
+      res.json({ run });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/research', async (req, res) => {
+    try {
+      const { query } = req.body as { query: string };
+      const report = await runDeepResearch(query || '');
+      broadcastEvent('state:updated');
+      res.json({ report });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/api-studio/execute', async (req, res) => {
+    try {
+      const out = await executeApiStudioRequest(req.body || {});
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.delete('/api-studio/requests/:id', (req, res) => {
+    updateState((s) => {
+      s.savedApiRequests = s.savedApiRequests.filter((r) => r.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.post('/db/connections', (req, res) => {
+    const { name, engine, target } = req.body as { name: string; engine: 'sqlite' | 'postgres'; target: string };
+    if (!name?.trim() || !target?.trim()) return res.status(400).json({ error: 'Név és útvonal/URI kötelező.' });
+    const conn = {
+      id: `db-${crypto.randomUUID().slice(0, 6)}`,
+      name: name.trim(),
+      engine: engine || 'sqlite',
+      target: target.trim(),
+    };
+    updateState((s) => {
+      s.databaseConnections.unshift(conn);
+    });
+    broadcastEvent('state:updated');
+    res.json({ connection: conn });
+  });
+
+  router.delete('/db/connections/:id', (req, res) => {
+    updateState((s) => {
+      s.databaseConnections = s.databaseConnections.filter((c) => c.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.post('/db/query', async (req, res) => {
+    const { connectionId, engine, target, sql } = req.body as {
+      connectionId?: string;
+      engine?: 'sqlite' | 'postgres';
+      target?: string;
+      sql: string;
+    };
+    const out = await exploreDatabase({ connectionId, engine, target, sql: sql || '' });
+    res.json(out);
+  });
+
+  router.post('/diff/compare', async (req, res) => {
+    try {
+      const { textA, textB, withAi } = req.body as { textA: string; textB: string; withAi?: boolean };
+      const diff = computeSideBySideDiff(textA || '', textB || '');
+      let aiSummary: string | undefined;
+      if (withAi) {
+        try {
+          aiSummary = await aiCompareTexts(textA || '', textB || '');
+        } catch (err) {
+          aiSummary = `AI összehasonlítás hiba: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+      res.json({ diff, aiSummary });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/code/review', async (req, res) => {
+    try {
+      const { target } = req.body as { target?: string };
+      res.json(await reviewGitDiffOrPr(target));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/watchdog/pages', async (req, res) => {
+    const { name, url } = req.body as { name: string; url: string };
+    if (!name?.trim() || !url?.trim()) return res.status(400).json({ error: 'Név és URL kötelező.' });
+    const page = {
+      id: `wp-${crypto.randomUUID().slice(0, 6)}`,
+      name: name.trim(),
+      url: url.trim(),
+      changeCount: 0,
+    };
+    updateState((s) => {
+      s.watchedPages.unshift(page);
+    });
+    await checkWatchedPages();
+    broadcastEvent('state:updated');
+    res.json({ pages: getState().watchedPages });
+  });
+
+  router.delete('/watchdog/pages/:id', (req, res) => {
+    updateState((s) => {
+      s.watchedPages = s.watchedPages.filter((p) => p.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.post('/watchdog/check', async (_req, res) => {
+    const pages = await checkWatchedPages();
+    broadcastEvent('state:updated');
+    res.json({ pages });
+  });
+
+  router.post('/media/chapters', async (req, res) => {
+    try {
+      const { mimeType, dataBase64, title, saveToVault } = req.body as {
+        mimeType?: string;
+        dataBase64: string;
+        title?: string;
+        saveToVault?: boolean;
+      };
+      if (!dataBase64?.trim()) return res.status(400).json({ error: 'Hanganyag kötelező.' });
+      const out = await chapterizeAudioBase64({ mimeType: mimeType || 'audio/webm', dataBase64, title, saveToVault });
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/media/youtube', async (req, res) => {
+    try {
+      const { url, createCards } = req.body as { url: string; createCards?: boolean };
+      const out = await extractYoutubeTranscriptAndCards(url || '', Boolean(createCards));
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/translate', async (req, res) => {
+    try {
+      const { text, targetLang } = req.body as { text: string; targetLang?: string };
+      res.json(await translateTextForInterpreter(text || '', targetLang || 'angol'));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/flashcards', (req, res) => {
+    try {
+      const { front, back, tags } = req.body as { front: string; back: string; tags?: string[] };
+      const card = addFlashcard({ front, back, tags });
+      broadcastEvent('state:updated');
+      res.json({ card });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/flashcards/:id/review', (req, res) => {
+    const { quality } = req.body as { quality: 0 | 1 | 2 | 3 | 4 | 5 };
+    const card = reviewFlashcardSM2(req.params.id, quality ?? 4);
+    if (!card) return res.status(404).json({ error: 'Tanulókártya nem található.' });
+    broadcastEvent('state:updated');
+    res.json({ card });
+  });
+
+  router.delete('/flashcards/:id', (req, res) => {
+    updateState((s) => {
+      s.flashcards = s.flashcards.filter((c) => c.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.get('/flashcards/export', (_req, res) => {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="novaswarm-flashcards.csv"');
+    res.send(exportFlashcardsCsv());
+  });
+
+  router.post('/reports/generate', async (req, res) => {
+    try {
+      const { kind, title, context } = req.body as {
+        kind: 'worklog' | 'audit' | 'invoice' | 'meeting';
+        title: string;
+        context?: string;
+      };
+      if (!title?.trim()) return res.status(400).json({ error: 'Dokumentum címe kötelező.' });
+      res.json(await generateStructuredReport({ kind: kind || 'worklog', title: title.trim(), context }));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/journal', (req, res) => {
+    const body = req.body as {
+      date?: string;
+      mood?: number;
+      energy?: number;
+      topGoals?: string[];
+      completedNotes?: string;
+      gratitudeOrNotes?: string;
+    };
+    const entry = saveDailyJournalEntry({
+      date: body.date,
+      mood: Number(body.mood ?? 4),
+      energy: Number(body.energy ?? 4),
+      topGoals: Array.isArray(body.topGoals) ? body.topGoals : [],
+      completedNotes: body.completedNotes || '',
+      gratitudeOrNotes: body.gratitudeOrNotes || '',
+    });
+    broadcastEvent('state:updated');
+    res.json({ entry });
+  });
+
+  router.post('/lists/items', (req, res) => {
+    try {
+      const { listIdOrName, text, addedBy } = req.body as { listIdOrName?: string; text: string; addedBy?: string };
+      const list = addSharedListItem(listIdOrName || 'Bevásárlólista', text || '', addedBy || 'Web');
+      broadcastEvent('state:updated');
+      res.json({ list });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/lists/:listId/items/:itemId/toggle', (req, res) => {
+    const list = toggleSharedListItem(req.params.listId, req.params.itemId);
+    if (!list) return res.status(404).json({ error: 'Lista tétel nem található.' });
+    broadcastEvent('state:updated');
+    res.json({ list });
+  });
+
+  router.delete('/lists/:listId/items/:itemId', (req, res) => {
+    removeSharedListItem(req.params.listId, req.params.itemId);
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.get('/lists/default', (_req, res) => {
+    res.json({ list: getOrCreateDefaultSharedList() });
+  });
+
+  router.post('/subscriptions', (req, res) => {
+    try {
+      const item = addSubscription(req.body || {});
+      broadcastEvent('state:updated');
+      res.json({ subscription: item });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.delete('/subscriptions/:id', (req, res) => {
+    updateState((s) => {
+      s.subscriptions = s.subscriptions.filter((x) => x.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.get('/subscriptions/summary', (_req, res) => {
+    res.json(getSubscriptionSummary());
+  });
+
+  router.post('/security/password-check', async (req, res) => {
+    try {
+      const { password } = req.body as { password: string };
+      res.json(await checkPasswordStrengthAndBreach(password || ''));
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/arena/run', async (req, res) => {
+    try {
+      const { prompt, targets } = req.body as {
+        prompt: string;
+        targets: Array<{ providerId: ProviderId; modelId?: string }>;
+      };
+      const results = await runPromptArena(prompt || '', targets || []);
+      broadcastEvent('state:updated');
+      res.json({ results });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/tools/dynamic', (req, res) => {
+    try {
+      const { name, description, kind, targetOrCode } = req.body as {
+        name: string;
+        description?: string;
+        kind: 'http_get' | 'http_post' | 'sandbox_js';
+        targetOrCode: string;
+      };
+      const tool = registerDynamicTool({
+        name: name || '',
+        description: description || '',
+        kind: kind || 'http_get',
+        targetOrCode: targetOrCode || '',
+      });
+      broadcastEvent('state:updated');
+      res.json({ tool });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.patch('/tools/dynamic/:id', (req, res) => {
+    const { enabled } = req.body as { enabled?: boolean };
+    updateState((s) => {
+      const t = s.dynamicTools.find((x) => x.id === req.params.id);
+      if (t && typeof enabled === 'boolean') t.enabled = enabled;
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.delete('/tools/dynamic/:id', (req, res) => {
+    updateState((s) => {
+      s.dynamicTools = s.dynamicTools.filter((x) => x.id !== req.params.id);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
+  });
+
+  router.post('/missions', async (req, res) => {
+    try {
+      const { goal, agentId } = req.body as { goal: string; agentId?: string | null };
+      const mission = await runAutonomousMission(goal || '', agentId, broadcastEvent);
+      broadcastEvent('state:updated');
+      res.json({ mission });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/weather', async (req, res) => {
+    const loc = req.query.location ? String(req.query.location) : undefined;
+    res.json(await fetchOpenMeteoWeather(loc));
+  });
+
+  router.post('/skills/import-github', async (req, res) => {
+    try {
+      const { url } = req.body as { url: string };
+      const out = await scanAndImportGithubSkill(url || '');
+      broadcastEvent('state:updated');
+      res.json(out);
     } catch (err) {
       handleErr(res, err);
     }

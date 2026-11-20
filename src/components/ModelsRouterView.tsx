@@ -54,6 +54,8 @@ export const ModelsRouterView: React.FC<Props> = ({
   const [vkBudget, setVkBudget] = useState(5.0);
   const [vkRpm, setVkRpm] = useState(60);
   const [vkModels, setVkModels] = useState('');
+  const [vkExpiresAt, setVkExpiresAt] = useState('');
+  const [vkAllowedIps, setVkAllowedIps] = useState('');
   const [revealedRawKey, setRevealedRawKey] = useState<string | null>(null);
 
   // Monthly projection (M9) & Ollama optimizer (M6)
@@ -90,6 +92,12 @@ export const ModelsRouterView: React.FC<Props> = ({
         ? `Modell előmelegítve: ${data.model || settings.ollamaModel} (${data.elapsedMs ?? 0}ms)`
         : data.message || 'Ollama nem érhető el'
     );
+  };
+
+  const handleUnloadOllama = async () => {
+    const res = await fetch('/api/providers/ollama/unload', { method: 'POST' });
+    const data = (await res.json()) as { ok: boolean; message?: string };
+    setOllamaStatus(data.message || (data.ok ? 'Ollama RAM kiürítve.' : 'Kiürítés sikertelen.'));
   };
 
   const handleAddKey = async (e: React.FormEvent) => {
@@ -184,6 +192,11 @@ export const ModelsRouterView: React.FC<Props> = ({
           .split(',')
           .map((m) => m.trim())
           .filter(Boolean),
+        expiresAt: vkExpiresAt.trim() || undefined,
+        allowedIps: vkAllowedIps
+          .split(',')
+          .map((ip) => ip.trim())
+          .filter(Boolean),
       }),
     });
     const data = (await res.json()) as { rawKey?: string };
@@ -192,6 +205,8 @@ export const ModelsRouterView: React.FC<Props> = ({
     }
     setVkName('');
     setVkModels('');
+    setVkExpiresAt('');
+    setVkAllowedIps('');
     await onRefreshState();
   };
 
@@ -327,14 +342,23 @@ export const ModelsRouterView: React.FC<Props> = ({
               <Cpu className="h-4 w-4 text-slate-700" />
               Lokális Ollama Optimalizáló (Raspberry Pi / Kis RAM)
             </h3>
-            <button
-              type="button"
-              onClick={() => void handleWarmOllama()}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded hover:bg-slate-800 whitespace-nowrap shrink-0"
-            >
-              <Flame className="h-3.5 w-3.5" />
-              Modell Előmelegítése
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleUnloadOllama()}
+                className="px-2.5 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                Kiürítés RAM-ból
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleWarmOllama()}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded hover:bg-slate-800 whitespace-nowrap shrink-0"
+              >
+                <Flame className="h-3.5 w-3.5" />
+                Modell Előmelegítése
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <label className="space-y-1">
@@ -441,6 +465,21 @@ export const ModelsRouterView: React.FC<Props> = ({
               placeholder="Engedélyezett modellek vesszővel (üres = mind)"
               className="sm:col-span-5 px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded"
             />
+            <input
+              type="datetime-local"
+              value={vkExpiresAt}
+              onChange={(e) => setVkExpiresAt(e.target.value)}
+              aria-label="Virtual key expiry"
+              title="Lejárat (opcionális)"
+              className="sm:col-span-2 px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded"
+            />
+            <input
+              type="text"
+              value={vkAllowedIps}
+              onChange={(e) => setVkAllowedIps(e.target.value)}
+              placeholder="Engedélyezett IP / CIDR (pl. 192.168.1.0/24)"
+              className="sm:col-span-3 px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded"
+            />
           </form>
 
           {revealedRawKey && (
@@ -469,6 +508,8 @@ export const ModelsRouterView: React.FC<Props> = ({
                     </div>
                     <div className="font-mono tabular-nums text-[11px] text-slate-600">
                       Költés: ${vk.spendUsd.toFixed(4)} / ${vk.maxBudgetUsd.toFixed(2)} · {vk.rpmLimit} RPM · {vk.totalRequests} kérés · {vk.totalTokens} tok
+                      {vk.expiresAt ? ` · Lejár: ${vk.expiresAt.slice(0, 10)}` : ''}
+                      {vk.allowedIps && vk.allowedIps.length > 0 ? ` · IP: ${vk.allowedIps.join(',')}` : ''}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -584,6 +625,27 @@ export const ModelsRouterView: React.FC<Props> = ({
               </label>
             </div>
           </div>
+
+          {/* M39 Live Provider Latency & Error Leaderboard */}
+          {gatewayAnalytics.providerHealth && (
+            <div className="pt-3 border-t border-slate-200 space-y-1.5">
+              <div className="text-xs font-semibold text-slate-800">Szolgáltatói Egészség & Késleltetés Ranglista</div>
+              <div className="space-y-1 text-[11px] font-mono tabular-nums">
+                {PROVIDERS.map((p) => {
+                  const h = gatewayAnalytics.providerHealth?.[p];
+                  if (!h) return null;
+                  return (
+                    <div key={p} className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-slate-200 rounded">
+                      <span className="font-semibold uppercase text-slate-800">{p}</span>
+                      <span className="text-slate-600">
+                        {h.avgLatencyMs}ms · {Math.max(0, h.totalCalls - h.failedCalls)} OK / {h.failedCalls} hiba
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

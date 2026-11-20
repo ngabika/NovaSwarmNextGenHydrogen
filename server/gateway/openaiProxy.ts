@@ -22,6 +22,8 @@ export function createVirtualKey(input: {
   maxBudgetUsd?: number;
   rpmLimit?: number;
   allowedModels?: string[];
+  expiresAt?: string;
+  allowedIps?: string[];
 }): { key: VirtualKey; rawKey: string } {
   const rawKey = `ns-vk-${crypto.randomBytes(20).toString('hex')}`;
   const entry: VirtualKey = {
@@ -33,6 +35,8 @@ export function createVirtualKey(input: {
     spendUsd: 0,
     rpmLimit: input.rpmLimit ?? 60,
     allowedModels: (input.allowedModels ?? []).filter(Boolean),
+    expiresAt: input.expiresAt?.trim() || undefined,
+    allowedIps: (input.allowedIps ?? []).map((x) => x.trim()).filter(Boolean),
     enabled: true,
     totalRequests: 0,
     totalTokens: 0,
@@ -63,9 +67,45 @@ export function revokeVirtualKey(id: string): boolean {
   return getState().virtualKeys.length < before;
 }
 
+function normalizeIp(rawIp: string): string {
+  const trimmed = rawIp.trim();
+  if (trimmed.startsWith('::ffff:')) return trimmed.slice(7);
+  if (trimmed === '::1') return '127.0.0.1';
+  return trimmed;
+}
+
+function ipToUint32(ip: string): number | null {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return null;
+  return (((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0);
+}
+
+export function isIpAllowedByList(clientIp: string | undefined, allowedIps?: string[]): boolean {
+  if (!allowedIps || allowedIps.length === 0) return true;
+  if (!clientIp) return false;
+  const cleanClient = normalizeIp(clientIp);
+  const clientNum = ipToUint32(cleanClient);
+
+  for (const rule of allowedIps) {
+    const cleanRule = normalizeIp(rule);
+    if (cleanRule === cleanClient) return true;
+    const slash = cleanRule.indexOf('/');
+    if (slash > 0 && clientNum !== null) {
+      const baseIp = ipToUint32(cleanRule.slice(0, slash));
+      const prefix = Number(cleanRule.slice(slash + 1));
+      if (baseIp !== null && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32) {
+        const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+        if ((clientNum & mask) === (baseIp & mask)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function authenticateVirtualKey(
   authHeader: string | undefined,
-  requestedModel?: string
+  requestedModel?: string,
+  clientIp?: string
 ): { ok: true; key: VirtualKey | null } | { ok: false; status: number; error: string } {
   const state = getState();
   // If no virtual keys exist and no bearer is provided, allow local operator bypass only on localhost unless keys are configured
@@ -86,6 +126,15 @@ export function authenticateVirtualKey(
   }
   if (!match.enabled) {
     return { ok: false, status: 403, error: 'Virtual API key is disabled.' };
+  }
+  if (match.expiresAt) {
+    const expMs = Date.parse(match.expiresAt);
+    if (!Number.isNaN(expMs) && expMs <= Date.now()) {
+      return { ok: false, status: 401, error: `Virtual API key expired at ${match.expiresAt}.` };
+    }
+  }
+  if (!isIpAllowedByList(clientIp, match.allowedIps)) {
+    return { ok: false, status: 403, error: `Client IP '${clientIp || 'unknown'}' is not in allowedIps.` };
   }
   if (match.maxBudgetUsd > 0 && match.spendUsd >= match.maxBudgetUsd) {
     return {
@@ -186,7 +235,7 @@ export function createOpenAiProxyRouter(
   const router = express.Router();
 
   router.get('/models', (req, res) => {
-    const auth = authenticateVirtualKey(req.headers.authorization);
+    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip);
     if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
     const state = getState();
@@ -215,7 +264,7 @@ export function createOpenAiProxyRouter(
         tool_choice?: unknown;
       };
       const requestedModel = body.model || 'auto';
-      const auth = authenticateVirtualKey(req.headers.authorization, requestedModel);
+      const auth = authenticateVirtualKey(req.headers.authorization, requestedModel, req.ip);
       if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
       const msgs = body.messages || [];
@@ -375,7 +424,7 @@ export function createOpenAiProxyRouter(
   });
 
   router.post('/embeddings', (req, res) => {
-    const auth = authenticateVirtualKey(req.headers.authorization);
+    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip);
     if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
     const body = req.body as { input?: string | string[]; model?: string };

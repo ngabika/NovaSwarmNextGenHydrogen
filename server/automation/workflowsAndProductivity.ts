@@ -7,9 +7,11 @@ import type {
   WorkflowDefinition,
 } from '../../shared/types';
 import { handleUserTurn } from '../agents/engine';
+import { queryHomeAssistantStates } from '../integrations/ecosystem';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
 import { appendAuditLog, getState, setNamedSecret, getNamedSecret, updateState } from '../state/store';
 import { sendTelegramMessage } from '../telegram/bot';
+import { performWebSearch } from '../web/searchAndBrowser';
 
 /** Ú17: Visual Workflow Automation Engine */
 export async function executeWorkflow(
@@ -32,36 +34,90 @@ export async function executeWorkflow(
   let output = '';
 
   try {
-    const renderedPayload = wf.actionPayload.replace(/\{\{payload\}\}/g, triggerPayload || '');
+    /** M51: Multi-step sequential workflow pipeline when steps[] are configured */
+    if (wf.steps && wf.steps.length > 0) {
+      let prev = triggerPayload || '';
+      const stepLogs: string[] = [];
 
-    if (wf.actionType === 'kanban_create') {
-      const now = new Date().toISOString();
-      const card: KanbanCard = {
-        id: `card-${crypto.randomUUID().slice(0, 8)}`,
-        title: `[WF: ${wf.name}] ${renderedPayload.slice(0, 90)}`,
-        description: triggerPayload || renderedPayload,
-        status: 'todo',
-        assignedAgentId: wf.actionTarget || null,
-        priority: 'high',
-        subtasks: [],
-        createdAt: now,
-        updatedAt: now,
-      };
-      updateState((s) => {
-        s.kanban.unshift(card);
-      });
-      output = `Kanban kártya létrehozva: ${card.id}`;
-    } else if (wf.actionType === 'notify') {
-      const tgRes = await sendTelegramMessage(`[Munkafolyamat: ${wf.name}]\n${renderedPayload}`);
-      output = tgRes.sent ? 'Telegram értesítés elküldve.' : `Naplózva (${tgRes.reason || 'nincs TG'})`;
+      for (let idx = 0; idx < wf.steps.length; idx++) {
+        const st = wf.steps[idx];
+        const rendered = st.payload
+          .replace(/\{\{payload\}\}/g, triggerPayload || '')
+          .replace(/\{\{prev\}\}/g, prev);
+
+        if (st.type === 'web_search') {
+          const sRes = await performWebSearch(rendered, 4);
+          prev = sRes.results.map((r) => `${r.title} (${r.url}): ${r.snippet}`).join('\n') || 'Nincs találat';
+          stepLogs.push(`${idx + 1}. [web_search] ${sRes.results.length} találat`);
+        } else if (st.type === 'http_call') {
+          const r = await fetch(st.target || rendered, { signal: AbortSignal.timeout(6000) });
+          prev = (await r.text()).slice(0, 2000);
+          stepLogs.push(`${idx + 1}. [http_call] HTTP ${r.status}`);
+        } else if (st.type === 'kanban_create') {
+          const now = new Date().toISOString();
+          const card: KanbanCard = {
+            id: `card-${crypto.randomUUID().slice(0, 8)}`,
+            title: `[WF: ${wf.name}] ${rendered.slice(0, 80)}`,
+            description: prev || rendered,
+            status: 'todo',
+            assignedAgentId: st.target || null,
+            priority: 'high',
+            subtasks: [],
+            createdAt: now,
+            updatedAt: now,
+          };
+          updateState((s) => {
+            s.kanban.unshift(card);
+          });
+          prev = card.id;
+          stepLogs.push(`${idx + 1}. [kanban_create] ${card.id}`);
+        } else if (st.type === 'notify') {
+          const tgRes = await sendTelegramMessage(`[WF: ${wf.name}]\n${rendered}`);
+          stepLogs.push(`${idx + 1}. [notify] ${tgRes.sent ? 'elküldve' : 'naplózva'}`);
+        } else {
+          const turn = await handleUserTurn({
+            threadId: state.threads[0]?.id || 'thread-main',
+            content: `[WF Lépés ${idx + 1}: ${wf.name}] ${rendered}`,
+            channel: 'webhook',
+            targetAgentId: st.target || wf.actionTarget || null,
+          });
+          prev = turn.coordinatorReply.content;
+          stepLogs.push(`${idx + 1}. [agent_prompt] OK`);
+        }
+      }
+      output = `${stepLogs.join(' -> ')}\n\n${prev.slice(0, 1200)}`;
     } else {
-      const turn = await handleUserTurn({
-        threadId: state.threads[0]?.id || 'thread-main',
-        content: `[Workflow: ${wf.name}] ${renderedPayload}`,
-        channel: 'webhook',
-        targetAgentId: wf.actionTarget || null,
-      });
-      output = turn.coordinatorReply.content;
+      const renderedPayload = wf.actionPayload.replace(/\{\{payload\}\}/g, triggerPayload || '');
+
+      if (wf.actionType === 'kanban_create') {
+        const now = new Date().toISOString();
+        const card: KanbanCard = {
+          id: `card-${crypto.randomUUID().slice(0, 8)}`,
+          title: `[WF: ${wf.name}] ${renderedPayload.slice(0, 90)}`,
+          description: triggerPayload || renderedPayload,
+          status: 'todo',
+          assignedAgentId: wf.actionTarget || null,
+          priority: 'high',
+          subtasks: [],
+          createdAt: now,
+          updatedAt: now,
+        };
+        updateState((s) => {
+          s.kanban.unshift(card);
+        });
+        output = `Kanban kártya létrehozva: ${card.id}`;
+      } else if (wf.actionType === 'notify') {
+        const tgRes = await sendTelegramMessage(`[Munkafolyamat: ${wf.name}]\n${renderedPayload}`);
+        output = tgRes.sent ? 'Telegram értesítés elküldve.' : `Naplózva (${tgRes.reason || 'nincs TG'})`;
+      } else {
+        const turn = await handleUserTurn({
+          threadId: state.threads[0]?.id || 'thread-main',
+          content: `[Workflow: ${wf.name}] ${renderedPayload}`,
+          channel: 'webhook',
+          targetAgentId: wf.actionTarget || null,
+        });
+        output = turn.coordinatorReply.content;
+      }
     }
   } catch (err) {
     status = `hiba: ${err instanceof Error ? err.message : String(err)}`;
@@ -85,6 +141,48 @@ export async function executeWorkflow(
   });
 
   return { ok: status === 'sikeres', status, output };
+}
+
+/** M57: Home Assistant entity state workflow trigger evaluator (e.g. "sensor.temp>28" or "binary_sensor.door==on") */
+export async function evaluateHomeAssistantWorkflowTriggers(fetchImpl: typeof fetch = fetch): Promise<number> {
+  const haWorkflows = getState().workflows.filter((w) => w.enabled && w.triggerType === 'ha_state' && w.triggerConfig.trim());
+  if (haWorkflows.length === 0) return 0;
+
+  const statesRes = await queryHomeAssistantStates(fetchImpl);
+  if (!statesRes.ok || statesRes.states.length === 0) return 0;
+
+  let triggered = 0;
+  for (const wf of haWorkflows) {
+    const match = wf.triggerConfig.trim().match(/^([a-zA-Z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+    if (!match) continue;
+    const [, entityId, op, rawTarget] = match;
+    const entity = statesRes.states.find((st) => st.entity_id === entityId);
+    if (!entity) continue;
+
+    const val = entity.state;
+    const target = rawTarget.trim();
+    const numVal = Number(val);
+    const numTarget = Number(target);
+    let condOk = false;
+
+    if (op === '==') condOk = val.toLowerCase() === target.toLowerCase();
+    else if (op === '!=') condOk = val.toLowerCase() !== target.toLowerCase();
+    else if (!Number.isNaN(numVal) && !Number.isNaN(numTarget)) {
+      if (op === '>') condOk = numVal > numTarget;
+      else if (op === '>=') condOk = numVal >= numTarget;
+      else if (op === '<') condOk = numVal < numTarget;
+      else if (op === '<=') condOk = numVal <= numTarget;
+    }
+
+    if (condOk) {
+      const lastMs = wf.lastRunAt ? Date.parse(wf.lastRunAt) : 0;
+      if (Date.now() - lastMs >= 60_000) {
+        await executeWorkflow(wf.id, `${entityId}=${val}`);
+        triggered++;
+      }
+    }
+  }
+  return triggered;
 }
 
 /** Ú18: Sandboxed Code Interpreter + SVG Bar/Line Chart Builder */
@@ -212,20 +310,34 @@ export function createCustomWebhook(input: {
 export async function triggerCustomWebhook(
   slug: string,
   providedSecret: string | undefined,
-  bodyPayload: unknown
+  bodyPayload: unknown,
+  signatureHeader?: string
 ): Promise<{ ok: boolean; reply?: string; error?: string }> {
   const state = getState();
   const hook = state.customWebhooks.find((h) => h.slug === slug && h.enabled);
   if (!hook) return { ok: false, error: 'Webhook nem található vagy inaktív.' };
 
+  const payloadStr = typeof bodyPayload === 'string' ? bodyPayload : JSON.stringify(bodyPayload ?? {}).slice(0, 3000);
+
   if (hook.hasSecret) {
     const expected = getNamedSecret(`webhook:${hook.id}`);
-    if (!expected || expected !== (providedSecret || '').trim()) {
+    if (!expected) {
+      return { ok: false, error: 'Webhook titkos kulcs hiányzik a kulcstárból.' };
+    }
+    if (signatureHeader && /^sha256=/i.test(signatureHeader.trim())) {
+      /** M48: GitHub/Stripe-compatible HMAC-SHA256 signature verification */
+      const providedSig = signatureHeader.trim().toLowerCase();
+      const rawBodyStr = typeof bodyPayload === 'string' ? bodyPayload : JSON.stringify(bodyPayload ?? {});
+      const computed = `sha256=${crypto.createHmac('sha256', expected).update(rawBodyStr).digest('hex')}`;
+      const bufA = Buffer.from(providedSig);
+      const bufB = Buffer.from(computed);
+      if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) {
+        return { ok: false, error: 'Érvénytelen HMAC-SHA256 webhook aláírás.' };
+      }
+    } else if (expected !== (providedSecret || '').trim()) {
       return { ok: false, error: 'Érvénytelen webhook titkos kulcs.' };
     }
   }
-
-  const payloadStr = typeof bodyPayload === 'string' ? bodyPayload : JSON.stringify(bodyPayload ?? {}).slice(0, 3000);
   updateState((s) => {
     const ref = s.customWebhooks.find((h) => h.id === hook.id);
     if (ref) {

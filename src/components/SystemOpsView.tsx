@@ -6,9 +6,12 @@ import {
   Clock,
   Cpu,
   Download,
+  FileCode2,
+  Flame,
   HardDrive,
   HeartPulse,
   History,
+  KeyRound,
   Lock,
   Network,
   Play,
@@ -17,6 +20,7 @@ import {
   RotateCcw,
   Save,
   Server,
+  Shield,
   ShieldCheck,
   Stethoscope,
   Terminal,
@@ -73,17 +77,21 @@ export const SystemOpsView: React.FC<Props> = ({
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
   const [otaApplyMsg, setOtaApplyMsg] = useState<string | null>(null);
+  const [otaCommits, setOtaCommits] = useState<Array<{ hash: string; shortHash: string; date: string; message: string }>>([]);
   const [docs, setDocs] = useState<string>('');
   const [gitHistory, setGitHistory] = useState<Array<{ hash: string; date: string; message: string }>>([]);
   const [selectedDiff, setSelectedDiff] = useState<string | null>(null);
   const [proofResult, setProofResult] = useState<string | null>(null);
 
-  // Cron & Telegram
+  // Cron & Telegram & Scoped Diff (M33)
   const [cronName, setCronName] = useState('');
   const [cronExpr, setCronExpr] = useState('0 8 * * *');
   const [cronPrompt, setCronPrompt] = useState('');
   const [selfModPath, setSelfModPath] = useState('src/components/CustomNote.txt');
   const [selfModContent, setSelfModContent] = useState('NovaSwarm self-modification test');
+  const [diffPath, setDiffPath] = useState('');
+  const [diffSearch, setDiffSearch] = useState('');
+  const [diffReplace, setDiffReplace] = useState('');
   const [selfModMsg, setSelfModMsg] = useState<string | null>(null);
   const [tgCmd, setTgCmd] = useState('/statusz');
   const [tgReply, setTgReply] = useState<string | null>(null);
@@ -98,7 +106,7 @@ export const SystemOpsView: React.FC<Props> = ({
   const [sslHost, setSslHost] = useState('');
   const [sslPort, setSslPort] = useState(443);
 
-  // Infra (Ú9-Ú15)
+  // Infra (Ú9-Ú15, Ú37-Ú42, Ú57, M55, M56)
   const [dockerData, setDockerData] = useState<{
     available: boolean;
     containers: Array<{ id: string; name: string; image: string; status: string; state: string }>;
@@ -111,6 +119,7 @@ export const SystemOpsView: React.FC<Props> = ({
     error?: string;
   } | null>(null);
   const [systemdAnalysis, setSystemdAnalysis] = useState<string | null>(null);
+  const [systemdDetails, setSystemdDetails] = useState<{ unit: string; memoryMb: number | null; restarts: number | null; dependencies: string[]; raw: string } | null>(null);
   const [lanData, setLanData] = useState<{
     devices: Array<{ ip: string; mac: string; iface: string; state?: string }>;
     method: string;
@@ -126,7 +135,25 @@ export const SystemOpsView: React.FC<Props> = ({
   const [rsyncTarget, setRsyncTarget] = useState(settings.backupRsyncTarget || '');
   const [infraMsg, setInfraMsg] = useState<string | null>(null);
 
-  // SSH Fleet (Ú15)
+  // SuperAdmin Linux tools state
+  const [fwData, setFwData] = useState<{ portsOutput: string; firewallOutput: string; firewallTool: string } | null>(null);
+  const [fwRule, setFwRule] = useState('allow 3000/tcp');
+  const [hwSensors, setHwSensors] = useState<{ thermalZones: Array<{ name: string; tempC: number }>; piVcgencmd: { available: boolean; temp?: string; throttled?: string }; gpio: { available: boolean; output: string }; i2c: { available: boolean; buses: string } } | null>(null);
+  const [netTarget, setNetTarget] = useState('1.1.1.1');
+  const [netResult, setNetResult] = useState<{ target: string; dnsAddresses: string[]; pingOutput: string; tracerouteOutput: string; publicIp?: string } | null>(null);
+  const [linuxCron, setLinuxCron] = useState<{ userCrontab: string; systemdTimers: string } | null>(null);
+  const [vaultPath, setVaultPath] = useState('');
+  const [vaultPass, setVaultPass] = useState('');
+  const [vaultResult, setVaultResult] = useState<string | null>(null);
+  const [proxyData, setProxyData] = useState<{ nginxAvailable: boolean; caddyAvailable: boolean; nginxTestOutput: string; sites: string[] } | null>(null);
+  const [proxyKind, setProxyKind] = useState<'caddy' | 'nginx'>('caddy');
+  const [proxyDomain, setProxyDomain] = useState('novaswarm.local');
+  const [proxyPort, setProxyPort] = useState(3000);
+  const [proxyTplOut, setProxyTplOut] = useState('');
+  const [composeStack, setComposeStack] = useState<'searxng' | 'mosquitto' | 'ntfy' | 'uptime_kuma' | 'postgres'>('searxng');
+  const [composeYaml, setComposeYaml] = useState('');
+
+  // SSH Fleet (Ú15, M55)
   const [sshName, setSshName] = useState('');
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
@@ -134,10 +161,31 @@ export const SystemOpsView: React.FC<Props> = ({
   const [sshCmd, setSshCmd] = useState('uptime && df -h');
   const [sshOut, setSshOut] = useState<string | null>(null);
 
-  // Diagnostics & Safe .env Editor (M25, M26)
+  // Diagnostics, Hardening, Doctor & Password Checker (M25, M26, M54, B3, Ú53)
   const [diagData, setDiagData] = useState<{
     checkedAt: string;
     checks: Array<{ name: string; ok: boolean; detail: string }>;
+  } | null>(null);
+  const [hardeningData, setHardeningData] = useState<{
+    score: number;
+    grade: string;
+    checks: Array<{ id: string; label: string; ok: boolean; points: number; hint: string }>;
+  } | null>(null);
+  const [doctorData, setDoctorData] = useState<{
+    checkedAt: string;
+    healedActions: string[];
+    warnings: string[];
+    uptimeSummary: string;
+  } | null>(null);
+  const [pwInput, setPwInput] = useState('');
+  const [pwResult, setPwResult] = useState<{
+    length: number;
+    entropyBits: number;
+    strengthLabel: string;
+    breached: boolean;
+    breachCount: number;
+    hibpChecked: boolean;
+    hibpError?: string;
   } | null>(null);
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
   const [envMsg, setEnvMsg] = useState<string | null>(null);
@@ -155,30 +203,46 @@ export const SystemOpsView: React.FC<Props> = ({
         if (d?.commits) setGitHistory(d.commits);
       })
       .catch(() => {});
+    void fetch('/api/system/ota/commits')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { commits?: typeof otaCommits } | null) => {
+        if (d?.commits) setOtaCommits(d.commits);
+      })
+      .catch(() => {});
   }, []);
 
   const loadInfra = async () => {
-    const [dk, sd, lan, vpn, dsk] = await Promise.all([
+    const [dk, sd, lan, vpn, dsk, fw, hw, cr, px] = await Promise.all([
       fetch('/api/infra/docker').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/infra/systemd').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/infra/lan').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/infra/vpn').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/infra/disks').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/infra/firewall').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/infra/hardware').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/infra/cron').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/infra/proxy').then((r) => (r.ok ? r.json() : null)),
     ]);
     if (dk) setDockerData(dk);
     if (sd) setSystemdData(sd);
     if (lan) setLanData(lan);
     if (vpn) setVpnData(vpn);
     if (dsk) setDiskData(dsk);
+    if (fw) setFwData(fw);
+    if (hw) setHwSensors(hw);
+    if (cr) setLinuxCron(cr);
+    if (px) setProxyData(px);
   };
 
   const loadDiagAndEnv = async () => {
-    const [dg, ev] = await Promise.all([
+    const [dg, ev, hd] = await Promise.all([
       fetch('/api/system/diagnostics').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/system/env').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/system/hardening').then((r) => (r.ok ? r.json() : null)),
     ]);
     if (dg) setDiagData(dg);
     if (ev?.vars) setEnvVars(ev.vars);
+    if (hd) setHardeningData(hd);
   };
 
   useEffect(() => {
@@ -777,28 +841,111 @@ export const SystemOpsView: React.FC<Props> = ({
             </div>
           )}
 
-          <form onSubmit={handleSelfMod} className="space-y-2 pt-2 border-t border-slate-100">
-            <div className="text-xs font-semibold text-slate-700">
-              Védett Önmódosítás (Tiltott zóna & Git-Rollback védelemmel)
+          {otaCommits.length > 0 && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
+              <div className="font-semibold text-slate-800">OTA Commit Verzió-előzmények & Visszaállás (M52)</div>
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {otaCommits.map((c) => (
+                  <div key={c.hash} className="flex items-center justify-between gap-2 font-mono text-[11px] bg-white border border-slate-200 px-2.5 py-1.5 rounded">
+                    <span className="truncate">{c.shortHash} · {c.date.slice(0, 10)} · {c.message}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const r = await fetch('/api/system/ota/rollback', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ hash: c.hash }),
+                        });
+                        const d = (await r.json()) as { message?: string; error?: string };
+                        setOtaApplyMsg(d.message || d.error || 'Visszaállítva.');
+                        await onRefreshState();
+                      }}
+                      className="px-2 py-0.5 bg-slate-900 text-white rounded shrink-0 whitespace-nowrap"
+                    >
+                      Visszaállás
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <input
-              type="text"
-              value={selfModPath}
-              onChange={(e) => setSelfModPath(e.target.value)}
-              placeholder="Relatív fájlútvonal (pl. .env tiltva lesz)"
-              className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
-            />
-            <textarea
-              rows={2}
-              value={selfModContent}
-              onChange={(e) => setSelfModContent(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
-            />
-            <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-800 text-white rounded">
-              Módosítás Alkalmazása (Commit + Verify)
-            </button>
-            {selfModMsg && <div className="text-xs font-mono text-slate-700">{selfModMsg}</div>}
-          </form>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+            <form onSubmit={handleSelfMod} className="space-y-2">
+              <div className="text-xs font-semibold text-slate-700">
+                Védett Teljes Fájl Önmódosítás (Tiltott zóna & Git-Rollback védelemmel)
+              </div>
+              <input
+                type="text"
+                value={selfModPath}
+                onChange={(e) => setSelfModPath(e.target.value)}
+                placeholder="Relatív fájlútvonal (pl. .env tiltva lesz)"
+                className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
+              />
+              <textarea
+                rows={3}
+                value={selfModContent}
+                onChange={(e) => setSelfModContent(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
+              />
+              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-800 text-white rounded">
+                Módosítás Alkalmazása (Commit + Verify)
+              </button>
+            </form>
+
+            {/* M33 Scoped Search-and-Replace Patch */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!diffPath.trim() || !diffSearch) return;
+                const r = await fetch('/api/selfmod/apply-diff', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    targetPath: diffPath.trim(),
+                    search: diffSearch,
+                    replace: diffReplace,
+                    commitMessage: `patch(selfmod): ${diffPath.trim()}`,
+                  }),
+                });
+                const d = (await r.json()) as { message?: string; error?: string };
+                setSelfModMsg(d.message || d.error || 'Patch alkalmazva.');
+                await onRefreshState();
+              }}
+              className="space-y-2"
+            >
+              <div className="text-xs font-semibold text-slate-700">
+                Célzott Diff Patch Önmódosítás (Search & Replace — M33)
+              </div>
+              <input
+                type="text"
+                value={diffPath}
+                onChange={(e) => setDiffPath(e.target.value)}
+                placeholder="Célfájl (pl. src/locales/translations.ts)"
+                className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <textarea
+                  rows={3}
+                  value={diffSearch}
+                  onChange={(e) => setDiffSearch(e.target.value)}
+                  placeholder="Keresendő pontos blokk..."
+                  className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                />
+                <textarea
+                  rows={3}
+                  value={diffReplace}
+                  onChange={(e) => setDiffReplace(e.target.value)}
+                  placeholder="Új kódblokk..."
+                  className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
+                />
+              </div>
+              <button type="submit" className="px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white rounded hover:bg-slate-50">
+                Scoped Patch Alkalmazása
+              </button>
+            </form>
+          </div>
+          {selfModMsg && <div className="text-xs font-mono text-slate-700">{selfModMsg}</div>}
 
           <div className="pt-2 border-t border-slate-100 space-y-2">
             <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
@@ -932,20 +1079,45 @@ export const SystemOpsView: React.FC<Props> = ({
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">{u.description}</div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setSystemdAnalysis(`Elemzés (${u.unit})...`);
-                          const r = await fetch(`/api/infra/systemd/${encodeURIComponent(u.unit)}/analyze`, { method: 'POST' });
-                          const d = (await r.json()) as { aiAnalysis?: string; logs?: string };
-                          setSystemdAnalysis(d.aiAnalysis || d.logs || 'Kész.');
-                        }}
-                        className="px-2 py-0.5 text-[11px] bg-slate-900 text-white rounded shrink-0"
-                      >
-                        AI Elemzés
-                      </button>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const r = await fetch(`/api/infra/systemd/${encodeURIComponent(u.unit)}/details`);
+                            const d = await r.json();
+                            setSystemdDetails(d);
+                          }}
+                          className="px-2 py-0.5 text-[11px] border border-slate-300 bg-white rounded hover:bg-slate-100"
+                        >
+                          Részletek
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setSystemdAnalysis(`Elemzés (${u.unit})...`);
+                            const r = await fetch(`/api/infra/systemd/${encodeURIComponent(u.unit)}/analyze`, { method: 'POST' });
+                            const d = (await r.json()) as { aiAnalysis?: string; logs?: string };
+                            setSystemdAnalysis(d.aiAnalysis || d.logs || 'Kész.');
+                          }}
+                          className="px-2 py-0.5 text-[11px] bg-slate-900 text-white rounded"
+                        >
+                          AI Elemzés
+                        </button>
+                      </div>
                     </div>
                   ))}
+                </div>
+              )}
+              {systemdDetails && (
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs space-y-1 font-mono">
+                  <div className="font-semibold text-slate-900">
+                    {systemdDetails.unit} · RAM: {systemdDetails.memoryMb !== null ? `${systemdDetails.memoryMb} MB` : 'n/a'} · Újraindítások: {systemdDetails.restarts ?? 'n/a'}
+                  </div>
+                  {systemdDetails.dependencies.length > 0 && (
+                    <div className="text-[11px] text-slate-600 max-h-24 overflow-y-auto">
+                      Függőségek: {systemdDetails.dependencies.join(', ')}
+                    </div>
+                  )}
                 </div>
               )}
               {systemdAnalysis && (
@@ -1055,12 +1227,43 @@ export const SystemOpsView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* SSH Fleet (Ú15) */}
+          {/* SSH Fleet (Ú15, M55 Bulk) */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-              <Terminal className="h-4 w-4 text-slate-700" />
-              SSH Flotta Profilok & Távoli Parancsfuttatás
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-slate-700" />
+                SSH Flotta Profilok & Párhuzamos Távoli Parancsfuttatás
+              </h3>
+              {sshProfiles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/infra/ssh/bulk', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ profileIds: [], command: sshCmd }),
+                    });
+                    const d = (await r.json()) as {
+                      results?: Array<{ name: string; host: string; ok: boolean; durationMs: number; output: string }>;
+                      error?: string;
+                    };
+                    if (d.results) {
+                      setSshOut(
+                        d.results
+                          .map((res) => `=== ${res.name} (${res.host}) [${res.ok ? 'OK' : 'ERR'} ${res.durationMs}ms] ===\n${res.output}`)
+                          .join('\n\n')
+                      );
+                    } else {
+                      setSshOut(d.error || 'Hiba.');
+                    }
+                    await onRefreshState();
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
+                >
+                  Futtatás az Összesen ({sshProfiles.length})
+                </button>
+              )}
+            </div>
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -1125,11 +1328,332 @@ export const SystemOpsView: React.FC<Props> = ({
             </div>
             {sshOut && <pre className="p-2.5 bg-slate-900 text-slate-100 rounded text-[11px] font-mono max-h-40 overflow-auto whitespace-pre-wrap">{sshOut}</pre>}
           </div>
+
+          {/* SuperAdmin Linux Suite: Firewall (Ú37), Hardware/GPIO (Ú38), Network Diag (Ú39), Cron/Timers (Ú40) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Flame className="h-4 w-4 text-slate-700" />
+                Tűzfal (UFW/nft) & Nyitott Portok (`ss`)
+              </h3>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const r = await fetch('/api/infra/firewall/rule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rule: fwRule }),
+                  });
+                  const d = (await r.json()) as { command?: string; error?: string };
+                  setInfraMsg(d.command ? `Jóváhagyási sorba téve: ${d.command}` : d.error || 'Hiba');
+                  await onRefreshState();
+                }}
+                className="flex gap-2"
+              >
+                <input type="text" value={fwRule} onChange={(e) => setFwRule(e.target.value)} placeholder="allow 3000/tcp" className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">UFW Szabály Javaslata</button>
+              </form>
+              {fwData && (
+                <div className="space-y-2">
+                  <div className="font-mono text-slate-600">Aktív tűzfal: {fwData.firewallTool}</div>
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono max-h-32 overflow-auto">{fwData.firewallOutput}</pre>
+                  <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-32 overflow-auto">{fwData.portsOutput}</pre>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Cpu className="h-4 w-4 text-slate-700" />
+                Hardver Szenzorok, Raspberry Pi GPIO & I2C
+              </h3>
+              {hwSensors ? (
+                <div className="space-y-2 font-mono text-[11px]">
+                  <div className="flex flex-wrap gap-2">
+                    {hwSensors.thermalZones.map((tz, i) => (
+                      <span key={i} className="px-2 py-1 bg-slate-50 border border-slate-200 rounded tabular-nums">
+                        {tz.name}: {tz.tempC}°C
+                      </span>
+                    ))}
+                  </div>
+                  {hwSensors.piVcgencmd.available && (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded">
+                      Pi vcgencmd: {hwSensors.piVcgencmd.temp} · {hwSensors.piVcgencmd.throttled}
+                    </div>
+                  )}
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] max-h-28 overflow-auto">
+                    GPIO: {hwSensors.gpio.output}{'\n'}I2C: {hwSensors.i2c.buses}
+                  </pre>
+                </div>
+              ) : (
+                <p className="text-slate-500">Szenzoradatok betöltése...</p>
+              )}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Network className="h-4 w-4 text-slate-700" />
+                Hálózati Diagnosztika (DNS · Ping · Traceroute · Publikus IP)
+              </h3>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const r = await fetch('/api/infra/network', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targetHost: netTarget }),
+                  });
+                  if (r.ok) setNetResult(await r.json());
+                }}
+                className="flex gap-2"
+              >
+                <input type="text" value={netTarget} onChange={(e) => setNetTarget(e.target.value)} placeholder="1.1.1.1 vagy github.com" className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">Diagnosztika</button>
+              </form>
+              {netResult && (
+                <pre className="p-2.5 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-44 overflow-auto whitespace-pre-wrap">
+                  {`Cél: ${netResult.target} | Publikus IP: ${netResult.publicIp || 'n/a'}\nDNS: ${netResult.dnsAddresses.join(', ')}\n\n${netResult.pingOutput}\n\n${netResult.tracerouteOutput}`}
+                </pre>
+              )}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-slate-700" />
+                Gazdagép Linux Crontab & Systemd Timerek
+              </h3>
+              {linuxCron ? (
+                <div className="space-y-2">
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono max-h-24 overflow-auto">{linuxCron.userCrontab}</pre>
+                  <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono max-h-28 overflow-auto">{linuxCron.systemdTimers}</pre>
+                </div>
+              ) : (
+                <p className="text-slate-500">Betöltés...</p>
+              )}
+            </div>
+          </div>
+
+          {/* File Vault (Ú41), Reverse Proxy (Ú42), Docker Compose (Ú57) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <KeyRound className="h-4 w-4 text-slate-700" />
+                AES-256-GCM Fájl Széf (`.nsenc`)
+              </h3>
+              <input type="text" value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} placeholder="Relatív fájlútvonal (pl. README.md)" className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+              <input type="password" value={vaultPass} onChange={(e) => setVaultPass(e.target.value)} placeholder="Titkosítási jelszó (min. 4 kar.)" className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/infra/vault/encrypt', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ relPath: vaultPath, passphrase: vaultPass }),
+                    });
+                    const d = (await r.json()) as { outputPath?: string; bytes?: number; error?: string };
+                    setVaultResult(d.outputPath ? `Titkosítva: ${d.outputPath} (${d.bytes} B)` : d.error || 'Hiba');
+                  }}
+                  className="flex-1 px-2.5 py-1.5 bg-slate-900 text-white rounded font-medium"
+                >
+                  Titkosítás
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/infra/vault/decrypt', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ relEncPath: vaultPath, passphrase: vaultPass }),
+                    });
+                    const d = (await r.json()) as { outputPath?: string; bytes?: number; error?: string };
+                    setVaultResult(d.outputPath ? `Visszafejtve: ${d.outputPath} (${d.bytes} B)` : d.error || 'Hiba');
+                  }}
+                  className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded font-medium hover:bg-slate-50"
+                >
+                  Visszafejtés
+                </button>
+              </div>
+              {vaultResult && <div className="font-mono text-[11px] text-slate-700">{vaultResult}</div>}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Server className="h-4 w-4 text-slate-700" />
+                Reverse Proxy (Nginx / Caddy)
+              </h3>
+              {proxyData && (
+                <div className="font-mono text-[11px] text-slate-600">
+                  Nginx: {proxyData.nginxAvailable ? 'OK' : 'nincs'} · Caddy: {proxyData.caddyAvailable ? 'OK' : 'nincs'} · Oldalak: {proxyData.sites.length}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-1.5">
+                <select value={proxyKind} onChange={(e) => setProxyKind(e.target.value as 'caddy' | 'nginx')} className="px-2 py-1.5 border border-slate-300 rounded bg-white">
+                  <option value="caddy">Caddy</option>
+                  <option value="nginx">Nginx</option>
+                </select>
+                <input type="text" value={proxyDomain} onChange={(e) => setProxyDomain(e.target.value)} className="px-2 py-1.5 font-mono border border-slate-300 rounded" />
+                <input type="number" value={proxyPort} onChange={(e) => setProxyPort(Number(e.target.value))} className="px-2 py-1.5 font-mono border border-slate-300 rounded" />
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const r = await fetch('/api/infra/proxy/template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: proxyKind, domain: proxyDomain, upstreamPort: proxyPort }),
+                  });
+                  const d = (await r.json()) as { template?: string };
+                  setProxyTplOut(d.template || '');
+                }}
+                className="w-full px-3 py-1.5 bg-slate-900 text-white rounded font-medium"
+              >
+                Konfig Sablon Generálása
+              </button>
+              {proxyTplOut && <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-32 overflow-auto">{proxyTplOut}</pre>}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <FileCode2 className="h-4 w-4 text-slate-700" />
+                Docker Compose Stack Generátor (Ú57)
+              </h3>
+              <div className="flex gap-2">
+                <select value={composeStack} onChange={(e) => setComposeStack(e.target.value as typeof composeStack)} className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white">
+                  <option value="searxng">SearXNG (Privát Kereső)</option>
+                  <option value="mosquitto">Mosquitto (MQTT Broker)</option>
+                  <option value="ntfy">ntfy (Push Értesítő)</option>
+                  <option value="uptime_kuma">Uptime Kuma</option>
+                  <option value="postgres">PostgreSQL 16</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/infra/docker/compose', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ stack: composeStack }),
+                    });
+                    const d = (await r.json()) as { yaml?: string };
+                    setComposeYaml(d.yaml || '');
+                  }}
+                  className="px-3 py-1.5 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0"
+                >
+                  YAML Készítése
+                </button>
+              </div>
+              {composeYaml && <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-36 overflow-auto">{composeYaml}</pre>}
+            </div>
+          </div>
         </div>
       )}
 
       {subTab === 'diagnostics' && (
         <div className="space-y-6">
+          {/* M54 Security Hardening, B3 Swarm Auto-Doctor, Ú53 Password HIBP */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                  <Shield className="h-4 w-4 text-slate-700" />
+                  Biztonsági Keményítési Pontszám
+                </h3>
+                {hardeningData && (
+                  <span className="font-mono font-bold tabular-nums text-slate-900">
+                    {hardeningData.score}% ({hardeningData.grade})
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {(hardeningData?.checks || []).map((c) => (
+                  <div key={c.id} className="p-2 bg-slate-50 border border-slate-200 rounded">
+                    <div className="flex justify-between gap-2 font-medium">
+                      <span className={c.ok ? 'text-emerald-800' : 'text-amber-800'}>
+                        [{c.ok ? 'OK' : 'HIÁNY'}] {c.label}
+                      </span>
+                      <span className="font-mono tabular-nums shrink-0">{c.ok ? c.points : 0}/{c.points}p</span>
+                    </div>
+                    {!c.ok && <div className="text-[11px] text-slate-500 mt-0.5">{c.hint}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                  <HeartPulse className="h-4 w-4 text-slate-700" />
+                  Raj Auto-Doktor & Öngyógyítás (B3)
+                </h3>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/system/doctor', { method: 'POST' });
+                    if (r.ok) {
+                      setDoctorData(await r.json());
+                      await onRefreshState();
+                    }
+                  }}
+                  className="px-3 py-1 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0"
+                >
+                  Doktor Futtatása
+                </button>
+              </div>
+              {doctorData ? (
+                <div className="space-y-2">
+                  <div className="font-mono text-slate-600">{doctorData.uptimeSummary}</div>
+                  {doctorData.healedActions.map((a, i) => (
+                    <div key={i} className="p-2 bg-emerald-50 border border-emerald-200 rounded text-emerald-900">{a}</div>
+                  ))}
+                  {doctorData.warnings.map((w, i) => (
+                    <div key={i} className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-900">{w}</div>
+                  ))}
+                  {doctorData.healedActions.length === 0 && doctorData.warnings.length === 0 && (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-slate-700">Minden alrendszer egészséges.</div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-500">Indítsd el a Raj Auto-Doktort az API kulcs cooldown-ok, memória salience és uptime célok azonnali javításához.</p>
+              )}
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                <Lock className="h-4 w-4 text-slate-700" />
+                Jelszó Entrópia & HIBP k-Anonymity Ellenőrző
+              </h3>
+              <p className="text-[11px] text-slate-500">Csak a SHA-1 hash első 5 karaktere hagyja el a gépet; nyílt szövegű jelszó soha nem kerül továbbításra.</p>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!pwInput) return;
+                  const r = await fetch('/api/security/password-check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwInput }),
+                  });
+                  if (r.ok) setPwResult(await r.json());
+                }}
+                className="flex gap-2"
+              >
+                <input type="password" value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Tesztelendő jelszó..." className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0">Ellenőrzés</button>
+              </form>
+              {pwResult && (
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded space-y-1 font-mono text-[11px] tabular-nums">
+                  <div>Hossz: {pwResult.length} kar. · Entrópia: {pwResult.entropyBits} bit ({pwResult.strengthLabel})</div>
+                  <div className={pwResult.breached ? 'text-red-700 font-semibold' : 'text-emerald-800 font-semibold'}>
+                    {pwResult.hibpChecked
+                      ? pwResult.breached
+                        ? `VESZÉLY: ${pwResult.breachCount} adatszivárgásban szerepelt!`
+                        : 'Nem szerepel az ismert adatszivárgásokban (HIBP OK).'
+                      : `HIBP offline (${pwResult.hibpError || 'nincs hálózat'})`}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* M25 Diagnostics */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
@@ -1168,7 +1692,7 @@ export const SystemOpsView: React.FC<Props> = ({
             {/* M26 Safe .env Config Editor */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">Biztonságos `.env` Konfig (Titkok maszkázva)</h3>
+                <h3 className="text-base font-semibold text-slate-900">Biztonságos .env Konfig (Titkok maszkázva)</h3>
                 <button
                   type="button"
                   onClick={async () => {

@@ -100,11 +100,19 @@ export const MemoryDreamingView: React.FC<Props> = ({
   const [offlineStats, setOfflineStats] = useState<OfflineStats | null>(null);
   const [offlineResult, setOfflineResult] = useState<OfflineSearchResult | null>(null);
 
-  // Wiki Editor state
+  // Graph pan/zoom & filter (M44)
+  const [graphFilter, setGraphFilter] = useState('');
+  const [graphZoom, setGraphZoom] = useState(1);
+  const [graphPanX, setGraphPanX] = useState(0);
+
+  // Wiki Editor, Search, Backlinks & Daily Note (M47)
   const [wikiSelectedPath, setWikiSelectedPath] = useState('');
   const [wikiDraftPath, setWikiDraftPath] = useState('');
   const [wikiDraftContent, setWikiDraftContent] = useState('');
   const [wikiMsg, setWikiMsg] = useState<string | null>(null);
+  const [wikiQuery, setWikiQuery] = useState('');
+  const [wikiHits, setWikiHits] = useState<Array<{ path: string; line: number; excerpt: string }>>([]);
+  const [wikiBacklinks, setWikiBacklinks] = useState<string[]>([]);
 
   const loadVaultAndGraph = async () => {
     try {
@@ -296,6 +304,51 @@ export const MemoryDreamingView: React.FC<Props> = ({
     setWikiSelectedPath('');
     setWikiDraftPath('');
     setWikiDraftContent('');
+    setWikiBacklinks([]);
+    await loadVaultAndGraph();
+  };
+
+  const handleLoadBacklinks = async (relPath: string) => {
+    const r = await fetch(`/api/memory/wiki/backlinks?path=${encodeURIComponent(relPath)}`);
+    if (r.ok) {
+      const d = (await r.json()) as { backlinks?: string[] };
+      setWikiBacklinks(d.backlinks || []);
+    }
+  };
+
+  const handleWikiSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wikiQuery.trim()) {
+      setWikiHits([]);
+      return;
+    }
+    const r = await fetch(`/api/memory/wiki/search?q=${encodeURIComponent(wikiQuery.trim())}`);
+    if (r.ok) {
+      const d = (await r.json()) as { hits?: Array<{ path: string; line: number; excerpt: string }> };
+      setWikiHits(d.hits || []);
+    }
+  };
+
+  const handleCreateDailyNote = async () => {
+    const r = await fetch('/api/memory/wiki/daily', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (r.ok) {
+      const d = (await r.json()) as { note: { path: string; content: string } };
+      setWikiSelectedPath(d.note.path);
+      setWikiDraftPath(d.note.path);
+      setWikiDraftContent(d.note.content);
+      setWikiMsg(`Mai napi jegyzet megnyitva: ${d.note.path}`);
+      await handleLoadBacklinks(d.note.path);
+      await loadVaultAndGraph();
+    }
+  };
+
+  const handleRestoreMemory = async (id: string) => {
+    await fetch(`/api/memories/${id}/restore`, { method: 'POST' });
+    await onRefreshState();
     await loadVaultAndGraph();
   };
 
@@ -322,7 +375,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
   const graphLayout = useMemo(() => {
     const width = 680;
     const height = 260;
-    const nodes = graphData.nodes.slice(0, 32);
+    const f = graphFilter.trim().toLowerCase();
+    const nodes = graphData.nodes
+      .filter((n) => !f || n.label.toLowerCase().includes(f))
+      .slice(0, 32);
     const entities = nodes.filter((n) => n.kind === 'entity');
     const tags = nodes.filter((n) => n.kind === 'tag');
     const links = nodes.filter((n) => n.kind === 'link');
@@ -341,7 +397,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
     placeColumn(links, 560);
 
     return { width, height, pos };
-  }, [graphData.nodes]);
+  }, [graphData.nodes, graphFilter]);
 
   return (
     <div className="space-y-6">
@@ -514,8 +570,15 @@ export const MemoryDreamingView: React.FC<Props> = ({
                           </div>
                         )}
                         {m.supersededBy && (
-                          <div className="text-[11px] font-mono text-amber-800">
-                            Felülírva újabb ténnyel: {m.supersededBy}
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-amber-800">
+                            <span>Felülírva újabb ténnyel: {m.supersededBy}</span>
+                            <button
+                              type="button"
+                              onClick={() => void handleRestoreMemory(m.id)}
+                              className="px-2 py-0.5 bg-white border border-amber-300 rounded text-amber-900 hover:bg-amber-50 whitespace-nowrap shrink-0"
+                            >
+                              Visszaállítás
+                            </button>
                           </div>
                         )}
                         {m.supersedesId && (
@@ -586,7 +649,42 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 <GitFork className="h-4 w-4 text-slate-600" />
                 Interaktív Tudásgráf (Entitások · #Címkék · [[Wikilinkek]])
               </h3>
-              <div className="flex items-center gap-4 text-[11px] font-mono text-slate-500 tabular-nums">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-500 tabular-nums">
+                <input
+                  type="text"
+                  value={graphFilter}
+                  onChange={(e) => setGraphFilter(e.target.value)}
+                  placeholder="Csomópont szűrő..."
+                  className="px-2 py-1 text-xs border border-slate-300 rounded bg-white text-slate-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => setGraphPanX((x) => x - 40)}
+                  className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50"
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGraphPanX((x) => x + 40)}
+                  className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50"
+                >
+                  →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGraphZoom((z) => Math.max(0.6, Number((z - 0.2).toFixed(1))))}
+                  className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50"
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGraphZoom((z) => Math.min(2.2, Number((z + 0.2).toFixed(1))))}
+                  className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50"
+                >
+                  +
+                </button>
                 <span>{graphData.nodes.length} csomópont · {graphData.edges.length} él</span>
               </div>
             </div>
@@ -596,9 +694,9 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 A tudásgráf automatikusan épül, amint memóriabejegyzések kerülnek a vektoros tárba.
               </p>
             ) : (
-              <div className="border border-slate-200 rounded-lg bg-slate-50 overflow-x-auto">
+              <div className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden">
                 <svg
-                  viewBox={`0 0 ${graphLayout.width} ${graphLayout.height}`}
+                  viewBox={`${graphPanX} 0 ${Math.round(graphLayout.width / graphZoom)} ${Math.round(graphLayout.height / graphZoom)}`}
                   className="w-full min-w-[560px] h-64"
                   role="img"
                   aria-label="Knowledge graph visualization"
@@ -679,11 +777,17 @@ export const MemoryDreamingView: React.FC<Props> = ({
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto">
                 {dreamJournal.map((j) => (
-                  <div key={j.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                  <div key={j.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
                     <div className="text-xs text-slate-500 font-mono tabular-nums">
                       {new Date(j.timestamp).toLocaleString()} · Light:{j.phaseSummary.lightCandidates} · Deep:{j.phaseSummary.deepPromoted}
                     </div>
                     <p className="text-sm text-slate-800">{j.narrative}</p>
+                    {j.morningDigest && (
+                      <div className="p-2 bg-white border border-slate-200 rounded text-xs text-slate-700 whitespace-pre-wrap">
+                        <span className="font-semibold text-slate-900">Reggeli Összefoglaló: </span>
+                        {j.morningDigest}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -869,21 +973,73 @@ export const MemoryDreamingView: React.FC<Props> = ({
       {subTab === 'wiki' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900">Markdown Jegyzetek</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setWikiSelectedPath('');
-                  setWikiDraftPath(`jegyzet-${new Date().toISOString().slice(0, 10)}.md`);
-                  setWikiDraftContent('# Új Wiki Jegyzet\n\n');
-                }}
-                className="px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded"
-              >
-                + Új fájl
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateDailyNote()}
+                  className="px-2.5 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
+                >
+                  Mai Napi Jegyzet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWikiSelectedPath('');
+                    setWikiDraftPath(`jegyzet-${new Date().toISOString().slice(0, 10)}.md`);
+                    setWikiDraftContent('# Új Wiki Jegyzet\n\n');
+                    setWikiBacklinks([]);
+                  }}
+                  className="px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
+                >
+                  + Új fájl
+                </button>
+              </div>
             </div>
-            <div className="space-y-1.5 max-h-[380px] overflow-y-auto">
+
+            <form onSubmit={handleWikiSearch} className="flex gap-1.5">
+              <input
+                type="text"
+                value={wikiQuery}
+                onChange={(e) => setWikiQuery(e.target.value)}
+                placeholder="Keresés a jegyzetekben..."
+                className="flex-1 px-2.5 py-1 text-xs border border-slate-300 rounded"
+              />
+              <button type="submit" className="px-2.5 py-1 text-xs bg-slate-900 text-white rounded">
+                Keres
+              </button>
+            </form>
+
+            {wikiHits.length > 0 && (
+              <div className="p-2 bg-slate-50 border border-slate-200 rounded space-y-1 max-h-36 overflow-y-auto text-[11px]">
+                <div className="font-semibold text-slate-700 flex justify-between">
+                  <span>Keresési találatok ({wikiHits.length})</span>
+                  <button type="button" onClick={() => setWikiHits([])} className="text-slate-400">×</button>
+                </div>
+                {wikiHits.map((h, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      const found = vaultNotes.find((vn) => vn.path === h.path);
+                      if (found) {
+                        setWikiSelectedPath(found.path);
+                        setWikiDraftPath(found.path);
+                        setWikiDraftContent(found.content);
+                        void handleLoadBacklinks(found.path);
+                      }
+                    }}
+                    className="w-full text-left p-1 hover:bg-white rounded"
+                  >
+                    <div className="font-mono font-semibold text-slate-900">{h.path}:{h.line}</div>
+                    <div className="text-slate-600 truncate">{h.excerpt}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
               {vaultNotes.map((n) => (
                 <div key={n.path} className="flex items-center justify-between gap-2 text-xs">
                   <button
@@ -892,6 +1048,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                       setWikiSelectedPath(n.path);
                       setWikiDraftPath(n.path);
                       setWikiDraftContent(n.content);
+                      void handleLoadBacklinks(n.path);
                     }}
                     className={`flex-1 text-left px-2.5 py-1.5 rounded font-mono truncate ${
                       wikiSelectedPath === n.path ? 'bg-slate-900 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-800'
@@ -910,6 +1067,38 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 </div>
               ))}
             </div>
+
+            {wikiSelectedPath && (
+              <div className="pt-2 border-t border-slate-100 text-xs">
+                <div className="font-semibold text-slate-700 mb-1">
+                  Hivatkozó Jegyzetek (Backlinks: {wikiBacklinks.length})
+                </div>
+                {wikiBacklinks.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">Nincs bejövő [[wikilink]] erre a jegyzetre.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {wikiBacklinks.map((bl) => (
+                      <button
+                        key={bl}
+                        type="button"
+                        onClick={() => {
+                          const found = vaultNotes.find((vn) => vn.path === bl);
+                          if (found) {
+                            setWikiSelectedPath(found.path);
+                            setWikiDraftPath(found.path);
+                            setWikiDraftContent(found.content);
+                            void handleLoadBacklinks(found.path);
+                          }
+                        }}
+                        className="px-2 py-0.5 text-[11px] font-mono bg-slate-100 border border-slate-200 rounded hover:bg-slate-200"
+                      >
+                        {bl}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSaveWiki} className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-5 space-y-3">

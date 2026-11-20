@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { Film, Plus, Send, ShieldAlert, Trash2, X } from 'lucide-react';
 import type { LanguageCode } from '../../shared/types';
 import { tr } from '../locales/translations';
 
@@ -13,6 +13,19 @@ export interface TerminalSessionSummary {
   cols: number;
   rows: number;
   shell: string;
+}
+
+interface RecordingSummary {
+  sessionId: string;
+  initiator: string;
+  shell: string;
+  createdAt: string;
+  frameCount: number;
+  active: boolean;
+}
+
+interface RecordingFull extends RecordingSummary {
+  frames: Array<{ offsetMs: number; dir: 'in' | 'out'; data: string }>;
 }
 
 interface Props {
@@ -36,6 +49,10 @@ export const TerminalView: React.FC<Props> = ({
     sessions[0]?.id ?? null
   );
   const [error, setError] = useState<string | null>(null);
+  const [showRecordings, setShowRecordings] = useState(false);
+  const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
+  const [activeRecording, setActiveRecording] = useState<RecordingFull | null>(null);
+  const [replayIndex, setReplayIndex] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -45,6 +62,25 @@ export const TerminalView: React.FC<Props> = ({
       setActiveSessionId(sessions[0].id);
     }
   }, [sessions, activeSessionId]);
+
+  const loadRecordings = async () => {
+    const r = await fetch('/api/terminal/recordings');
+    if (r.ok) {
+      const d = (await r.json()) as { recordings?: RecordingSummary[] };
+      setRecordings(d.recordings || []);
+    }
+  };
+
+  const openRecording = async (sessionId: string) => {
+    const r = await fetch(`/api/terminal/recordings/${encodeURIComponent(sessionId)}`);
+    if (r.ok) {
+      const d = (await r.json()) as { recording?: RecordingFull };
+      if (d.recording) {
+        setActiveRecording(d.recording);
+        setReplayIndex(Math.max(0, d.recording.frames.length - 1));
+      }
+    }
+  };
 
   useEffect(() => {
     if (!hostPermissionsGranted || !containerRef.current || !activeSessionId) return;
@@ -254,6 +290,17 @@ export const TerminalView: React.FC<Props> = ({
           )}
           <button
             type="button"
+            onClick={() => {
+              setShowRecordings((v) => !v);
+              void loadRecordings();
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+          >
+            <Film className="h-3.5 w-3.5" />
+            Felvételek (M53)
+          </button>
+          <button
+            type="button"
             onClick={() => void handleCreateSession()}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
           >
@@ -266,6 +313,59 @@ export const TerminalView: React.FC<Props> = ({
       {error && (
         <div role="alert" className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
           {error}
+        </div>
+      )}
+
+      {showRecordings && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Terminál Felvételek & Visszajátszás</h3>
+            <button type="button" onClick={() => setShowRecordings(false)} className="text-slate-400 hover:text-slate-900">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {recordings.length === 0 ? (
+            <p className="text-xs text-slate-500">Még nincs rögzített terminál munkamenet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {recordings.map((rec) => (
+                <button
+                  key={rec.sessionId}
+                  type="button"
+                  onClick={() => void openRecording(rec.sessionId)}
+                  className={`px-2.5 py-1.5 text-xs font-mono border rounded whitespace-nowrap shrink-0 ${
+                    activeRecording?.sessionId === rec.sessionId
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {rec.sessionId} · {rec.frameCount} frame {rec.active ? '(élő)' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          {activeRecording && (
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span>Időcsúszka: {replayIndex + 1} / {Math.max(1, activeRecording.frames.length)}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0, activeRecording.frames.length - 1)}
+                  value={replayIndex}
+                  onChange={(e) => setReplayIndex(Number(e.target.value))}
+                  className="flex-1"
+                />
+              </div>
+              <pre className="p-3 bg-[#0b1120] text-slate-100 rounded-lg font-mono text-xs max-h-56 overflow-auto whitespace-pre-wrap">
+                {activeRecording.frames
+                  .slice(0, replayIndex + 1)
+                  .filter((f) => f.dir === 'out')
+                  .map((f) => f.data.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, ''))
+                  .join('')}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

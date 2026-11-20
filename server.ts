@@ -5,11 +5,16 @@ import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { runAutonomousKanbanWorkerTick } from './server/agents/engine';
-import { executeWorkflow, triggerCustomWebhook } from './server/automation/workflowsAndProductivity';
+import {
+  evaluateHomeAssistantWorkflowTriggers,
+  executeWorkflow,
+  triggerCustomWebhook,
+} from './server/automation/workflowsAndProductivity';
 import { pollExternalChannels } from './server/channels/connectors';
 import { runDreamingCycle } from './server/dreaming/engine';
 import { createOpenAiProxyRouter } from './server/gateway/openaiProxy';
-import { discoverModels } from './server/providers/router';
+import { checkWatchedPages } from './server/power/universalSuite';
+import { checkOllamaIdleUnload, discoverModels } from './server/providers/router';
 import { createApiRouter } from './server/routes/api';
 import { isWsUpgradeAuthorized } from './server/security/auth';
 import { expireStaleApprovals } from './server/security/permissionGate';
@@ -133,7 +138,8 @@ async function bootstrap() {
   app.post('/hooks/:slug', async (req, res) => {
     try {
       const secret = req.header('x-webhook-secret') || req.query.secret?.toString();
-      const out = await triggerCustomWebhook(req.params.slug, secret, req.body);
+      const sig256 = req.header('x-hub-signature-256');
+      const out = await triggerCustomWebhook(req.params.slug, secret, req.body, sig256);
       broadcastEvent('state:updated');
       res.status(out.ok ? 200 : 403).json(out);
     } catch (err) {
@@ -239,11 +245,16 @@ async function bootstrap() {
     });
   }, 15 * 60 * 1000);
 
-  // M21 Approval Expiry + Ú8 Calendar Reminders + Ú17 Periodic Workflows (every 60s)
+  // M21 Approval Expiry + Ú8 Calendar Reminders + Ú17 Periodic Workflows + M41 Ollama Idle Unload + M57 HA Triggers (every 60s)
+  let watchdogCounter = 0;
   setInterval(() => {
     let changed = false;
     const expired = expireStaleApprovals();
     if (expired > 0) changed = true;
+
+    void checkOllamaIdleUnload().then((unloaded) => {
+      if (unloaded) broadcastEvent('state:updated');
+    });
 
     const s = getState();
     const nowMs = Date.now();
@@ -273,6 +284,15 @@ async function bootstrap() {
             void executeWorkflow(wf.id).then(() => broadcastEvent('state:updated'));
           }
         }
+      }
+      if (s.workflows.some((w) => w.enabled && w.triggerType === 'ha_state')) {
+        void evaluateHomeAssistantWorkflowTriggers().then((t) => {
+          if (t > 0) broadcastEvent('state:updated');
+        });
+      }
+      watchdogCounter += 1;
+      if (watchdogCounter % 10 === 0 && s.watchedPages.length > 0) {
+        void checkWatchedPages().then(() => broadcastEvent('state:updated'));
       }
     }
 

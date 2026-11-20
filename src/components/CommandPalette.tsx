@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Command, Search, X } from 'lucide-react';
-import type { Agent, PromptTemplate } from '../../shared/types';
+import type { Agent, KanbanCard, MemoryEntry, PromptTemplate } from '../../shared/types';
 
 export interface CommandPaletteAction {
   id: string;
@@ -15,6 +15,8 @@ interface Props {
   onClose: () => void;
   agents: Agent[];
   templates: PromptTemplate[];
+  memories?: MemoryEntry[];
+  kanban?: KanbanCard[];
   onNavigate: (tab: string) => void;
   onApplyTemplate: (body: string) => void;
   onQuickAction: (actionId: string) => void;
@@ -25,6 +27,8 @@ export const CommandPalette: React.FC<Props> = ({
   onClose,
   agents,
   templates,
+  memories = [],
+  kanban = [],
   onNavigate,
   onApplyTemplate,
   onQuickAction,
@@ -43,6 +47,7 @@ export const CommandPalette: React.FC<Props> = ({
     const list: CommandPaletteAction[] = [
       { id: 'nav-overview', group: 'Navigáció', label: 'Áttekintő Dashboard', hint: 'M30', onRun: () => onNavigate('overview') },
       { id: 'nav-swarm', group: 'Navigáció', label: 'Raj Chat & Kanban', hint: 'Chat', onRun: () => onNavigate('swarm') },
+      { id: 'nav-workbench', group: 'Navigáció', label: 'AI Stúdió, Kutatás, SQL, Diff & Aréna', hint: 'Stúdió', onRun: () => onNavigate('workbench') },
       { id: 'nav-agents', group: 'Navigáció', label: 'Szervezet, Ágensek & Föderáció', hint: 'Org', onRun: () => onNavigate('agents') },
       { id: 'nav-memory', group: 'Navigáció', label: 'Memória, RAG, Wiki & Álmodás', hint: 'RAG', onRun: () => onNavigate('memory') },
       { id: 'nav-models', group: 'Navigáció', label: 'Modellek, Router & Költségkeret', hint: 'Gateway', onRun: () => onNavigate('models') },
@@ -53,9 +58,11 @@ export const CommandPalette: React.FC<Props> = ({
       { id: 'nav-set', group: 'Navigáció', label: 'Beállítások', hint: 'Config', onRun: () => onNavigate('settings') },
       { id: 'act-dream', group: 'Gyorsművelet', label: 'Álmodási ciklus azonnali indítása', hint: 'Dreaming', onRun: () => onQuickAction('run_dream') },
       { id: 'act-audit', group: 'Gyorsművelet', label: 'Felügyelő Auditor ellenőrzés futtatása', hint: 'Audit', onRun: () => onQuickAction('run_audit') },
+      { id: 'act-doctor', group: 'Gyorsművelet', label: 'Swarm Auto-Doctor javító ciklus futtatása', hint: 'Doctor', onRun: () => onQuickAction('run_doctor') },
       { id: 'act-ota', group: 'Gyorsművelet', label: 'GitHub frissítések ellenőrzése (OTA)', hint: 'GitHub', onRun: () => onQuickAction('check_ota') },
       { id: 'act-backup', group: 'Gyorsművelet', label: 'Biztonsági mentés létrehozása most', hint: 'Backup', onRun: () => onQuickAction('create_backup') },
       { id: 'act-warm', group: 'Gyorsművelet', label: 'Lokális Ollama modell előmelegítése', hint: 'Ollama', onRun: () => onQuickAction('warm_ollama') },
+      { id: 'act-unload', group: 'Gyorsművelet', label: 'Ollama modell kiürítése RAM-ból', hint: 'RAM', onRun: () => onQuickAction('unload_ollama') },
     ];
 
     for (const ag of agents) {
@@ -85,6 +92,26 @@ export const CommandPalette: React.FC<Props> = ({
       });
     }
 
+    for (const card of kanban.filter((c) => !c.archived).slice(0, 15)) {
+      list.push({
+        id: `kb-${card.id}`,
+        group: 'Kanban',
+        label: card.title,
+        hint: card.status,
+        onRun: () => onNavigate('swarm'),
+      });
+    }
+
+    for (const mem of memories.slice(-15)) {
+      list.push({
+        id: `mem-${mem.id}`,
+        group: 'Memória',
+        label: `${mem.entity}: ${mem.content.slice(0, 64)}`,
+        hint: mem.tier ?? 'warm',
+        onRun: () => onNavigate('memory'),
+      });
+    }
+
     const q = query.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
@@ -93,7 +120,7 @@ export const CommandPalette: React.FC<Props> = ({
         i.group.toLowerCase().includes(q) ||
         (i.hint || '').toLowerCase().includes(q)
     );
-  }, [query, agents, templates, onNavigate, onApplyTemplate, onQuickAction]);
+  }, [query, agents, templates, memories, kanban, onNavigate, onApplyTemplate, onQuickAction]);
 
   useEffect(() => {
     setSelectedIndex(0);

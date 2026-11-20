@@ -113,7 +113,16 @@ export async function generateDailyBriefingText(): Promise<string> {
   const recentRss = s.rssFeedItems.slice(0, 5);
   const downTargets = s.uptimeTargets.filter((u) => u.status === 'down');
 
+  const weather = await import('../power/universalSuite')
+    .then((m) => m.fetchOpenMeteoWeather())
+    .catch(() => null);
+  const weatherLine =
+    weather && weather.ok
+      ? `Helyi időjárás (${weather.location}): ${weather.temperatureC}°C, ${weather.condition}, szél ${weather.windKmh} km/h (min ${weather.dailyMinC}°C / max ${weather.dailyMaxC}°C)`
+      : `Időjárás: nincs elérhető adat`;
+
   const rawFacts = [
+    weatherLine,
     `Nyitott Kanban feladatok (${todoCards.length}): ${todoCards.map((c) => c.title).join(', ') || 'nincs'}`,
     `Közelgő naptár események (${upcomingEvents.length}): ${upcomingEvents.map((e) => `${e.title} (${e.startAt})`).join(', ') || 'nincs'}`,
     `Friss RSS/Release hírek (${recentRss.length}): ${recentRss.map((r) => `[${r.feedName}] ${r.title}`).join(' | ') || 'nincs'}`,
@@ -256,10 +265,63 @@ export async function syncRecentEmailsViaImap(): Promise<{
   }
 }
 
+/** M50: Fetch full plain-text body for a specific IMAP message sequence/UID */
+export async function fetchEmailBodyByUid(uid: number): Promise<{ ok: boolean; body: string; error?: string }> {
+  const cfg = getState().emailConfig;
+  const pass = getNamedSecret('email_password');
+  if (!cfg.imapHost || !cfg.username || !pass) {
+    return { ok: false, body: '', error: 'IMAP nincs konfigurálva.' };
+  }
+  try {
+    const raw = await new Promise<string>((resolve, reject) => {
+      const socket = tls.connect({ host: cfg.imapHost, port: cfg.imapPort || 993, rejectUnauthorized: false, timeout: 8000 });
+      let buffer = '';
+      let step = 0;
+      const advance = () => {
+        if (step === 0) {
+          step = 1;
+          socket.write(`B1 LOGIN "${cfg.username.replace(/"/g, '')}" "${pass.replace(/"/g, '')}"\r\n`);
+        } else if (step === 1 && buffer.includes('B1 OK')) {
+          step = 2;
+          socket.write(`B2 EXAMINE INBOX\r\n`);
+        } else if (step === 2 && buffer.includes('B2 OK')) {
+          step = 3;
+          socket.write(`B3 FETCH ${Math.max(1, Math.floor(uid))} (BODY.PEEK[TEXT])\r\n`);
+        } else if (step === 3 && buffer.includes('B3 OK')) {
+          step = 4;
+          socket.write(`B4 LOGOUT\r\n`);
+        } else if (buffer.includes('B1 NO') || buffer.includes('B1 BAD')) {
+          socket.destroy();
+          reject(new Error('IMAP hitelesítés sikertelen.'));
+        }
+      };
+      socket.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        advance();
+        if (buffer.includes('B4 OK') || buffer.includes('* BYE')) {
+          socket.end();
+          resolve(buffer);
+        }
+      });
+      socket.on('timeout', () => {
+        socket.destroy();
+        reject(new Error('IMAP időtúllépés.'));
+      });
+      socket.on('error', reject);
+    });
+    const bodyMatch = raw.match(/BODY\[TEXT\][^\r\n]*\r\n([\s\S]*?)\r\n\)\r\nB3 OK/i);
+    const cleaned = (bodyMatch?.[1] || raw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
+    return { ok: true, body: cleaned || '(üres levéltörzs)' };
+  } catch (err) {
+    return { ok: false, body: '', error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function sendEmailViaSmtp(params: {
   to: string;
   subject: string;
   text: string;
+  inReplyTo?: string;
   requireApproval?: boolean;
 }): Promise<{ sent: boolean; pendingApproval?: boolean; approvalId?: string; message: string }> {
   if (params.requireApproval) {
@@ -295,6 +357,7 @@ export async function sendEmailViaSmtp(params: {
     to: params.to,
     subject: params.subject,
     text: params.text,
+    ...(params.inReplyTo ? { inReplyTo: params.inReplyTo, references: params.inReplyTo } : {}),
   });
 
   appendAuditLog({

@@ -18,6 +18,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   Terminal as TerminalIcon,
+  Wrench,
   X,
 } from 'lucide-react';
 import type { HardwareMetrics, NovaSwarmState, OtaVersionStatus } from '../shared/types';
@@ -34,11 +35,13 @@ import { SettingsView } from './components/SettingsView';
 import { SwarmChatView } from './components/SwarmChatView';
 import { SystemOpsView } from './components/SystemOpsView';
 import { TerminalView, type TerminalSessionSummary } from './components/TerminalView';
+import { WorkbenchView } from './components/WorkbenchView';
 import { getLanguageDir, tr } from './locales/translations';
 
 type TabId =
   | 'overview'
   | 'swarm'
+  | 'workbench'
   | 'agents'
   | 'memory'
   | 'models'
@@ -264,6 +267,10 @@ export default function App() {
       await fetch('/api/system/backup', { method: 'POST' });
     } else if (actionId === 'warm_ollama') {
       await fetch('/api/providers/ollama/warm', { method: 'POST' });
+    } else if (actionId === 'unload_ollama') {
+      await fetch('/api/providers/ollama/unload', { method: 'POST' });
+    } else if (actionId === 'run_doctor') {
+      await fetch('/api/system/doctor', { method: 'POST' });
     }
     await fetchState();
   };
@@ -346,6 +353,7 @@ export default function App() {
   const navItems: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: tr(lang, 'navOverview'), icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'swarm', label: tr(lang, 'navSwarm'), icon: <MessageSquare className="h-4 w-4" /> },
+    { id: 'workbench', label: tr(lang, 'navWorkbench'), icon: <Wrench className="h-4 w-4" /> },
     { id: 'agents', label: tr(lang, 'navAgents'), icon: <Bot className="h-4 w-4" /> },
     { id: 'memory', label: tr(lang, 'navMemory'), icon: <Brain className="h-4 w-4" /> },
     { id: 'models', label: tr(lang, 'navModels'), icon: <Cpu className="h-4 w-4" /> },
@@ -600,7 +608,7 @@ export default function App() {
           </div>
         )}
 
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 p-6 pb-20 lg:pb-6 overflow-y-auto">
           {activeTab === 'overview' && (
             <OverviewDashboard
               state={state}
@@ -624,6 +632,9 @@ export default function App() {
               onRefreshState={fetchState}
             />
           )}
+          {activeTab === 'workbench' && (
+            <WorkbenchView state={state} onRefreshState={fetchState} />
+          )}
           {activeTab === 'agents' && (
             <OrgAgentsView
               language={lang}
@@ -632,6 +643,7 @@ export default function App() {
               kanban={state.kanban}
               federationPeers={state.federationPeers}
               federationEnabled={state.settings.federationEnabled}
+              agentBenchmarks={state.agentBenchmarks || []}
               onRefreshState={fetchState}
             />
           )}
@@ -707,11 +719,41 @@ export default function App() {
         </main>
       </div>
 
+      {/* M60: Mobile Sticky Bottom Nav Bar (compact <= 56px = 6.6% of 844px mobile viewport) */}
+      <nav
+        aria-label="Mobile Quick Navigation"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-20 h-14 bg-white border-t border-slate-200 px-1 flex items-center justify-around"
+      >
+        {(
+          [
+            { id: 'overview', label: 'Főoldal', icon: <LayoutDashboard className="h-4 w-4" /> },
+            { id: 'swarm', label: 'Raj', icon: <MessageSquare className="h-4 w-4" /> },
+            { id: 'workbench', label: 'Stúdió', icon: <Wrench className="h-4 w-4" /> },
+            { id: 'ecosystem', label: 'Hub', icon: <Layers className="h-4 w-4" /> },
+            { id: 'system', label: 'Rendszer', icon: <Activity className="h-4 w-4" /> },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setActiveTab(item.id)}
+            className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1 text-[10px] font-medium rounded whitespace-nowrap shrink-0 ${
+              activeTab === item.id ? 'text-slate-900 font-semibold' : 'text-slate-500'
+            }`}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         agents={state.agents}
         templates={state.promptTemplates || []}
+        memories={state.memories}
+        kanban={state.kanban}
         onNavigate={(tab) => setActiveTab(tab as TabId)}
         onApplyTemplate={(body) => setExternalDraft({ text: body, nonce: Date.now() })}
         onQuickAction={(actionId) => void handleQuickAction(actionId)}

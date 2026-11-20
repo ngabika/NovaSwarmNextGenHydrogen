@@ -684,21 +684,34 @@ export function applyOtaUpdate(): {
   }
 }
 
-export function speakOnHostSpeaker(text: string): { launched: boolean; reason?: string } {
+export function speakOnHostSpeaker(text: string): { launched: boolean; engine?: string; reason?: string } {
   const state = getState();
   if (!state.settings.ttsHostSpeakerEnabled) {
     return { launched: false, reason: 'Gazdagép hangszóró TTS kikapcsolva' };
   }
   const clean = text.replace(/[^\p{L}\p{N}\s.,!?-]/gu, ' ').slice(0, 400);
+  const piperBin = state.settings.piperTtsBinary?.trim() || 'piper';
+
+  /** Ú46: Try neural Piper TTS first if available on host */
+  try {
+    execSync(`command -v ${piperBin.replace(/[^a-zA-Z0-9_./-]/g, '')}`, { stdio: 'ignore' });
+    const shCmd = `printf '%s' ${JSON.stringify(clean)} | ${piperBin} --output-raw 2>/dev/null | aplay -r 22050 -f S16_LE -t raw - >/dev/null 2>&1 || espeak-ng -v ${state.settings.language} ${JSON.stringify(clean)}`;
+    const child = spawn('sh', ['-c', shCmd], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return { launched: true, engine: 'piper' };
+  } catch {
+    // Fallback to espeak-ng
+  }
+
   try {
     const child = spawn('espeak-ng', ['-v', state.settings.language, clean], {
       detached: true,
       stdio: 'ignore',
     });
     child.unref();
-    return { launched: true };
+    return { launched: true, engine: 'espeak-ng' };
   } catch {
-    return { launched: false, reason: 'espeak-ng nem található a gazdagépen' };
+    return { launched: false, reason: 'Sem piper, sem espeak-ng nem található a gazdagépen' };
   }
 }
 

@@ -4,12 +4,17 @@ import {
   Bot,
   Calendar,
   CheckCircle2,
+  CloudSun,
   Cpu,
   DollarSign,
   Eye,
   EyeOff,
+  Moon,
   Newspaper,
+  Rocket,
+  ShieldAlert,
   ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 import type { DashboardWidgetConfig, HardwareMetrics, NovaSwarmState } from '../../shared/types';
 
@@ -37,6 +42,10 @@ export const OverviewDashboard: React.FC<Props> = ({
   const [projection, setProjection] = useState<ProjectionData | null>(null);
   const [briefing, setBriefing] = useState<string | null>(null);
   const [configuring, setConfiguring] = useState(false);
+  const [weather, setWeather] = useState<{ location?: string; tempC?: number; description?: string; forecast?: Array<{ date: string; maxC: number; minC: number }> } | null>(null);
+  const [hardening, setHardening] = useState<{ score: number; checksCount?: number } | null>(null);
+  const [doctorMsg, setDoctorMsg] = useState<string | null>(null);
+  const [doctorBusy, setDoctorBusy] = useState(false);
 
   useEffect(() => {
     void fetch('/api/gateway/projection')
@@ -46,6 +55,33 @@ export const OverviewDashboard: React.FC<Props> = ({
       })
       .catch(() => {});
   }, [state.settings.dailySpendUsd]);
+
+  useEffect(() => {
+    void fetch('/api/weather')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && !d.error) setWeather(d);
+      })
+      .catch(() => {});
+    void fetch('/api/system/hardening')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.score === 'number') setHardening(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRunDoctor = async () => {
+    setDoctorBusy(true);
+    try {
+      const r = await fetch('/api/system/doctor', { method: 'POST' });
+      const d = (await r.json()) as { repairedCount?: number; summary?: string };
+      setDoctorMsg(d.summary || `Auto-Doctor kész (${d.repairedCount ?? 0} javítás).`);
+      await onRefreshState();
+    } finally {
+      setDoctorBusy(false);
+    }
+  };
 
   const widgets: DashboardWidgetConfig[] = state.settings.dashboardWidgets || [];
   const isVisible = (id: string) => {
@@ -99,15 +135,40 @@ export const OverviewDashboard: React.FC<Props> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setConfiguring((v) => !v)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50"
-        >
-          {configuring ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          Widgetek testreszabása
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onNavigate('workbench')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            Küldetés Indítása
+          </button>
+          <button
+            type="button"
+            disabled={doctorBusy}
+            onClick={() => void handleRunDoctor()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 disabled:opacity-50"
+          >
+            <Wrench className="h-3.5 w-3.5" />
+            {doctorBusy ? 'Javítás...' : 'Swarm Auto-Doctor'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfiguring((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+          >
+            {configuring ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            Widgetek testreszabása
+          </button>
+        </div>
       </div>
+
+      {doctorMsg && (
+        <div className="p-3 bg-slate-900 text-slate-100 rounded-lg text-xs font-mono">
+          {doctorMsg}
+        </div>
+      )}
 
       {configuring && (
         <div className="p-4 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2">
@@ -369,6 +430,80 @@ export const OverviewDashboard: React.FC<Props> = ({
             </div>
           </div>
         )}
+
+        {/* Ú59 Weather + M54 Hardening + M46 Morning Digest */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <CloudSun className="h-4 w-4 text-slate-600" />
+              Helyi Időjárás & Hardening
+            </h2>
+            {hardening && (
+              <button
+                type="button"
+                onClick={() => onNavigate('system')}
+                className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-slate-800 hover:underline tabular-nums"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" />
+                Biztonság: {hardening.score}/100
+              </button>
+            )}
+          </div>
+          {weather ? (
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="font-semibold text-slate-900">{weather.location || state.settings.weatherLocation}</span>
+                <span className="text-lg font-mono font-semibold tabular-nums">
+                  {typeof weather.tempC === 'number' ? `${weather.tempC}°C` : '-'}
+                </span>
+              </div>
+              {weather.description && <div className="text-slate-600">{weather.description}</div>}
+              {weather.forecast && weather.forecast.length > 0 && (
+                <div className="grid grid-cols-3 gap-1.5 pt-1 font-mono text-[11px] tabular-nums text-slate-600">
+                  {weather.forecast.slice(0, 3).map((d) => (
+                    <div key={d.date} className="p-1.5 bg-slate-50 border border-slate-200 rounded text-center">
+                      <div>{d.date.slice(5)}</div>
+                      <div className="font-semibold text-slate-900">{d.minC}..{d.maxC}°C</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-500">
+              Helyszín: {state.settings.weatherLocation || 'Budapest'} (offline vagy lekérésre vár).
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Moon className="h-4 w-4 text-slate-600" />
+              Legutóbbi Éjszakai Álom Digest
+            </h2>
+            <button
+              type="button"
+              onClick={() => onNavigate('memory')}
+              className="text-xs text-slate-500 hover:text-slate-900 font-mono"
+            >
+              Álomnapló →
+            </button>
+          </div>
+          {state.dreamJournal.length === 0 ? (
+            <p className="text-xs text-slate-500">Még nem futott le éjszakai REM álmodási ciklus.</p>
+          ) : (
+            <div className="space-y-1.5 text-xs">
+              <div className="font-mono text-[11px] text-slate-500">
+                {new Date(state.dreamJournal[state.dreamJournal.length - 1].timestamp).toLocaleString()}
+              </div>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+                {state.dreamJournal[state.dreamJournal.length - 1].morningDigest ||
+                  state.dreamJournal[state.dreamJournal.length - 1].narrative}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
