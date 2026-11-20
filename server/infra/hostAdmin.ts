@@ -5,7 +5,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import type { SshHostProfile, SslWatchTarget } from '../../shared/types';
 import { invokeWithFailover } from '../providers/router';
-import { assertHostPermission, requireDestructiveApproval } from '../security/permissionGate';
+import { assertHostPermission, requireDestructiveApproval, shouldRequireApproval } from '../security/permissionGate';
 import { detectActiveSandboxBackend } from '../sandbox/supervisorSandbox';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
@@ -196,7 +196,7 @@ export function controlDockerContainer(containerId: string, action: 'start' | 's
 } {
   assertHostPermission(`docker_${action}:${containerId}`);
   const safeId = containerId.replace(/[^a-zA-Z0-9_.-]/g, '');
-  if (action === 'stop') {
+  if (action === 'stop' && shouldRequireApproval()) {
     const req = requireDestructiveApproval(
       'docker_control',
       `Docker konténer leállítása: ${safeId}`,

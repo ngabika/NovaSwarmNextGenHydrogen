@@ -161,7 +161,9 @@ export type AuditLogType =
   | 'federation'
   | 'uptime'
   | 'workflow'
-  | 'security';
+  | 'security'
+  | 'skill'
+  | 'nightshift';
 
 export interface AuditLogEntry {
   id: string;
@@ -172,6 +174,9 @@ export interface AuditLogEntry {
   message: string;
   verifiedExecution?: boolean;
   metadata?: Record<string, unknown>;
+  /** M117: SHA-256 cryptographic hash-chain */
+  prevHash?: string;
+  hash?: string;
 }
 
 export type McpAuthType = 'none' | 'basic' | 'apikey' | 'oauth2';
@@ -442,6 +447,10 @@ export interface ProviderHealthMetric {
   avgLatencyMs: number;
   lastLatencyMs: number | null;
   lastErrorAt?: string;
+  /** M77 & M80: Circuit breaker + TTFT & tok/sec */
+  avgTtftMs?: number;
+  avgTokensPerSec?: number;
+  circuitState?: 'closed' | 'open' | 'half_open';
 }
 
 export interface GatewayAnalytics {
@@ -809,6 +818,21 @@ export interface Settings {
   wakeWordPhrase: string;
   /** M30: Overview Widgets */
   dashboardWidgets: DashboardWidgetConfig[];
+  /** Batch 3: Zero-friction full autonomy + theme + privacy + scheduler controls */
+  fullAutonomousMode: boolean;
+  themeMode: 'light' | 'dark' | 'high_contrast';
+  privacyMaskEnabled: boolean;
+  nightShiftEnabled: boolean;
+  nightShiftIntervalMinutes: number;
+  redTeamEnabled: boolean;
+  supervisorStrictness: 'permissive' | 'balanced' | 'paranoid';
+  retentionDays: number;
+  softDowngradeOnBudget: boolean;
+  defaultCurrency: 'HUF' | 'EUR' | 'USD';
+  telegramInlineButtons: boolean;
+  lastNightShiftAt?: string | null;
+  lanSubnetAllowlist?: string[];
+  totpEnabled?: boolean;
 }
 
 /** Ú31: Deep Research Report */
@@ -932,6 +956,8 @@ export interface DynamicToolDef {
   description: string;
   kind: 'http_get' | 'http_post' | 'sandbox_js';
   targetOrCode: string;
+  /** M85: Typed JSON argument hints */
+  argsSchema?: Record<string, string>;
   enabled: boolean;
   createdAt: string;
 }
@@ -1025,6 +1051,171 @@ export interface NovaSwarmState {
   agentBenchmarks: AgentBenchmarkRun[];
   dynamicTools: DynamicToolDef[];
   missions: AutonomousMission[];
+  /** Batch 3 (Ú61–Ú160) domain collections */
+  crmContacts: CrmContact[];
+  packages: PackageOrder[];
+  vehicleMaintenance: VehicleMaintenanceItem[];
+  homeInventory: HomeInventoryItem[];
+  sharedLinks: SharedPortalLink[];
+  bookmarks: BookmarkEntry[];
+  mealPlan: MealPlanEntry[];
+  wolDevices: WolDevice[];
+  clusterNodes: ClusterNode[];
+  notaryRecords: NotaryRecord[];
+  nightShiftRuns: NightShiftRun[];
+  timeCapsules: TimeCapsuleDigest[];
+  budgetEnvelopes: BudgetEnvelope[];
+  clipboardHistory: ClipboardHistoryItem[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
+
+/** Ú61: Night Shift Autonomous Backlog Coder Run */
+export interface NightShiftRun {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  tasksCompleted: number;
+  reportSummary: string;
+  actionsTaken: string[];
+}
+
+/** Ú91: Personal CRM */
+export interface CrmContact {
+  id: string;
+  name: string;
+  relation: string;
+  email?: string;
+  phone?: string;
+  birthday?: string;
+  lastContactedAt: string;
+  nextFollowUpAt?: string;
+  notes?: string;
+}
+
+/** Ú99: Package & Delivery Tracker */
+export interface PackageOrder {
+  id: string;
+  title: string;
+  carrier: string;
+  trackingNumber: string;
+  status: 'ordered' | 'in_transit' | 'out_for_delivery' | 'delivered';
+  eta?: string;
+  notes?: string;
+  updatedAt: string;
+}
+
+/** Ú113: Home/Pantry Inventory */
+export interface HomeInventoryItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  category: string;
+  expiresAt?: string;
+  updatedAt: string;
+}
+
+/** Ú114: Weekly Meal Plan */
+export interface MealPlanEntry {
+  id: string;
+  day: string;
+  mealName: string;
+  ingredients: string[];
+  calories?: number;
+}
+
+/** Ú115: Vehicle & Home Maintenance */
+export interface VehicleMaintenanceItem {
+  id: string;
+  vehicleOrAsset: string;
+  task: string;
+  dueAtDate?: string;
+  dueAtKm?: number;
+  done: boolean;
+  notes?: string;
+}
+
+/** Ú100: Read-only Shareable Portal Link */
+export interface SharedPortalLink {
+  id: string;
+  token: string;
+  title: string;
+  resourceType: 'list' | 'report' | 'artifact';
+  resourceId: string;
+  createdAt: string;
+  expiresAt?: string;
+  views: number;
+}
+
+/** Ú107: Read-It-Later Offline Bookmark */
+export interface BookmarkEntry {
+  id: string;
+  url: string;
+  title: string;
+  archivedExcerpt: string;
+  tags: string[];
+  read: boolean;
+  createdAt: string;
+}
+
+/** Ú120: Wake-on-LAN Device */
+export interface WolDevice {
+  id: string;
+  name: string;
+  mac: string;
+  broadcastIp: string;
+  lastWokenAt?: string;
+}
+
+/** Ú152 & Ú153: Multi-Node Cluster & GPU Offload */
+export interface ClusterNode {
+  id: string;
+  name: string;
+  role: 'gpu_ollama' | 'worker' | 'storage' | 'pi' | 'vps' | 'desktop';
+  url: string;
+  ollamaUrl?: string;
+  status: 'unknown' | 'online' | 'offline';
+  latencyMs?: number | null;
+  lastSeenAt?: string;
+  gpuVramMb?: number;
+}
+
+/** Ú150: SHA-256 Document Hash Notary */
+export interface NotaryRecord {
+  id: string;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  note?: string;
+  notarizedAt: string;
+}
+
+/** Ú157: Weekly AI Time Capsule */
+export interface TimeCapsuleDigest {
+  id: string;
+  periodLabel: string;
+  completedTasks: number;
+  newMemories: number;
+  spendUsd: number;
+  summaryMarkdown: string;
+  createdAt: string;
+}
+
+/** Ú147: Budget Envelope */
+export interface BudgetEnvelope {
+  id: string;
+  category: string;
+  monthlyLimit: number;
+  currency: string;
+  spent: number;
+}
+
+/** Ú90: Smart Text / Clipboard History */
+export interface ClipboardHistoryItem {
+  id: string;
+  content: string;
+  kind: string;
+  createdAt: string;
+}
+

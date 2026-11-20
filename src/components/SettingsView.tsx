@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { KeyRound, OctagonAlert, Save } from 'lucide-react';
 import type { ExecutionPreset, LanguageCode, Settings } from '../../shared/types';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
@@ -18,6 +18,10 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setForm(settings);
+  }, [settings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,13 +95,13 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
 
   return (
     <div className="max-w-4xl space-y-8">
-      <form onSubmit={handleSave} className="bg-white border border-slate-200 rounded-xl p-6 space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'navSettings')}</h2>
+      <form onSubmit={handleSave} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-6">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr(language, 'navSettings')}</h2>
           <button
             type="submit"
             disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-200 whitespace-nowrap shrink-0"
           >
             <Save className="h-4 w-4" />
             {tr(language, 'saveSettings')}
@@ -112,14 +116,14 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label htmlFor="set-lang" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-lang" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Felület és Hangkimenet Nyelve (11 nyelv)
             </label>
             <select
               id="set-lang"
               value={form.language}
               onChange={(e) => setForm({ ...form, language: e.target.value as LanguageCode })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               {SUPPORTED_LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -130,7 +134,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-backup" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-backup" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Biztonsági Mentés Ütemezése
             </label>
             <select
@@ -139,7 +143,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               onChange={(e) =>
                 setForm({ ...form, backupSchedule: e.target.value as Settings['backupSchedule'] })
               }
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               <option value="manual">Manuális</option>
               <option value="daily">Napi</option>
@@ -149,14 +153,14 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-preset" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-preset" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Alapértelmezett Végrehajtási Mód (Preset)
             </label>
             <select
               id="set-preset"
               value={form.defaultPreset || 'fast'}
               onChange={(e) => setForm({ ...form, defaultPreset: e.target.value as ExecutionPreset })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               <option value="fast">Gyors (Fast)</option>
               <option value="deep">Mély kutatás (Deep)</option>
@@ -165,7 +169,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-tool-steps" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-tool-steps" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Maximális Eszközlánc Mélység (ReAct lépések)
             </label>
             <input
@@ -180,7 +184,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-budget" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-budget" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Globális Napi Költséglimit (USD)
             </label>
             <input
@@ -195,7 +199,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-monthly-alert" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-monthly-alert" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Havi Várható Költség Riasztás (USD)
             </label>
             <input
@@ -210,7 +214,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-dream-idle" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-dream-idle" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Álmodás Indulási Inaktivitás (perc)
             </label>
             <input
@@ -224,7 +228,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-temp" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-temp" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Termikus Lassítási Küszöb (°C)
             </label>
             <input
@@ -237,7 +241,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-bat" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-bat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Akkumulátor Kímélő Küszöb (%)
             </label>
             <input
@@ -250,7 +254,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ollama-url" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ollama-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Lokális Ollama URL
             </label>
             <input
@@ -263,7 +267,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ollama-model" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ollama-model" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Lokális Ollama Modell
             </label>
             <input
@@ -276,7 +280,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ollama-ctx" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ollama-ctx" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ollama Kontextus Méret (num_ctx)
             </label>
             <input
@@ -291,7 +295,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ollama-ka" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ollama-ka" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ollama Keep Alive (pl. 10m, 0)
             </label>
             <input
@@ -304,7 +308,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ollama-unload" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ollama-unload" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ollama Automatikus RAM Kiürítés (perc, 0 = ki)
             </label>
             <input
@@ -319,7 +323,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-weather-loc" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-weather-loc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Időjárás Település (Open-Meteo, kulcs nélküli)
             </label>
             <input
@@ -332,7 +336,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-piper-bin" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-piper-bin" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Piper Neurális TTS Parancs / Útvonal (opcionális)
             </label>
             <input
@@ -345,7 +349,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-wake-phrase" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-wake-phrase" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ébresztőszó (Wake Word · Ú45)
             </label>
             <input
@@ -358,7 +362,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-tg-chat" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-tg-chat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Telegram Chat / Csoport ID
             </label>
             <input
@@ -371,7 +375,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-tg-token" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-tg-token" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Telegram Bot Token {settings.telegramHasToken ? '(konfigurálva)' : ''}
             </label>
             <input
@@ -385,7 +389,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-search-prov" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-search-prov" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Web Keresőmotor
             </label>
             <select
@@ -394,7 +398,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               onChange={(e) =>
                 setForm({ ...form, searchProvider: e.target.value as Settings['searchProvider'] })
               }
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               <option value="duckduckgo">DuckDuckGo (Kulcs nélküli)</option>
               <option value="searxng">Lokális SearXNG</option>
@@ -403,7 +407,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-searx" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-searx" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               SearXNG URL / Brave Search Kulcs {settings.braveHasKey ? '(Brave mentve)' : ''}
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -426,7 +430,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ha-url" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ha-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Home Assistant URL & Token {settings.homeAssistantHasToken ? '(mentve)' : ''}
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -449,7 +453,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-mqtt" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-mqtt" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               MQTT Broker Host & Port
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -471,7 +475,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-rsync" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-rsync" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Külső Rsync / NAS Mentési Célmappa
             </label>
             <input
@@ -485,7 +489,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-caldav" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-caldav" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               CalDAV Naptár URL (opcionális)
             </label>
             <input
@@ -499,7 +503,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-instance-name" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-instance-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Föderációs Csomópont Neve
             </label>
             <input
@@ -512,7 +516,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-heartbeat-int" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-heartbeat-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Autonóm Heartbeat Intervallum (perc)
             </label>
             <input
@@ -526,7 +530,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-kanban-wip" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-kanban-wip" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Kanban Folyamatban WIP Limit
             </label>
             <input
@@ -540,7 +544,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-kanban-aging" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-kanban-aging" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Kanban Elakadás (Aging) Küszöb (óra)
             </label>
             <input
@@ -554,7 +558,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ota-repo" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ota-repo" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               GitHub OTA Repository (owner/repo)
             </label>
             <input
@@ -567,7 +571,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-ota-hours" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-ota-hours" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               OTA Automatikus Ellenőrzés (óra)
             </label>
             <input
@@ -582,7 +586,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Memória Embedding Mód
             </label>
             <select
@@ -591,7 +595,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               onChange={(e) =>
                 setForm({ ...form, embeddingMode: e.target.value as Settings['embeddingMode'] })
               }
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               <option value="local_ngram">Helyi n-gram + BM25 (Offline gyors)</option>
               <option value="ollama">Ollama Neurális Embedding</option>
@@ -599,7 +603,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 mb-1">
+            <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ollama Embedding Modell
             </label>
             <input
@@ -709,6 +713,147 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             />
             <span>Kézmentes Ébresztőszó Figyelés aktív a Raj Chatben (Wake Word)</span>
           </label>
+        </div>
+
+        {/* Batch 3: Zero-Friction Full Autonomy, Theme, Privacy & Night Shift */}
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            100% Autonómia, Megjelenés & Megőrzés (Batch 3)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="set-theme-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Megjelenési Téma (M159)
+              </label>
+              <select
+                id="set-theme-mode"
+                value={form.themeMode || 'light'}
+                onChange={(e) => setForm({ ...form, themeMode: e.target.value as Settings['themeMode'] })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+              >
+                <option value="light">Világos (Light)</option>
+                <option value="dark">Sötét Mód (Dark)</option>
+                <option value="high_contrast">Magas Kontraszt</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="set-sup-strict" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Felügyelő Szigorúság (M118)
+              </label>
+              <select
+                id="set-sup-strict"
+                value={form.supervisorStrictness || 'permissive'}
+                onChange={(e) =>
+                  setForm({ ...form, supervisorStrictness: e.target.value as Settings['supervisorStrictness'] })
+                }
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+              >
+                <option value="permissive">Megengedő (Privát Autonóm)</option>
+                <option value="balanced">Kiegyensúlyozott</option>
+                <option value="paranoid">Szigorú</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="set-currency" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Alapértelmezett Pénznem (Ú147)
+              </label>
+              <select
+                id="set-currency"
+                value={form.defaultCurrency || 'HUF'}
+                onChange={(e) => setForm({ ...form, defaultCurrency: e.target.value as Settings['defaultCurrency'] })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+              >
+                <option value="HUF">HUF</option>
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="set-ns-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Éjszakai Műszak Intervallum (perc · Ú61)
+              </label>
+              <input
+                id="set-ns-int"
+                type="number"
+                min="15"
+                value={form.nightShiftIntervalMinutes ?? 30}
+                onChange={(e) => setForm({ ...form, nightShiftIntervalMinutes: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-retention" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Napló/Vágólap Megőrzés (nap · M156)
+              </label>
+              <input
+                id="set-retention"
+                type="number"
+                min="1"
+                value={form.retentionDays ?? 90}
+                onChange={(e) => setForm({ ...form, retentionDays: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            <label className="flex items-center gap-2.5 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.fullAutonomousMode !== false}
+                onChange={(e) => setForm({ ...form, fullAutonomousMode: e.target.checked })}
+              />
+              <span>100% Autonóm Végrehajtás — sose kérdezze az engedélyt, minden parancsot és feladatot azonnal hajtson végre</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(form.privacyMaskEnabled)}
+                onChange={(e) => setForm({ ...form, privacyMaskEnabled: e.target.checked })}
+              />
+              <span>Kávézó Mód (Privacy Mask) — költések és érzékeny összegek elmosása a felületen (Ú158)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.nightShiftEnabled !== false}
+                onChange={(e) => setForm({ ...form, nightShiftEnabled: e.target.checked })}
+              />
+              <span>Éjszakai Autonóm Műszak (Night Shift Coder) engedélyezve (Ú61)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.softDowngradeOnBudget !== false}
+                onChange={(e) => setForm({ ...form, softDowngradeOnBudget: e.target.checked })}
+              />
+              <span>Költséglimitnél automatikus helyi Ollama fallback leállás helyett (M84)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(form.guardrailsEnabled)}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    guardrailsEnabled: e.target.checked,
+                    guardrailBlockPii: e.target.checked,
+                    guardrailBlockSecrets: e.target.checked,
+                    guardrailBlockPromptInjection: e.target.checked,
+                  })
+                }
+              />
+              <span>Biztonsági Guardrail szűrések (alapértelmezés szerint KI — privát LAN/Telegram módhoz)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.telegramInlineButtons !== false}
+                onChange={(e) => setForm({ ...form, telegramInlineButtons: e.target.checked })}
+              />
+              <span>Telegram gyorsgombok (Inline Keyboard) a válaszokban</span>
+            </label>
+          </div>
         </div>
       </form>
 

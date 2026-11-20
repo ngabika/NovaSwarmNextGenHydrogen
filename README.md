@@ -1,80 +1,99 @@
 # NovaSwarm
 
-**NovaSwarm** egy teljesen autonóm, önfejlesztő személyi AI-ágens raj (Swarm), OpenAI-kompatibilis AI Gateway, univerzális AI Munkapad, hibrid Második Agy tudástár és teljes Linux/Raspberry Pi rendszerműveleti központ — otthoni szerverre, Raspberry Pi-re vagy dedikált munkaállomásra tervezve.
+**NovaSwarm** egy **100%-ban autonóm**, önfejlesztő személyi AI-ágens raj (Swarm), OpenAI-kompatibilis AI Gateway, univerzális DevOps & Adat Munkapad, hibrid Második Agy tudástár, privát hálózati/fürt (Cluster) menedzser és teljes Linux/Raspberry Pi rendszerműveleti operációs rendszer — helyi LAN hálózati Web UI-ra és távoli Telegram vezérlésre optimalizálva.
 
 **Hivatalos GitHub repository:** https://github.com/ngabika/NovaSwarmNextGenHydrogen
 
 ---
 
+## Alapértelmezett Működési Elv (Zero Friction + Teljes Autonómia)
+
+- **Nulla alapértelmezett biztonsági korlát (Single-Owner LAN + Telegram)**: Az alkalmazás kifejezetten saját hálózaton futó, egyfelhasználós privát példányhoz készült:
+  - `webAuthEnabled: false` — nincs bejelentkezési fal a helyi hálózaton (`http://<LAN-IP>:3000`).
+  - `hostPermissionsGranted: true` — a gazdagép parancsfuttatása és fájlműveletei azonnal elérhetők.
+  - `guardrailsEnabled: false` (PII/Secret/Injection blokkolás kikapcsolva alapból, igény szerint bekapcsolható).
+  - `channelPairingRequired: false` — nincs 6 jegyű párosítási akadály.
+  - `supervisorStrictness: 'permissive'` — engedékeny felügyelet.
+- **100% Teljes Autonóm Mód (`fullAutonomousMode: true`)**: Az ágensek **soha nem kérdeznek rá** engedélyre destruktív vagy rendszer-szintű parancsok előtt — önállóan megtervezik, homokozva/végrehajtva elvégzik a kért munkát, az Éjszakai Műszak (`Night Shift`) pedig háttérben feldolgozza a Kanban feladatokat. *(Igény esetén a Beállításokban bármikor visszakapcsolható a manuális jóváhagyás.)*
+
+---
+
 ## Teljes Funkciótérkép
 
-### 1. Áttekintő Vezérlőpult, Parancspaletta & PWA
-- **Áttekintő Irányítópult (`OverviewDashboard`)**: Egyetlen átlátható kezdőképernyő élő CPU/RAM/hőmérséklet telemetriával, kulcs nélküli **Open-Meteo élő időjárással**, **Biztonsági Keményítési Pontszámmal (0–100%)**, **Reggeli Álmodás Kivonattal**, havi költség-előrejelzéssel, függőben lévő jóváhagyásokkal, elakadt Kanban feladatokkal, naptári eseményekkel, RSS/Release hírekkel, napi fókusz összegzéssel és 1-kattintásos **Autonóm Küldetés** / **Raj Auto-Doktor** indítással.
-- **Globális Parancspaletta (`Ctrl+K` / `⌘K`)**: Azonnali billentyűzetes navigáció az összes nézet, ágens, Kanban kártya és memória között, gyors parancsok indítása (új chat, diagnosztika, Raj Auto-Doktor, Ollama RAM ürítés, OTA frissítés, vészleállító).
-- **Telepíthető PWA (Progressive Web App)**: Mobilra és asztalra telepíthető Web App Manifesttel, egyedi ikonokkal, offline shell támogatással, mobil alsó navigációs sávval és natív böngészős értesítésekkel (`reminder:alert`).
+### 1. Áttekintő Vezérlőpult, Téma & Gyorsbillentyűk
+- **Áttekintő Irányítópult (`OverviewDashboard`)**: Élő CPU/RAM/hőmérséklet telemetria, kulcs nélküli **Open-Meteo élő időjárás**, **Heti Időkapszula (`Ú157`)**, **Éjszakai Műszak (`Ú61`)** állapotkártya, költség-előrejelzés, naptár, RSS/Release hírek, napi fókusz összegzés és 1-kattintásos **Autonóm Küldetés** / **Raj Auto-Doktor**.
+- **Sötét / Világos Téma & Privát Adatmaszkolás (`Ú158`)**: A fejlécben azonnal kapcsolható Sötét/Világos mód, valamint „Szem” gomb az API kulcsok és összegek elmosásához (pl. képernyőmegosztás előtt).
+- **Parancspaletta (`Ctrl+K` / `⌘K`) & Billentyűparancsok (`?`)**: Gyorsnavigáció (`g` majd `o`/`c`/`w`/`a`/`m`/`s`) az összes nézet között.
+- **Telepíthető PWA**: Web App Manifest, offline shell, mobil alsó navigációs sáv és böngészős értesítések.
 
-### 2. Raj Chat, Konzilium, Multimédia & Hang
-- **Valós idejű SSE Token Streaming + Megállító Gomb + Üzenet Elágaztatás (`Fork` / `Újragenerálás`)**: A válaszok szavanként streamelődnek, bármikor megszakíthatók, elágaztathatók vagy újragenerálhatók, teljes token/késleltetés/költség kijelzéssel és 1-kattintásos másolással + szintaxiskiemelt kódblokkokkal.
-- **Többszereplős Konzilium Mód & Konszenzus Mátrix**: Több specialista ágens párhuzamosan véleményez és szavaz (`approve` / `caution` / `reject` + megbízhatóság), majd a koordinátor szintetizálja a végső döntést.
-- **Párhuzamos Eszközlánc (Multi-Tool Execution)**: `fast` / `deep` / `precise` profilokkal, állítható max lépésszámmal és dinamikusan létrehozott futásidejű eszközökkel.
-- **Gyors `/` Prompt Sablonok & Könyvtár**: Saját slash-parancsok létrehozása és beillesztése közvetlenül a chat mezőbe.
-- **Multimodális Chat, Képgenerálás & Vizuális Artifact Drawer**: Képfeltöltés és `Ctrl+V` vágólap-beillesztés, beépített AI képgenerálás, homokozott **Code Interpreter** (JavaScript/Python + SVG diagram), külön Artifact előnézeti fiókkal.
-- **Folyamatos Hangos Beszélgetés, Ébresztőszó & Helyi Piper / `espeak-ng` TTS**: Folyamatos WebSpeech diktálás, testreszabható ébresztőszó (pl. *"Szia Nova"*), szerveroldali hangfájl-átírás, valamint `piper` neurális TTS / `espeak-ng` hangszóró kimenet.
+### 2. Raj Chat, Red-Team, Time-Travel & Multimédia
+- **SSE Token Streaming + Megállító Gomb + Elágaztatás (`Fork`) + Idővonal Visszapörgetés (`Rewind`)**: Bármely üzenetnél visszatekerheted a beszélgetést pontosan arra a pontra (`POST /api/v3/chat/rewind`).
+- **Red-Team Ördög Ügyvédje Kritikus (`Ú63`)**: 1-kattintásos adverzariális bírálat bármely ágens-válaszra (`POST /api/v3/chat/redteam`) logikai rések és stabilitási hibák feltárásához.
+- **Élő HTML & SVG Előnézet**: A válaszokban szereplő ```html``` és ```svg``` kódblokkok közvetlenül homokozott `<iframe>`-ben előnézhetők.
+- **Konzilium Mód & Szavazási Mátrix**, **Multimodális Kép/Hang**, **Helyi Piper / `espeak-ng` TTS** és **Folyamatos Hangmód**.
 
-### 3. Univerzális AI Munkapad (`WorkbenchView`)
-1. **Autonóm Küldetés Tervező-Végrehajtó (`B1`)**: Egyetlen nagy cél megadásával az ágens automatikusan részfeladatokra bontja a tervet, végrehajtja az eszközláncokat és elkészíti a végső jelentést.
-2. **Dinamikus Eszközépítő (`B2`)**: Új `http_get`, `http_post` vagy izolált `sandbox_js` egyéni eszközök létrehozása futásidőben — újrafordítás nélkül azonnal használható az ágensek számára.
-3. **Mélykutatás Motor (`Deep Research`)**: Többlépcsős párhuzamos webes kutatás, oldalak letöltése, szintetizált magyar nyelvű Markdown jelentés forráshivatkozásokkal.
-4. **REST API Stúdió & Írásvédett SQLite / PostgreSQL Böngésző**: Postman-szerű HTTP kérésküldő mentett kérésekkel + natív `node:sqlite` / `psql` kizárólag olvasásra korlátozott (`SELECT`/`PRAGMA`/`EXPLAIN`) adatbázis-felfedező.
-5. **Side-by-Side Diff & Git/PR Code Review**: Soronkénti LCS diff + AI összehasonlítás, valamint helyi `git diff` vagy GitHub Pull Request automatikus mérnöki kódellenőrzése.
-6. **Tolmács, SM-2 Tanulókártyák & Jelentésgenerátor**: Kétirányú szinkrontolmács, Anki-kompatibilis SM-2 időközönkénti ismétlés + CSV export, valamint nyomtatható munkanapló/audit/számla/meeting jegyzőkönyv generátor.
-7. **Prompt Aréna (A/B)**: Egyetlen prompt párhuzamos futtatása akár 3 különböző modellen/szolgáltatón, válaszidő-, token- és költség-összehasonlítással.
+### 3. Univerzális AI Munkapad (`WorkbenchView` — 9 Modul)
+1. **Autonóm Küldetés Tervező-Végrehajtó (`B1`)**: Cél → részfeladat-terv → eszközlánc → összegzés.
+2. **Dinamikus Eszközépítő (`B2`)**: Futásidőben létrehozható `http_get`, `http_post` és izolált `sandbox_js` eszközök.
+3. **Mélykutatás Motor (`Deep Research`)**: Párhuzamos webkutatás és magyar nyelvű forrásmegjelölt jelentések.
+4. **REST API Stúdió & Írásvédett SQLite / PostgreSQL Böngésző**.
+5. **Side-by-Side Diff & Git/PR Code Review**.
+6. **Tolmács, SM-2 Tanulókártyák & Jelentésgenerátor**.
+7. **Prompt Aréna (A/B)**: Párhuzamos modell-összehasonlítás.
+8. **DevOps & CVE Stúdió (`Ú72–Ú80, Ú134, M144`)**:
+   - **Repo X-Ray** (fájl/sor statisztika + Mermaid függőségi gráf),
+   - **Függőségi CVE Sebezhetőségi Szkenner** (`npm audit` + OSV.dev),
+   - **Regex Tesztelő & Természetes Nyelv -> Cron Generátor**,
+   - **SQL DDL -> Mermaid ER Diagram Generátor**,
+   - **HTTP P50/P95/P99 Terhelési Teszter**, **Dockerfile Biztonsági Auditor**, **Git Changelog**, **Headless UI & SEO Auditor**, és **OpenAPI 3.1 Specifikáció**.
+9. **Adat, QR, Pénzügy & Közjegyző Stúdió (`Ú83, Ú88, Ú90, Ú131, Ú136, Ú141, Ú150`)**:
+   - **CSV/JSON Data Wrangler** (szűrés, csoportosítás, min/max/átlag statisztika),
+   - **Natív SVG Diagramok** (oszlop/vonal/kör) & **Valódi Reed-Solomon QR Kód SVG Generátor**,
+   - **Szöveg-átalakító** (`JSON`, `SQL`, `Base64`, `JWT`, `SHA-256`) + vágólap-előzmények,
+   - **WCAG 2.1 Kontraszt Ellenőrző**, **ÁFA & Kamatos Kamat Kalkulátor**,
+   - **EXIF/Metaadat Tisztító (JPEG/PNG)**, **Tudományos Publikáció Kereső (CrossRef)**, és **SHA-256 Dokumentum Közjegyző (Notary)**.
 
-### 4. Intelligens AI Gateway (`/v1/*`) & Alacsony-RAM Optimalizáló
-- **OpenAI-kompatibilis Proxy**: `POST /v1/chat/completions` (SSE stream + `tools`/`tool_calls` + `image_url`), `POST /v1/embeddings`, `GET /v1/models`.
-- **Virtuális API Kulcsok (`ns-vk-...`)**: Külön költségkeret, RPM korlát, modell-engedélylista, **lejárati dátum (`expiresAt`)** és **IP/CIDR szűrés (`allowedIps`)**.
-- **Szolgáltatói Egészség & Késleltetés Ranglista + Normalizált Cache**: Élő hiba- és válaszidő-statisztika szolgáltatónként, valamint szóköz/kis-nagybetű-független gyorsítótárazás.
-- **Ollama Low-RAM Optimalizáló (Raspberry Pi barát)**: Kézzel hangolható `num_ctx`, `keep_alive`, üresjárat utáni automatikus RAM-ból kiürítés (`ollamaAutoUnloadMinutes` + 1-kattintásos gomb), előmelegítés (`Pre-warm`), kulcs-rotáció és 429 cooldown.
-- **PII / Secret / Prompt-Injection Guardrails**.
+### 4. Szervezeti Raj, Éjszakai Műszak, Kanban & Föderáció
+- **Éjszakai Műszak (`Night Shift` — `Ú61`)**: Önálló háttér-ciklus, amely feldolgozza a nyitott Kanban feladatokat és naplózza az eredményeket (`POST /api/v3/nightshift/run`).
+- **Szervezeti Hierarchia, MCP Jogosultsági Mátrix, Ágens Benchmark (0–100%)**, **Git Worktree Kanban + Ötletláda** és **P2P Raj Föderáció SVG Topológiával**.
 
-### 5. Szervezeti Raj, Kanban (Worktree + Sprint), Ötletláda & Föderáció
-- **Zero-Prebuilt-Agents + 6 Lépéses Setup Wizard**: Gyárilag csak az állandó Felügyelő Auditor őr létezik; ágensenkénti fallback modell-lánccal (`modelChain`) és beépített **Ágens Benchmark Teszttel** (0–100%).
-- **Gazdag Kanban, Git Worktree & Sprint Követés**: `blockedBy` függőségek, kártyánkénti izolált **Git branch + `.worktrees/` könyvtár**, becsült vs. valós idő (`estimatedMinutes` / `actualMinutes`), Sprint mező, prioritások és **Ötletláda** (`Impact - Effort` pontozással + 1-kattintásos AI felbontással).
-- **P2P Raj Föderáció & SVG Topológia**: Interaktív hálózati gráf, tömeges élő ping (`POST /api/federation/ping-all`), Kanban feladat-átadás és megosztott memória-szinkron.
+### 5. SQLite WAL Memória, Álmodás, Kód-RAG & Obsidian Második Agy
+- **SQLite WAL Gyorsítótár & Index (`M61`)**: Beépített `node:sqlite` WAL adatbázis (`novaswarm.sqlite`) az audit naplók, üzenetek és memóriák villámgyors indexeléséhez.
+- **SHA-256 Audit Hash-Lánc (`M117`)**: Hamisításbiztos kriptográfiai láncellenőrzés (`POST /api/v3/audit/verify`).
+- **Rétegzett Memória (`hot` / `warm` / `cold` / `shared`)**, **Memória Időgép**, **3 Fázisú Éjszakai Álmodás (`Light → Deep → REM`)**, **Kód-RAG**, és **Obsidian Vault** teljes kereső.
 
-### 6. Rétegzett Hibrid Memória, Álmodás, Kód-RAG & Obsidian Második Agy
-- **Rétegzett Memória (`hot` / `warm` / `cold` / `shared`) & Memória Időgép**: Ellentmondás-feloldás (`supersededBy`) és 1-kattintásos visszavonás (`POST /api/memories/:id/restore`), interaktív zoomolható/szűrhető **Tudásgráf**.
-- **Hibrid Keresés (BM25 + Vektor RRF) & Ollama `nomic-embed-text`**: AES-256-GCM kulcstárral és atomikus `.state.json` tárolóval.
-- **3 Fázisú Éjszakai Álmodás (`Light → Deep → REM`) + Reggeli Kivonat**: Automatikus `DreamSkillDraft` szkript-tervezetek, Reflexion javaslatok és közérthető reggeli összefoglaló.
-- **Helyi Kód- & Dokumentum-RAG + Offline Túlélő Tudástár**: PDF, TXT, MD, CSV, JSON, HTML és forráskód (TS/JS/PY/GO/RS/SQL AST-határ tudatos darabolás) + internet nélküli keresés `man` oldalakkal.
-- **Obsidian Vault Teljes Kereső, Backlinkek & Napi Jegyzet**: Teljes szöveges keresés, `[[wikilink]]` visszamutató hivatkozások listázása és napi jegyzet automatikus létrehozása.
+### 6. Ökoszisztéma Hub (14 Beépített Modul)
+- Munkafolyamatok (`Workflows`), HMAC-SHA256 Webhookok, RSS & AI Briefing, Valódi IMAP/SMTP Email, Naptár & `.ics`, Okosotthon (Home Assistant + MQTT), GitHub Figyelő, Oldalfigyelő & Média (YouTube/Hang), Napi Napló, Megosztott Listák & Előfizetések, Szokások & Fókusz, Pénzügyek & CSV, Csomag Export/Import,
+- **Életvitel, CRM & Megosztott Portál (`Ú91, Ú99, Ú100, Ú107, Ú113–Ú115, Ú147`)**:
+  - **Személyes CRM** születésnap és követési emlékeztetőkkel,
+  - **Csomagkövető** (GLS/MPL/Foxpost), **Otthoni Készlet (Kamra)**, **Heti Étrend -> Bevásárlólista Automatikus Szinkron**, **Jármű & Karbantartási Napló**,
+  - **Read-It-Later Könyvjelző Archiváló**, **Időkorlátos Megosztott Portál Linkek**, **Borítékkal (Envelope) Költségvetés**, és **Élő Devizaváltó (EKB/Frankfurter)**.
 
-### 7. Képességek (MCP), GitHub Skill Biztonsági Szkenner & Headless Böngésző
-- **MCP Szerverek (`http` és `stdio`)**, Discord/Slack/Telegram 6 jegyű párosítással.
-- **GitHub Skill Import + Statikus Biztonsági Szkenner**: URL-ről letöltött skillek automatikus vizsgálata `eval()`, `rm -rf`, `curl|sh` és beégetett titkok ellen importálás előtt.
-- **Adatvédelmi Élő Web Kereső** (SearXNG, Brave, DuckDuckGo) + **Valódi Headless Chromium/Chrome** DOM-ellenőrzéshez és PNG képernyőképekhez.
+### 7. Rendszerüzemeltetés, Többgépes Fürt & Hálózati Eszköztár
+- **Wake-on-LAN (Valódi UDP Magic Packet)** & **WireGuard X25519 Kulcspár + Kliens Konfig + QR Kód**.
+- **LAN ARP Eszközszkenner**, **Hálózati Sebességteszt**, **OSINT Domain Ellenőrző (DNS / SPF / DMARC / TLS)**, **SSH Auth Log & Titkos Fájl Jogosultság Auditor**.
+- **Többgépes Fürt & Távoli GPU Ollama Csomópontok (`Cluster`)** automatikus terhelés-átadással.
+- **Phoenix Teljes Rendszer-Visszaállítási Pillanatkép (`Ú160`)**, **Valós Linux Kernel Sandbox** (`docker` / `bwrap` / `unshare`), **PTY Terminál (`xterm.js` + `node-pty`)**, **GitHub OTA Frissítés** és **Terminál CLI (`npm run cli`)**.
 
-### 8. Ökoszisztéma Hub (13 Beépített Modul)
-1. **Többlépcsős Munkafolyamatok (Workflows)**: Trigger (`manual` / `cron` / `webhook` / `uptime_down` / `feed_item` / `ha_state`) → feltétel → szekvenciális lépés-lánc (`web_search`, `http_call`, `agent_prompt`, `kanban_create`, `notify`).
-2. **Egyedi Webhookok (`/hooks/:slug`)**: Titkos kulccsal vagy GitHub/Stripe-kompatibilis **HMAC-SHA256** aláírással (`x-hub-signature-256`).
-3. **RSS / Atom / GitHub Release Hírolvasó** & AI Napi Briefing (élő időjárással).
-4. **Valódi SMTP / IMAP Email Ügyfél**: Beérkező levelek listázása, teljes levéltörzs olvasása (`GET /api/email/body/:uid`) és 1-kattintásos válasz (`In-Reply-To`).
-5. **Naptár, `.ics` Import & Emlékeztetők**.
-6. **Okosotthon (Home Assistant REST + TCP MQTT + `ha_state` Trigger Kiértékelő)**.
-7. **GitHub Repo Figyelő**.
-8. **Weboldal Változás-figyelő (Watchdog)**, **Podcast/Hanganyag Fejezet-elemző**, és **YouTube Videó Elemző + SM-2 Kártya Készítő**.
-9. **Második Agy Napi Napló**: Hangulat, energia, napi célok automatikus mentéssel az Obsidian napi jegyzetbe.
-10. **Megosztott Listák (Telegram `/lista` szinkron)** & **Előfizetés/Garancia Követő**.
-11. **Szokások & Fókusz Időzítő**.
-12. **Költségkövető & Banki CSV Importőr**.
-13. **Titokmentes Csomag Export / Import**.
+---
 
-### 9. Rendszerüzemeltetés, SuperAdmin Linux Suite & Biztonság
-- **Valódi Linux Kernel Sandbox** (`docker --network none` → `bwrap --unshare-net` → `unshare -rn` → izolált `tmpfs`).
-- **Biztonsági Keményítési Pontszám (0–100%)**, **Raj Auto-Doktor (`B3`)**, **Jelszó Entrópia + HIBP k-Anonymity Ellenőrző** (jelszó továbbítása nélkül).
-- **SuperAdmin Linux Eszköztár**: Docker + Docker Compose Stack Generátor, Systemd + Részletek (RAM/újraindítás/függőségek) + Journalctl AI Elemző, **Tűzfal (`ufw`/`nft`) & Portok (`ss`)**, **Hardver/RPi GPIO/I2C Szenzorok**, **DNS/Ping/Traceroute Hálózati Diagnosztika**, **Linux Crontab & Systemd Timers**, **AES-256-GCM Fájl Széf (`.nsenc`)**, **Nginx/Caddy Reverse Proxy Sablon**, **LAN/VPN**, **Lemez/SMART/Rsync**, **SSH Flotta Párhuzamos Parancsfuttatás**, **SSL Figyelő**.
-- **Valós PTY Web Terminál (`xterm.js` + `node-pty`) & Munkamenet Visszajátszás**: Felvétel listázása és képkockánkénti idővonal-lejátszó.
-- **GitHub OTA Automatikus Frissítés + Commit Előzmény Visszaállás**, **Scoped Diff Önmódosítás**, és **Terminál CLI (`npm run cli`)**.
+## Telegram Parancsok (Teljes Távoli Vezérlés)
+
+A Telegram botban közvetlenül használható parancsok (belső üzenetek automatikus AI raj-feldolgozása mellett):
+- `/statusz` — Rendszer állapot, hőmérséklet, napi költség és futó feladatok
+- `/mission <cél>` — Autonóm küldetés indítása azonnal
+- `/nightshift` — Éjszakai Műszak azonnali indítása
+- `/kapszula` — Heti Időkapszula összefoglaló lekérése
+- `/kanban` — Aktív Kanban kártyák listázása
+- `/lista` — Bevásárlólista / megosztott lista megtekintése és bővítése
+- `/crm` — CRM kapcsolatok gyors elérése
+- `/wol <MAC>` — Hálózati gép ébresztése Wake-on-LAN csomaggal
+- `/lan` — Helyi hálózati ARP eszközök listázása
+- `/cluster` — Távoli fürt / GPU Ollama csomópontok állapota és pingje
+- `/audit` — SHA-256 audit lánc épségének ellenőrzése
+- `/openapi` — OpenAPI 3.1 API specifikáció összegző
+- `/idojaras` — Élő Open-Meteo időjárás jelentés
+- `/stop` — Vészleállító (Kill-Switch) azonnali aktiválása
 
 ---
 
@@ -83,7 +102,7 @@
 - Debian 12/13 (Trixie), Ubuntu 22.04+, Fedora vagy Arch Linux (`x86_64` vagy `aarch64` / Raspberry Pi)
 - Node.js 20+ (az `install.sh` automatikusan telepíti a Node.js 22 LTS-t, ha hiányzik)
 - `git`, `curl`, `build-essential` (`python3`, `make`, `g++` a `node-pty` fordításhoz)
-- Opcionális ajánlott csomagok: `bubblewrap`, `espeak-ng`, `ollama`, `chromium`, `sqlite3`, `ufw`
+- Opcionális ajánlott csomagok: `bubblewrap`, `espeak-ng`, `ollama`, `chromium`, `sqlite3`
 
 ---
 
@@ -96,9 +115,9 @@ chmod +x install.sh update.sh
 ./install.sh
 ```
 
-### Tiszta újratelepítés (régi verzió teljes eltávolításával)
+### Teljes Törlés és Tiszta Újratelepítés (1 Parancssorral)
 
-Ha már fut egy korábbi telepítés (például `/home/ngabika/NovaSwarmNextGenHydrogen` alatt), ez a teljes parancssor leállítja és eltávolítja a régit, majd tisztán telepíti a legfrissebb verziót:
+Ha már fut egy korábbi telepítés (például `/home/ngabika/NovaSwarmNextGenHydrogen` alatt), ez a parancssor leállítja a régi szolgáltatást, törli a teljes régi könyvtárat és adatbázist, majd tisztán klónozza és telepíti a legújabb verziót:
 
 ```bash
 sudo systemctl stop novaswarm 2>/dev/null || true
@@ -111,7 +130,7 @@ cd /home/ngabika && rm -rf /home/ngabika/NovaSwarmNextGenHydrogen && git clone h
 
 Telepítés után nyisd meg böngészőből:
 - Lokálisan: `http://localhost:3000`
-- Hálózatról (pl. Raspberry Pi): `http://<SZERVER-IP>:3000`
+- Helyi hálózatról (LAN): `http://<SZERVER-IP>:3000`
 
 ---
 
@@ -125,7 +144,7 @@ npm run dev
 npm run lint && npm run build
 
 # Teljes egységteszt-csomag futtatása
-npm test
+npx --yes tsx --test tests/*.test.ts
 
 # Terminál CLI használata
 npm run cli -- status

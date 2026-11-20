@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { runAutonomousKanbanWorkerTick } from './server/agents/engine';
+import { runAutonomousKanbanWorkerTick, runNightShiftCycle } from './server/agents/engine';
 import {
   evaluateHomeAssistantWorkflowTriggers,
   executeWorkflow,
@@ -13,12 +13,14 @@ import {
 import { pollExternalChannels } from './server/channels/connectors';
 import { runDreamingCycle } from './server/dreaming/engine';
 import { createOpenAiProxyRouter } from './server/gateway/openaiProxy';
+import { resolveSharedPortalResource } from './server/power/lifeAndFinanceStudio';
 import { checkWatchedPages } from './server/power/universalSuite';
 import { checkOllamaIdleUnload, discoverModels } from './server/providers/router';
 import { createApiRouter } from './server/routes/api';
 import { isWsUpgradeAuthorized } from './server/security/auth';
 import { expireStaleApprovals } from './server/security/permissionGate';
-import { getState, updateState } from './server/state/store';
+import { closeSqliteWal } from './server/state/sqliteWal';
+import { getState, pruneRetentionData, updateState } from './server/state/store';
 import {
   applyOtaUpdate,
   checkOtaUpdates,
@@ -41,6 +43,11 @@ const isProduction = process.env.NODE_ENV === 'production';
 async function bootstrap() {
   const app = express();
   app.use(express.json({ limit: '16mb' }));
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
 
   const server = http.createServer(app);
 
@@ -145,6 +152,19 @@ async function bootstrap() {
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Ú100: Public read-only shared portal view
+  app.get('/share/:token', (req, res) => {
+    const resolved = resolveSharedPortalResource(req.params.token);
+    if (!resolved) {
+      return res.status(404).send('<h1>A megosztott hivatkozás lejárt vagy nem található.</h1>');
+    }
+    const safeTitle = resolved.link.title.replace(/[<>&"]/g, '');
+    const safeBody = JSON.stringify(resolved.payload, null, 2).replace(/[<>&]/g, (c) =>
+      c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
+    );
+    res.send(`<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>${safeTitle} — NovaSwarm Megosztás</title><style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:860px;margin:40px auto;padding:0 20px;color:#0f172a;background:#f8fafc}pre{background:#fff;border:1px solid #e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:13px}</style></head><body><h1>${safeTitle}</h1><p>Típus: ${resolved.link.resourceType} · Megtekintések: ${resolved.link.views}</p><pre>${safeBody}</pre></body></html>`);
   });
 
   // Mount NovaSwarm Control Plane API routes
@@ -308,6 +328,35 @@ async function bootstrap() {
       if (r.processed > 0) broadcastEvent('state:updated');
     });
   }, 30_000);
+
+  // Ú61 Night Shift Scheduler & M156 Retention Pruner
+  setInterval(() => {
+    const s = getState();
+    if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
+    if (s.settings.nightShiftEnabled && !s.activeExplicitTaskAgentId) {
+      const lastNs = s.settings.lastNightShiftAt ? Date.parse(s.settings.lastNightShiftAt) : 0;
+      const intervalMs = Math.max(15, s.settings.nightShiftIntervalMinutes || 180) * 60_000;
+      if (Date.now() - lastNs >= intervalMs) {
+        const hw = collectHardwareMetrics();
+        if (!hw.throttledReason) {
+          void runNightShiftCycle().then(() => broadcastEvent('state:updated'));
+        }
+      }
+    }
+    pruneRetentionData();
+  }, 15 * 60_000);
+
+  const shutdownGracefully = () => {
+    try {
+      closeSqliteWal();
+    } catch {
+      // best effort
+    }
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2500);
+  };
+  process.on('SIGTERM', shutdownGracefully);
+  process.on('SIGINT', shutdownGracefully);
 
   server.on('error', (err) => {
     console.error(`NovaSwarm HTTP szerver hiba (port ${PORT}):`, err);

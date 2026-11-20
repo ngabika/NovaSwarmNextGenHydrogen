@@ -22,4 +22,17 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  .dark body {
+    background-color: #020617;
+    color: #f1f5f9;
+  }
+
+  .dark select,
+  .dark input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+  .dark textarea {
+    background-color: #0f172a;
+    color: #f1f5f9;
+    border-color: #334155;
+  }
 }

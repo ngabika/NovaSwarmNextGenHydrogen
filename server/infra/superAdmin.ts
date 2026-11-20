@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseConnection } from '../../shared/types';
 import { detectActiveSandboxBackend } from '../sandbox/supervisorSandbox';
-import { assertHostPermission, requireDestructiveApproval } from '../security/permissionGate';
+import { assertHostPermission, requireDestructiveApproval, shouldRequireApproval } from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { executeSshProfileCommand } from './hostAdmin';
 
@@ -320,13 +320,18 @@ export function inspectFirewallAndOpenPorts(): {
   };
 }
 
-export function proposeUfwRule(rule: string): { approvalId: string; command: string } {
+export function proposeUfwRule(rule: string): { approvalId?: string; executed?: boolean; command: string; output?: string } {
   assertHostPermission(`ufw:${rule}`);
   const clean = rule.trim().replace(/[^a-zA-Z0-9 /.:_-]/g, '');
   if (!clean) throw new Error('Érvénytelen tűzfalszabály.');
   const cmd = `sudo ufw ${clean}`;
-  const req = requireDestructiveApproval('firewall_modify', `UFW tűzfalszabály: ${clean}`, cmd, 'Rendszeroperátor');
-  return { approvalId: req.id, command: cmd };
+  if (shouldRequireApproval()) {
+    const req = requireDestructiveApproval('firewall_modify', `UFW tűzfalszabály: ${clean}`, cmd, 'Rendszeroperátor');
+    return { approvalId: req.id, executed: false, command: cmd };
+  }
+  const args = clean.split(/\s+/).filter(Boolean);
+  const res = runSafe('ufw', args, 8000);
+  return { executed: res.ok, command: cmd, output: res.stdout || res.stderr };
 }
 
 /** Ú38: Hardware / Raspberry Pi GPIO, I2C & Thermal Sensor Inspector */

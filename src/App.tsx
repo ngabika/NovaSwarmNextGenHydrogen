@@ -7,16 +7,21 @@ import {
   Command,
   Cpu,
   Download,
+  Eye,
+  EyeOff,
+  HelpCircle,
   Layers,
   LayoutDashboard,
   Lock,
   LogOut,
   Menu,
   MessageSquare,
+  Moon,
   Plug,
   RefreshCw,
   Settings as SettingsIcon,
   Shield,
+  Sun,
   Terminal as TerminalIcon,
   Wrench,
   X,
@@ -61,6 +66,7 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [externalDraft, setExternalDraft] = useState<{ text: string; nonce: number } | null>(null);
   const [reminderBanner, setReminderBanner] = useState<string | null>(null);
 
@@ -143,10 +149,50 @@ export default function App() {
   };
 
   useEffect(() => {
+    const mode = state?.settings.themeMode || 'light';
+    const isDark = mode === 'dark' || mode === 'high_contrast';
+    document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.setAttribute('data-theme', mode);
+  }, [state?.settings.themeMode]);
+
+  useEffect(() => {
+    let lastGTime = 0;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+        return;
+      }
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setShortcutsOpen(false);
+        return;
+      }
+      const now = Date.now();
+      if (e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey) {
+        lastGTime = now;
+        return;
+      }
+      if (now - lastGTime < 800) {
+        const map: Record<string, TabId> = {
+          o: 'overview',
+          c: 'swarm',
+          w: 'workbench',
+          a: 'agents',
+          m: 'memory',
+          s: 'settings',
+        };
+        const target = map[e.key.toLowerCase()];
+        if (target) {
+          setActiveTab(target);
+          lastGTime = 0;
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -367,23 +413,23 @@ export default function App() {
   const activeNavLabel = navItems.find((n) => n.id === activeTab)?.label || '';
 
   return (
-    <div dir={getLanguageDir(lang)} className="min-h-screen bg-slate-50 text-slate-900 flex">
+    <div dir={getLanguageDir(lang)} className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col justify-between transition-transform lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform lg:static lg:translate-x-0 ${
           mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="overflow-y-auto">
-          <div className="h-14 px-5 border-b border-slate-200 flex items-center justify-between">
-            <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
+          <div className="h-14 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap">
               {tr(lang, 'appName')}
             </span>
             <button
               type="button"
               aria-label="Close navigation"
               onClick={() => setMobileNavOpen(false)}
-              className="lg:hidden p-1 text-slate-500"
+              className="lg:hidden p-1 text-slate-500 dark:text-slate-400"
             >
               <X className="h-5 w-5" />
             </button>
@@ -393,7 +439,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 whitespace-nowrap"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
             >
               <span className="inline-flex items-center gap-1.5">
                 <Command className="h-3.5 w-3.5" />
@@ -414,8 +460,8 @@ export default function App() {
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                   activeTab === item.id
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 {item.icon}
@@ -425,14 +471,14 @@ export default function App() {
           </nav>
 
           {/* Menu-level GitHub OTA Auto-Update Control */}
-          <div className="mx-3 mt-2 p-3 border border-slate-200 rounded-lg bg-slate-50/70 space-y-2">
+          <div className="mx-3 mt-2 p-3 border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50/70 dark:bg-slate-800/60 space-y-2">
             <div className="flex items-center justify-between gap-1">
-              <span className="text-[11px] font-semibold text-slate-900 truncate">
+              <span className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 truncate">
                 GitHub Frissítés (OTA)
               </span>
               <span
                 className={`text-[10px] font-mono font-semibold ${
-                  otaStatus?.updateAvailable ? 'text-amber-700' : 'text-emerald-700'
+                  otaStatus?.updateAvailable ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'
                 }`}
               >
                 {otaStatus
@@ -442,10 +488,10 @@ export default function App() {
                   : 'Várakozik'}
               </span>
             </div>
-            <div className="text-[10px] font-mono text-slate-500 truncate">
+            <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
               {state.settings.otaRepoSlug || 'ngabika/NovaSwarmNextGenHydrogen'}
             </div>
-            <div className="text-[10px] font-mono text-slate-600 flex items-center justify-between">
+            <div className="text-[10px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
               <span>
                 Helyi: {otaStatus?.localCommit || otaStatus?.currentVersion || '1.0.0'}
               </span>
@@ -458,7 +504,7 @@ export default function App() {
                 type="button"
                 disabled={otaBusy}
                 onClick={() => void checkOta()}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100 text-slate-800 disabled:opacity-50"
+                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 disabled:opacity-50"
               >
                 <RefreshCw className="h-3 w-3" />
                 Ellenőrzés
@@ -467,14 +513,14 @@ export default function App() {
                 type="button"
                 disabled={otaBusy}
                 onClick={() => void handleMenuApplyOta()}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50"
+                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded hover:bg-slate-800 disabled:opacity-50"
               >
                 <Download className="h-3 w-3" />
                 Frissítés
               </button>
             </div>
             {otaActionMsg && (
-              <div className="text-[10px] font-mono text-slate-700 leading-snug break-words">
+              <div className="text-[10px] font-mono text-slate-700 dark:text-slate-300 leading-snug break-words">
                 {otaActionMsg}
               </div>
             )}
@@ -482,20 +528,20 @@ export default function App() {
         </div>
 
         {/* Permanent Always-Visible Supervisor/Auditor Panel */}
-        <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50/70">
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/70 dark:bg-slate-900">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5 text-slate-700" />
+              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5 text-slate-700 dark:text-slate-300" />
                 {tr(lang, 'supervisorPanelTitle')}
               </span>
               <span
                 className={`text-[11px] font-semibold ${
                   state.supervisor.status === 'nominal'
-                    ? 'text-emerald-700'
+                    ? 'text-emerald-700 dark:text-emerald-400'
                     : state.supervisor.status === 'warning'
-                    ? 'text-amber-700'
-                    : 'text-red-700'
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-red-700 dark:text-red-400'
                 }`}
               >
                 {state.supervisor.status === 'nominal'
@@ -505,8 +551,8 @@ export default function App() {
                   : tr(lang, 'supervisorAlert')}
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 leading-snug">{state.supervisor.lastSummary}</p>
-            <div className="text-[11px] text-slate-500 font-mono tabular-nums space-y-0.5">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">{state.supervisor.lastSummary}</p>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums space-y-0.5">
               <div>
                 {tr(lang, 'supervisorDiscrepancies')}: {state.supervisor.discrepanciesFound} · {tr(lang, 'supervisorSandboxTests')}: {state.supervisor.sandboxTestsPassed}
               </div>
@@ -522,14 +568,14 @@ export default function App() {
                 await fetch('/api/supervisor/audit', { method: 'POST' });
                 await fetchState();
               }}
-              className="w-full mt-1 px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100 text-slate-800"
+              className="w-full mt-1 px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
             >
               {tr(lang, 'supervisorRunAudit')}
             </button>
           </div>
 
           {hardware && (
-            <div className="pt-2 border-t border-slate-200 text-[11px] font-mono tabular-nums text-slate-600 flex justify-between">
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-400 flex justify-between">
               <span>CPU {hardware.cpuLoadPercent}%</span>
               <span>RAM {hardware.ramPercent}%</span>
               <span>{hardware.temperatureCelsius !== null ? `${hardware.temperatureCelsius}°C` : 'Linux'}</span>
@@ -540,29 +586,32 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-8 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 shrink-0 overflow-hidden">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               type="button"
               aria-label="Open navigation"
               onClick={() => setMobileNavOpen(true)}
-              className="lg:hidden p-1.5 text-slate-600"
+              className="lg:hidden p-1.5 text-slate-600 dark:text-slate-300 shrink-0"
             >
               <Menu className="h-5 w-5" />
             </button>
-            <span className="text-sm font-semibold text-slate-900 whitespace-nowrap truncate">
-              {tr(lang, 'appName')} / {activeNavLabel}
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap truncate">
+              <span className="hidden sm:inline">{tr(lang, 'appName')} / </span>
+              {activeNavLabel}
             </span>
           </div>
 
-          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 whitespace-nowrap">
+          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <span>
-              {state.settings.hostPermissionsGranted
+              {state.settings.fullAutonomousMode
+                ? '100% Autonóm'
+                : state.settings.hostPermissionsGranted
                 ? tr(lang, 'hostPermGranted')
                 : tr(lang, 'hostPermRestricted')}
             </span>
             <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums">
+            <span className={`font-mono tabular-nums ${state.settings.privacyMaskEnabled ? 'blur-sm select-none' : ''}`}>
               ${state.settings.dailySpendUsd.toFixed(3)} / ${state.settings.dailyCostLimitUsd.toFixed(2)}
             </span>
             {state.settings.killSwitchActive && (
@@ -573,25 +622,75 @@ export default function App() {
             )}
           </div>
 
-          <div className="shrink-0 flex items-center gap-2">
-            <PWAControls />
+          <div className="shrink-0 flex items-center gap-1 sm:gap-1.5">
+            <button
+              type="button"
+              title="Téma váltása (Világos / Sötét)"
+              aria-label="Toggle theme mode"
+              onClick={async () => {
+                const next = state.settings.themeMode === 'dark' ? 'light' : 'dark';
+                await fetch('/api/settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ themeMode: next }),
+                });
+                await fetchState();
+              }}
+              className="p-1.5 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+            >
+              {state.settings.themeMode === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              title="Kávézó Mód (Összegek elmosása)"
+              aria-label="Toggle privacy mask"
+              onClick={async () => {
+                await fetch('/api/settings', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ privacyMaskEnabled: !state.settings.privacyMaskEnabled }),
+                });
+                await fetchState();
+              }}
+              className={`p-1.5 border rounded-lg shrink-0 ${
+                state.settings.privacyMaskEnabled
+                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900'
+                  : 'text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              {state.settings.privacyMaskEnabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              title="Billentyűparancsok (?)"
+              aria-label="Keyboard shortcuts"
+              onClick={() => setShortcutsOpen(true)}
+              className="hidden sm:inline-flex p-1.5 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+            <div className="hidden sm:block">
+              <PWAControls />
+            </div>
             {state.settings.webAuthEnabled && (
               <button
                 type="button"
                 onClick={() => void handleOperatorLogout()}
                 title="LAN Zár / Kijelentkezés"
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
                 <LogOut className="h-3.5 w-3.5" />
-                Zárolás
+                <span className="hidden sm:inline">Zárolás</span>
               </button>
             )}
             <button
               type="button"
               onClick={() => setActiveTab('system')}
-              className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
+              className="px-2.5 sm:px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              {tr(lang, 'approvalsPending')}: {state.approvals.filter((a) => a.status === 'pending').length}
+              <span className="hidden sm:inline">{tr(lang, 'approvalsPending')}: </span>
+              <span className="sm:hidden">Jóváhagyás: </span>
+              {state.approvals.filter((a) => a.status === 'pending').length}
             </button>
           </div>
         </header>
@@ -644,6 +743,7 @@ export default function App() {
               federationPeers={state.federationPeers}
               federationEnabled={state.settings.federationEnabled}
               agentBenchmarks={state.agentBenchmarks || []}
+              nightShiftRuns={state.nightShiftRuns || []}
               onRefreshState={fetchState}
             />
           )}
@@ -708,6 +808,7 @@ export default function App() {
               uptimeTargets={state.uptimeTargets}
               sslTargets={state.sslTargets || []}
               sshProfiles={state.sshProfiles || []}
+              clusterNodes={state.clusterNodes || []}
               settings={state.settings}
               sandboxBackend={sandboxBackend}
               onRefreshState={fetchState}
@@ -758,6 +859,35 @@ export default function App() {
         onApplyTemplate={(body) => setExternalDraft({ text: body, nonce: Date.now() })}
         onQuickAction={(actionId) => void handleQuickAction(actionId)}
       />
+
+      {shortcutsOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold">Billentyűparancsok (M158)</h2>
+              <button type="button" onClick={() => setShortcutsOpen(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-1.5 text-xs font-mono">
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Ctrl+K / Cmd+K</span><span>Parancspaletta</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>?</span><span>Súgóablak</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>Áttekintő (Overview)</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Raj Chat & Kanban</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>Univerzális Stúdió</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Szervezet & Ágensek</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória & Álmodás</span></div>
+              <div className="flex justify-between py-1"><span>g → s</span><span>Beállítások</span></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

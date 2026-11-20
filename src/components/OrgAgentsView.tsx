@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gauge, GitBranch, Globe, Plus, RefreshCw, Send, Share2, Shield, Trash2 } from 'lucide-react';
+import { Gauge, GitBranch, Globe, Moon, Play, Plus, RefreshCw, Send, Share2, Shield, Trash2 } from 'lucide-react';
 import type {
   Agent,
   AgentBenchmarkRun,
@@ -7,6 +7,7 @@ import type {
   KanbanCard,
   LanguageCode,
   McpServer,
+  NightShiftRun,
   ProviderId,
   VoiceReplyMode,
 } from '../../shared/types';
@@ -20,6 +21,7 @@ interface Props {
   federationPeers: FederationPeer[];
   federationEnabled: boolean;
   agentBenchmarks?: AgentBenchmarkRun[];
+  nightShiftRuns?: NightShiftRun[];
   onRefreshState: () => Promise<void>;
 }
 
@@ -310,6 +312,7 @@ export const OrgAgentsView: React.FC<Props> = ({
   federationPeers,
   federationEnabled,
   agentBenchmarks = [],
+  nightShiftRuns = [],
   onRefreshState,
 }) => {
   const [name, setName] = useState('');
@@ -320,6 +323,8 @@ export const OrgAgentsView: React.FC<Props> = ({
   const [systemPrompt, setSystemPrompt] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [hostExecutionEnabled, setHostExecutionEnabled] = useState(true);
+  const [nightBusy, setNightBusy] = useState(false);
+  const [nightStatus, setNightStatus] = useState<string | null>(null);
 
   // Federation Peer form + Handoff + Memory Sync
   const [peerName, setPeerName] = useState('');
@@ -833,6 +838,72 @@ export const OrgAgentsView: React.FC<Props> = ({
         </div>
 
         {fedReply && <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono">{fedReply}</div>}
+      </div>
+
+      {/* Ú61: Night Shift Autonomous Coder */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Moon className="h-4 w-4 text-indigo-600" />
+              Éjszakai Műszak — Autonóm Háttér Kódoló & Karbantartó (Ú61)
+            </h3>
+            <p className="text-xs text-slate-500">
+              Önállóan feldolgozza a függő Kanban kártyákat és frissíti a memóriát rákérdezés nélkül.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={nightBusy}
+            onClick={async () => {
+              setNightBusy(true);
+              setNightStatus(null);
+              try {
+                const res = await fetch('/api/v3/nightshift/run', { method: 'POST' });
+                const d = (await res.json()) as { reportSummary?: string; tasksCompleted?: number; error?: string };
+                setNightStatus(
+                  res.ok
+                    ? `Műszak kész (${d.tasksCompleted ?? 0} feladat): ${d.reportSummary || 'Rendben'}`
+                    : d.error || 'Éjszakai műszak hiba'
+                );
+                await onRefreshState();
+              } finally {
+                setNightBusy(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+          >
+            <Play className="h-3.5 w-3.5" />
+            {nightBusy ? 'Műszak fut...' : 'Műszak Indítása Most'}
+          </button>
+        </div>
+
+        {nightStatus && (
+          <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs font-mono">
+            {nightStatus}
+          </div>
+        )}
+
+        {nightShiftRuns.length === 0 ? (
+          <p className="text-xs text-slate-500">Még nem futott éjszakai műszak.</p>
+        ) : (
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {nightShiftRuns.slice(0, 8).map((run) => (
+              <div
+                key={run.id}
+                className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs space-y-1"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 font-mono tabular-nums">
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    {run.tasksCompleted} feladat · {run.actionsTaken?.length ?? 0} lépés · KÉSZ
+                  </span>
+                  <span className="text-slate-500">{new Date(run.completedAt || run.startedAt).toLocaleString()}</span>
+                </div>
+                <div className="text-slate-700 dark:text-slate-300">{run.reportSummary}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

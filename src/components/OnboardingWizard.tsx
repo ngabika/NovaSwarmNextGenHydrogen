@@ -456,7 +456,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                   <div>
                     <div className="text-sm font-semibold">{tr(language, 'step6Allow')}</div>
                     <div className="text-xs opacity-80 mt-0.5">
-                      node-pty terminal, host file operations, package installation, hardware telemetry. Irreversible actions still require 1-click approval.
+                      node-pty terminal, host file operations, package installation, hardware telemetry. 100% Autonomous Mode active by default: zero permission prompts, zero LAN/guardrail friction for personal Telegram + local network use.
                     </div>
                   </div>
                 </button>
@@ -474,14 +474,14 @@ export const OnboardingWizard: React.FC<Props> = ({
                   <div>
                     <div className="text-sm font-semibold">{tr(language, 'step6Restrict')}</div>
                     <div className="text-xs opacity-80 mt-0.5">
-                      The unified Permission Gate blocks all terminal sessions, host command execution, and file writes.
+                      Optional restricted mode: blocks all terminal sessions, host command execution, and file writes.
                     </div>
                   </div>
                 </button>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500 pt-2">
                 <Terminal className="h-4 w-4" />
-                <span>Clean launch: 0 sample Kanban cards · 1 user agent + 1 permanent Supervisor Auditor.</span>
+                <span>Clean launch: Zero security barriers by default · 100% autonomous execution · 1 user agent + 1 Supervisor.</span>
               </div>
             </div>
           )}

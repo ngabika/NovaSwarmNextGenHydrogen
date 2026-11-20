@@ -14,6 +14,7 @@ import type {
 import {
   assertHostPermission,
   requireDestructiveApproval,
+  shouldRequireApproval,
 } from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
@@ -369,17 +370,35 @@ export function restoreBackupPoint(backupId: string): boolean {
 
 export function requestOsPackageUpgrade(requestedBy = 'Felhasználó'): {
   queuedApprovalId: string;
+  executedDirectly?: boolean;
+  output?: string;
   command: string;
 } {
   assertHostPermission('os_package_upgrade');
   const cmd = 'sudo apt-get update && sudo apt-get upgrade -y';
+  if (!shouldRequireApproval()) {
+    let output = '';
+    try {
+      output = execSync(cmd, { cwd: process.cwd(), encoding: 'utf8', timeout: 30000 }).slice(0, 1200);
+    } catch (err) {
+      output = `Autonóm végrehajtás kimenet: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    appendAuditLog({
+      type: 'action',
+      sourceAgentId: 'system-ops',
+      sourceAgentName: requestedBy,
+      message: `OS csomagfrissítés közvetlenül elindítva (Autonóm mód): ${cmd}`,
+      verifiedExecution: true,
+    });
+    return { queuedApprovalId: 'auto-executed', executedDirectly: true, output, command: cmd };
+  }
   const req = requireDestructiveApproval(
     'os_upgrade',
     'Operációs rendszer csomaglista frissítése és csomag-upgrade',
     cmd,
     requestedBy
   );
-  return { queuedApprovalId: req.id, command: cmd };
+  return { queuedApprovalId: req.id, executedDirectly: false, command: cmd };
 }
 
 export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<OtaVersionStatus> {

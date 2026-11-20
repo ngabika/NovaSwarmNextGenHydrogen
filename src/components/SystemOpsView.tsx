@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import {
   Activity,
   Box,
@@ -32,6 +32,7 @@ import type {
   ApprovalRequest,
   AuditLogEntry,
   BackupPoint,
+  ClusterNode,
   CronTask,
   HardwareMetrics,
   LanguageCode,
@@ -43,6 +44,10 @@ import type {
 } from '../../shared/types';
 import { tr } from '../locales/translations';
 
+const Batch3InfraClusterPanel = lazy(() =>
+  import('./Batch3InfraClusterPanel').then((m) => ({ default: m.Batch3InfraClusterPanel }))
+);
+
 interface Props {
   language: LanguageCode;
   hardware: HardwareMetrics | null;
@@ -53,6 +58,7 @@ interface Props {
   uptimeTargets: UptimeTarget[];
   sslTargets: SslWatchTarget[];
   sshProfiles: SshHostProfile[];
+  clusterNodes?: ClusterNode[];
   settings: Settings;
   sandboxBackend?: string;
   onRefreshState: () => Promise<void>;
@@ -68,6 +74,7 @@ export const SystemOpsView: React.FC<Props> = ({
   uptimeTargets,
   sslTargets,
   sshProfiles,
+  clusterNodes = [],
   settings,
   sandboxBackend,
   onRefreshState,
@@ -1545,6 +1552,10 @@ export const SystemOpsView: React.FC<Props> = ({
               {composeYaml && <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-36 overflow-auto">{composeYaml}</pre>}
             </div>
           </div>
+
+          <Suspense fallback={<div className="p-4 text-xs text-slate-500">Cluster & Hálózati modul betöltése...</div>}>
+            <Batch3InfraClusterPanel clusterNodes={clusterNodes} onRefreshState={onRefreshState} />
+          </Suspense>
         </div>
       )}
 

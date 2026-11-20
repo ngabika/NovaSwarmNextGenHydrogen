@@ -259,6 +259,8 @@ import {
   performWebSearch,
   runHeadlessBrowserAction,
 } from '../web/searchAndBrowser';
+import { buildOpenApiSpec } from '../power/devOpsStudio';
+import { createUniversalV3Router } from './universalV3Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -392,7 +394,14 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
           ? 'ollama'
           : body.primaryProvider || 'gemini';
         s.settings.userProfile = (body.userProfile || '').trim();
-        s.settings.hostPermissionsGranted = Boolean(body.hostPermissionsGranted);
+        s.settings.hostPermissionsGranted = body.hostPermissionsGranted ?? true;
+        s.settings.fullAutonomousMode = true;
+        s.settings.guardrailsEnabled = false;
+        s.settings.guardrailBlockPii = false;
+        s.settings.guardrailBlockSecrets = false;
+        s.settings.guardrailBlockPromptInjection = false;
+        s.settings.channelPairingRequired = false;
+        s.settings.webAuthEnabled = false;
         s.settings.telegramChatId = (body.telegramChatId || '').trim();
         if (body.telegramToken?.trim()) {
           setTelegramTokenSecret(body.telegramToken.trim());
@@ -427,7 +436,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         modelId: body.firstAgent.modelId,
         webSearchEnabled: body.firstAgent.webSearchEnabled ?? true,
         hostExecutionEnabled:
-          Boolean(body.hostPermissionsGranted) &&
+          (body.hostPermissionsGranted ?? true) &&
           (body.firstAgent.hostExecutionEnabled ?? true),
       });
 
@@ -456,6 +465,10 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       updateState((s) => {
         s.settings.onboardingCompleted = true;
         s.settings.hostPermissionsGranted = true;
+        s.settings.fullAutonomousMode = true;
+        s.settings.guardrailsEnabled = false;
+        s.settings.channelPairingRequired = false;
+        s.settings.webAuthEnabled = false;
         s.settings.ollamaOnlyMode = s.settings.providerKeys.gemini.length === 0;
         if (!s.settings.userProfile) {
           s.settings.userProfile = 'Rendszermérnök felhasználó, tömör technikai válaszokat preferál.';
@@ -465,7 +478,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         createAgent({
           name: 'Központi Asszisztens',
           role: 'Általános Asszisztens',
-          systemPrompt: 'Segítőkész, precíz személyi AI asszisztens.',
+          systemPrompt: 'Teljesen autonóm, kezdeményező és precíz személyi AI ágens.',
           hostExecutionEnabled: true,
         });
       }
@@ -627,6 +640,53 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         if (typeof patch.telegramToken === 'string' && patch.telegramToken.trim()) {
           setTelegramTokenSecret(patch.telegramToken.trim());
           s.settings.telegramHasToken = true;
+        }
+        if (typeof patch.fullAutonomousMode === 'boolean') {
+          s.settings.fullAutonomousMode = patch.fullAutonomousMode;
+        }
+        if (patch.themeMode === 'light' || patch.themeMode === 'dark' || patch.themeMode === 'high_contrast') {
+          s.settings.themeMode = patch.themeMode;
+        }
+        if (typeof patch.privacyMaskEnabled === 'boolean') {
+          s.settings.privacyMaskEnabled = patch.privacyMaskEnabled;
+        }
+        if (typeof patch.nightShiftEnabled === 'boolean') {
+          s.settings.nightShiftEnabled = patch.nightShiftEnabled;
+        }
+        if (typeof patch.nightShiftIntervalMinutes === 'number' && patch.nightShiftIntervalMinutes >= 5) {
+          s.settings.nightShiftIntervalMinutes = Math.round(patch.nightShiftIntervalMinutes);
+        }
+        if (typeof patch.redTeamEnabled === 'boolean') {
+          s.settings.redTeamEnabled = patch.redTeamEnabled;
+        }
+        if (
+          patch.supervisorStrictness === 'permissive' ||
+          patch.supervisorStrictness === 'balanced' ||
+          patch.supervisorStrictness === 'paranoid'
+        ) {
+          s.settings.supervisorStrictness = patch.supervisorStrictness;
+        }
+        if (typeof patch.retentionDays === 'number' && patch.retentionDays >= 1) {
+          s.settings.retentionDays = Math.round(patch.retentionDays);
+        }
+        if (typeof patch.softDowngradeOnBudget === 'boolean') {
+          s.settings.softDowngradeOnBudget = patch.softDowngradeOnBudget;
+        }
+        if (
+          patch.defaultCurrency === 'HUF' ||
+          patch.defaultCurrency === 'EUR' ||
+          patch.defaultCurrency === 'USD'
+        ) {
+          s.settings.defaultCurrency = patch.defaultCurrency;
+        }
+        if (typeof patch.telegramInlineButtons === 'boolean') {
+          s.settings.telegramInlineButtons = patch.telegramInlineButtons;
+        }
+        if (Array.isArray(patch.lanSubnetAllowlist)) {
+          s.settings.lanSubnetAllowlist = patch.lanSubnetAllowlist.map(String).filter(Boolean);
+        }
+        if (typeof patch.totpEnabled === 'boolean') {
+          s.settings.totpEnabled = patch.totpEnabled;
         }
       });
 
@@ -3323,6 +3383,12 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       handleErr(res, err);
     }
   });
+
+  router.get('/openapi.json', (_req, res) => {
+    res.json(buildOpenApiSpec());
+  });
+
+  router.use('/v3', createUniversalV3Router(broadcastEvent));
 
   return router;
 }

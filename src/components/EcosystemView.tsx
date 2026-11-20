@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import {
   BookOpen,
   Calendar,
@@ -11,6 +11,7 @@ import {
   ListChecks,
   Mail,
   Mic,
+  Package,
   Play,
   Plus,
   RefreshCw,
@@ -25,6 +26,10 @@ import {
   Youtube,
 } from 'lucide-react';
 import type { NovaSwarmState, WorkflowStep } from '../../shared/types';
+
+const Batch3LifePortalPanel = lazy(() =>
+  import('./Batch3LifePortalPanel').then((m) => ({ default: m.Batch3LifePortalPanel }))
+);
 
 interface Props {
   state: NovaSwarmState;
@@ -44,6 +49,7 @@ type EcoTab =
   | 'watchdog_media'
   | 'journal'
   | 'lists_subs'
+  | 'life_portal'
   | 'bundle';
 
 export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
@@ -180,6 +186,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
     { id: 'lists_subs', label: 'Listák & Előfizetések', icon: <ListChecks className="h-3.5 w-3.5" /> },
     { id: 'habits', label: 'Szokások & Fókusz', icon: <Timer className="h-3.5 w-3.5" /> },
     { id: 'expenses', label: 'Pénzügyek & CSV', icon: <Wallet className="h-3.5 w-3.5" /> },
+    { id: 'life_portal', label: 'CRM, Csomagok & Deviza', icon: <Package className="h-3.5 w-3.5" /> },
     { id: 'bundle', label: 'Csomag Export/Import', icon: <Download className="h-3.5 w-3.5" /> },
   ];
 
@@ -1630,6 +1637,12 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             Csomag Importálása
           </button>
         </div>
+      )}
+
+      {tab === 'life_portal' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Életvitel & CRM modul betöltése...</div>}>
+          <Batch3LifePortalPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
       )}
     </div>
   );

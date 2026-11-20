@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import {
   BookOpen,
   Code2,
@@ -16,6 +16,8 @@ import {
   Scale,
   Search,
   Send,
+  ShieldCheck,
+  Sparkles,
   Trash2,
   Wrench,
 } from 'lucide-react';
@@ -26,6 +28,13 @@ import type {
   NovaSwarmState,
   ProviderId,
 } from '../../shared/types';
+
+const Batch3DevOpsPanel = lazy(() =>
+  import('./Batch3DevOpsPanel').then((m) => ({ default: m.Batch3DevOpsPanel }))
+);
+const Batch3DataCreativePanel = lazy(() =>
+  import('./Batch3DataCreativePanel').then((m) => ({ default: m.Batch3DataCreativePanel }))
+);
 
 interface Props {
   state: NovaSwarmState;
@@ -39,7 +48,9 @@ type WorkbenchTab =
   | 'api_sql'
   | 'diff_review'
   | 'lang_learn'
-  | 'arena';
+  | 'arena'
+  | 'devops'
+  | 'data_creative';
 
 interface DiffRow {
   type: 'same' | 'added' | 'removed' | 'changed';
@@ -140,6 +151,8 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
     { id: 'diff_review', label: 'Kód Diff & PR Audit', icon: <GitCompare className="h-3.5 w-3.5" /> },
     { id: 'lang_learn', label: `Nyelv, SM-2 (${dueCards.length}) & Riport`, icon: <Languages className="h-3.5 w-3.5" /> },
     { id: 'arena', label: 'Prompt Aréna', icon: <Scale className="h-3.5 w-3.5" /> },
+    { id: 'devops', label: 'DevOps & CVE', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+    { id: 'data_creative', label: 'Adat, QR & Közjegyző', icon: <Sparkles className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -1217,6 +1230,18 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
             </div>
           )}
         </div>
+      )}
+
+      {subTab === 'devops' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">DevOps & CVE modul betöltése...</div>}>
+          <Batch3DevOpsPanel />
+        </Suspense>
+      )}
+
+      {subTab === 'data_creative' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Adat & Kreatív Stúdió betöltése...</div>}>
+          <Batch3DataCreativePanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
       )}
     </div>
   );

@@ -324,7 +324,8 @@ export async function sendEmailViaSmtp(params: {
   inReplyTo?: string;
   requireApproval?: boolean;
 }): Promise<{ sent: boolean; pendingApproval?: boolean; approvalId?: string; message: string }> {
-  if (params.requireApproval) {
+  const { shouldRequireApproval } = await import('../security/permissionGate');
+  if (params.requireApproval && shouldRequireApproval()) {
     const req = requireDestructiveApproval(
       'email_send',
       `E-mail küldése: ${params.to} — ${params.subject}`,

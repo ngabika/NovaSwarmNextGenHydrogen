@@ -166,16 +166,44 @@ export function evaluateGuardrails(
   return { ok: true, sanitizedText: text };
 }
 
-/** Gateway LRU Response Cache */
+/** Gateway LRU + Semantic Cosine Response Cache (M71) */
 interface CacheEntry {
   text: string;
   provider: ProviderId;
   model: string;
   estimatedCostUsd: number;
   expiresAt: number;
+  normPrompt: string;
+  trigrams: Map<string, number>;
+  preset: string;
 }
 const responseCache = new Map<string, CacheEntry>();
 const MAX_CACHE_ENTRIES = 200;
+
+function computeTrigramFreq(text: string): Map<string, number> {
+  const clean = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const vec = new Map<string, number>();
+  for (let i = 0; i <= Math.max(0, clean.length - 3); i++) {
+    const tri = clean.slice(i, i + 3);
+    vec.set(tri, (vec.get(tri) || 0) + 1);
+  }
+  return vec;
+}
+
+function trigramCosine(a: Map<string, number>, b: Map<string, number>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (const [k, va] of a.entries()) {
+    normA += va * va;
+    const vb = b.get(k);
+    if (vb) dot += va * vb;
+  }
+  for (const vb of b.values()) normB += vb * vb;
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
 
 export function clearResponseCache(): number {
   const count = responseCache.size;
@@ -200,6 +228,31 @@ function makeCacheKey(
     .createHash('sha256')
     .update(`${provider}|${model}|${preset || 'fast'}|${normSys}|${normPrompt}`)
     .digest('hex');
+}
+
+function findSemanticCacheHit(prompt: string, preset: ExecutionPreset): CacheEntry | null {
+  const clean = (prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (clean.length < 24) return null;
+  const qVec = computeTrigramFreq(clean);
+  const now = Date.now();
+  let best: CacheEntry | null = null;
+  let bestSim = 0.94;
+  for (const entry of responseCache.values()) {
+    if (entry.expiresAt <= now || entry.preset !== preset) continue;
+    const sim = trigramCosine(qVec, entry.trigrams);
+    if (sim >= bestSim) {
+      bestSim = sim;
+      best = entry;
+    }
+  }
+  return best;
+}
+
+/** Ú153: Remote GPU Ollama Offload resolver */
+export function resolveEffectiveOllamaUrl(stateOverride?: NovaSwarmState): string {
+  const s = stateOverride ?? getState();
+  const gpuNode = s.clusterNodes.find((n) => n.role === 'gpu_ollama' && n.status === 'online' && (n.ollamaUrl || n.url));
+  return gpuNode?.ollamaUrl?.trim() || gpuNode?.url?.trim() || s.settings.ollamaUrl;
 }
 
 /** Round-robin cursor per provider */
@@ -1318,16 +1371,25 @@ async function invokeWithFailoverInternal(
     }
   }
 
-  // Enforce Global Daily Cost Limit
+  // Enforce Global Daily Cost Limit (M78 Soft Downgrade supported)
   let forceOllama = state.settings.ollamaOnlyMode;
   if (state.settings.dailyCostLimitEnabled) {
     const ratio = state.settings.dailySpendUsd / Math.max(0.01, state.settings.dailyCostLimitUsd);
     if (ratio >= 1.0) {
-      throw new Error(
-        `Napi globális költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). Új hívások leállítva.`
-      );
-    }
-    if (ratio >= 0.85) {
+      if (state.settings.softDowngradeOnBudget && !state.settings.ollamaOnlyMode) {
+        forceOllama = true;
+        appendAuditLog({
+          type: 'system',
+          sourceAgentId: 'budget-guard',
+          sourceAgentName: 'Költséglimit Őr',
+          message: `Napi költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)}) — Soft Downgrade aktív: lokális Ollama használata.`,
+        });
+      } else {
+        throw new Error(
+          `Napi globális költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). Új hívások leállítva.`
+        );
+      }
+    } else if (ratio >= 0.85) {
       forceOllama = true;
       appendAuditLog({
         type: 'system',
@@ -1338,8 +1400,14 @@ async function invokeWithFailoverInternal(
     }
   }
 
-  // M39 & M40: Build target candidate chain (agent modelChain + health-aware adaptive ordering)
-  const recordProviderHealth = (provider: ProviderId, ok: boolean, latencyMs: number) => {
+  // M39, M77 & M80: Build target candidate chain + circuit breaker + TTFT/tokps metrics
+  const recordProviderHealth = (
+    provider: ProviderId,
+    ok: boolean,
+    latencyMs: number,
+    outputTokens = 0,
+    ttftMs?: number
+  ) => {
     updateState((s) => {
       s.gatewayAnalytics.providerHealth = s.gatewayAnalytics.providerHealth || ({} as NonNullable<typeof s.gatewayAnalytics.providerHealth>);
       const curr = s.gatewayAnalytics.providerHealth[provider] || {
@@ -1348,15 +1416,25 @@ async function invokeWithFailoverInternal(
         failedCalls: 0,
         avgLatencyMs: 0,
         lastLatencyMs: null,
+        circuitState: 'closed' as const,
       };
       curr.totalCalls += 1;
       if (!ok) {
         curr.failedCalls += 1;
         curr.lastErrorAt = new Date().toISOString();
+        curr.circuitState = curr.failedCalls >= 3 ? 'open' : 'half_open';
       } else {
         curr.lastLatencyMs = latencyMs;
+        curr.circuitState = 'closed';
         const okCount = Math.max(1, curr.totalCalls - curr.failedCalls);
         curr.avgLatencyMs = Math.round((curr.avgLatencyMs * (okCount - 1) + latencyMs) / okCount);
+        if (typeof ttftMs === 'number') {
+          curr.avgTtftMs = Math.round(((curr.avgTtftMs ?? ttftMs) * (okCount - 1) + ttftMs) / okCount);
+        }
+        if (outputTokens > 0 && latencyMs > 0) {
+          const tps = Number(((outputTokens / latencyMs) * 1000).toFixed(1));
+          curr.avgTokensPerSec = Number((((curr.avgTokensPerSec ?? tps) * (okCount - 1) + tps) / okCount).toFixed(1));
+        }
       }
       s.gatewayAnalytics.providerHealth[provider] = curr;
     });
@@ -1434,7 +1512,7 @@ async function invokeWithFailoverInternal(
       req.systemInstruction,
       effectivePreset
     );
-    const cached = responseCache.get(cacheKey);
+    const cached = responseCache.get(cacheKey) || findSemanticCacheHit(req.prompt, effectivePreset);
     if (cached && cached.expiresAt > Date.now()) {
       updateState((s) => {
         s.gatewayAnalytics.cacheHits += 1;
@@ -1475,7 +1553,7 @@ async function invokeWithFailoverInternal(
           apiKey: '',
           prompt: diet.trimmedPrompt,
           systemInstruction: req.systemInstruction,
-          ollamaUrl: state.settings.ollamaUrl,
+          ollamaUrl: resolveEffectiveOllamaUrl(state),
           ollamaNumCtx: state.settings.ollamaNumCtx,
           ollamaKeepAlive: state.settings.ollamaKeepAlive,
           preset: effectivePreset,
@@ -1486,7 +1564,8 @@ async function invokeWithFailoverInternal(
           onChunk,
         });
         lastOllamaActivityMs = Date.now();
-        recordProviderHealth('ollama', true, Date.now() - t0);
+        const elapsed = Date.now() - t0;
+        recordProviderHealth('ollama', true, elapsed, res.outputTokens ?? estimateTokens(res.text), elapsed);
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: true });
         return {
@@ -1582,12 +1661,16 @@ async function invokeWithFailoverInternal(
             req.systemInstruction,
             effectivePreset
           );
+          const normPrompt = (req.prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();
           responseCache.set(cacheKey, {
             text: outGuard.sanitizedText,
             provider,
             model,
             estimatedCostUsd: costUsd,
             expiresAt: Date.now() + Math.max(10, state.settings.responseCacheTtlSec) * 1000,
+            normPrompt,
+            trigrams: computeTrigramFreq(normPrompt),
+            preset: effectivePreset,
           });
         }
 

@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendAuditLog, atomicWriteFileSync } from '../state/store';
-import { assertHostPermission, requireDestructiveApproval } from '../security/permissionGate';
+import { assertHostPermission, requireDestructiveApproval, shouldRequireApproval } from '../security/permissionGate';
 
 /**
  * Explicit Forbidden Modification Zone (Section 8.5).
@@ -141,7 +141,7 @@ export function applyGuardedSelfModification(opts: SelfModOptions): SelfModResul
     throw new SecretLeakDetectedError(relPath);
   }
 
-  if (isSensitiveCoreFile(relPath) && !opts.bypassApprovalForTest) {
+  if (isSensitiveCoreFile(relPath) && !opts.bypassApprovalForTest && shouldRequireApproval()) {
     const approval = requireDestructiveApproval(
       'sensitive_selfmod',
       `Érzékeny core fájl önmódosítása: ${relPath}`,

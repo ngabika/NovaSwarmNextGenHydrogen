@@ -7,7 +7,9 @@ import type {
   ExecutionPreset,
   KanbanCard,
   MessageAttachment,
+  NightShiftRun,
   SessionIsolationMode,
+  TimeCapsuleDigest,
   ToolExecutionStep,
   UnifiedMessage,
 } from '../../shared/types';
@@ -24,6 +26,7 @@ import {
   detectDestructiveOperation,
   PROMPT_INJECTION_DEFENSE_RULE,
   requireDestructiveApproval,
+  shouldRequireApproval,
 } from '../security/permissionGate';
 import { buildProgressiveSkillsIndex } from '../skills/loader';
 import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../state/store';
@@ -128,7 +131,7 @@ export function executeHostCommandForAgent(
   assertHostPermission(`exec:${command}`, agent.id);
 
   const destructive = detectDestructiveOperation(command);
-  if (destructive.isDestructive && destructive.type && destructive.title) {
+  if (destructive.isDestructive && destructive.type && destructive.title && shouldRequireApproval()) {
     const req = requireDestructiveApproval(destructive.type, destructive.title, command, agent.name);
     return {
       executed: false,
@@ -363,6 +366,25 @@ export async function runAgentWithTools(params: {
       if (!outcome.step.ok) anyFailed = true;
       if (outcome.createdArtifactId) artifactIds.push(outcome.createdArtifactId);
       obsBlocks.push(`[Eszköz hívás #${step + 1}.${idx + 1}: ${calls[idx].name}]\n[Eredmény]:\n${outcome.observation}`);
+    }
+
+    /** M81: Loop-detection guard — break out if identical failing tool call repeats back-to-back */
+    if (toolTrace.length >= 2) {
+      const last = toolTrace[toolTrace.length - 1];
+      const prev = toolTrace[toolTrace.length - 2];
+      if (!last.ok && !prev.ok && last.tool === prev.tool && JSON.stringify(last.args) === JSON.stringify(prev.args)) {
+        return {
+          text: `Eszköz-lánc megszakítva (ismétlődő sikertelen hívás: ${last.tool}). Utolsó visszajelzés: ${last.outputPreview}`,
+          model: lastModel,
+          provider: lastProvider,
+          costUsd: totalCost,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          latencyMs: Date.now() - startedAt,
+          toolTrace,
+          artifactIds,
+        };
+      }
     }
 
     /** M35: Self-healing tool retry injection */
@@ -1053,3 +1075,188 @@ export async function runAutonomousKanbanWorkerTick(
     return { worked: false, cardId: card.id, status: 'in_progress', reason: msg };
   }
 }
+
+/** Ú64: Thread Time-Travel Rewind */
+export function rewindThreadToMessage(threadId: string, messageId: string): {
+  ok: boolean;
+  removedCount: number;
+  remainingCount: number;
+} {
+  const state = getState();
+  const threadMsgs = state.messages.filter((m) => m.threadId === threadId);
+  const idx = threadMsgs.findIndex((m) => m.id === messageId);
+  if (idx < 0) return { ok: false, removedCount: 0, remainingCount: threadMsgs.length };
+
+  const removeIds = new Set(threadMsgs.slice(idx + 1).map((m) => m.id));
+  updateState((s) => {
+    s.messages = s.messages.filter((m) => !removeIds.has(m.id));
+  });
+  appendAuditLog({
+    type: 'action',
+    sourceAgentId: 'thread-rewind',
+    sourceAgentName: 'Idővonal Visszapörgető',
+    message: `Szál (${threadId}) visszapörgetve a(z) ${messageId} üzenetig (${removeIds.size} későbbi üzenet eltávolítva).`,
+    verifiedExecution: true,
+  });
+  return { ok: true, removedCount: removeIds.size, remainingCount: idx + 1 };
+}
+
+/** Ú63: Dual-Agent Red-Team Adversarial Critic */
+export async function runRedTeamCritique(params: {
+  threadId: string;
+  targetMessageId: string;
+  routerDeps?: RouterDependencies;
+}): Promise<{ critiqueMessage: UnifiedMessage }> {
+  const state = getState();
+  const target = state.messages.find((m) => m.id === params.targetMessageId);
+  if (!target) throw new Error('A vizsgálandó üzenet nem található.');
+
+  const critic =
+    state.agents.find((a) => a.isSupervisor) ||
+    state.agents.find((a) => a.active) || {
+      id: 'red-team-critic',
+      name: 'Red-Team Kritikus',
+      role: 'Adverzariális Kritikus',
+      modelId: 'gemini-4-hydrogen',
+      providerId: state.settings.primaryProvider,
+    };
+
+  let critiqueText = '';
+  let modelUsed = critic.modelId;
+  let providerUsed = critic.providerId;
+  let costUsd = 0;
+
+  try {
+    const res = await invokeWithFailover(
+      {
+        prompt: `Vizsgáld meg kritikusan (Red-Team mód) az alábbi választ hibák, logikai rések, teljesíthetetlen állítások vagy biztonsági/stabilitási hiányosságok után kutatva:\n\n"${target.content.slice(0, 2500)}"\n\nAdj tömör, tényszerű ellenőrző listát magyarul.`,
+        systemInstruction: 'Te egy szigorú Red-Team technikai auditor vagy. Ne dicsérj, csak a konkrét kockázatokat és javításokat sorold fel.',
+        complexity: 'complex',
+        preferredProvider: critic.providerId,
+        preferredModel: critic.modelId,
+        agentId: critic.id,
+        bypassCache: true,
+      },
+      params.routerDeps
+    );
+    critiqueText = res.text;
+    modelUsed = res.model;
+    providerUsed = res.provider;
+    costUsd = res.costUsd;
+  } catch (err) {
+    critiqueText = `Red-Team lokális heurisztikus ellenőrzés (LLM nem elérhető — ${err instanceof Error ? err.message : String(err)}):\n• Válasz hossza: ${target.content.length} karakter\n• Eszközlépések száma: ${target.toolTrace?.length || 0}\n• Ajánlás: Futtass valós tesztet vagy eszköz-ellenőrzést az állítások igazolására.`;
+  }
+
+  const critiqueMessage = appendUnifiedMessage({
+    threadId: params.threadId,
+    senderType: 'agent',
+    senderId: 'red-team-critic',
+    senderName: 'Red-Team Kritikus',
+    channel: 'swarm_internal',
+    content: `[Red-Team Kritika -> ${target.senderName}]\n${critiqueText}`,
+    modelUsed,
+    providerUsed,
+    costUsd,
+  });
+
+  appendAuditLog({
+    type: 'supervisor',
+    sourceAgentId: 'red-team-critic',
+    sourceAgentName: 'Red-Team Kritikus',
+    message: `Red-Team elemzés elkészült a(z) ${target.senderName} válaszáról.`,
+    verifiedExecution: true,
+  });
+
+  return { critiqueMessage };
+}
+
+/** Ú61: Autonomous Night Shift Worker Cycle */
+export async function runNightShiftCycle(routerDeps?: RouterDependencies): Promise<NightShiftRun> {
+  const startedAt = new Date().toISOString();
+  const actionsTaken: string[] = [];
+  let tasksCompleted = 0;
+
+  const state = getState();
+  const todoCount = state.kanban.filter((c) => !c.archived && c.status === 'todo').length;
+  const maxBatch = Math.min(2, todoCount);
+
+  for (let i = 0; i < maxBatch; i++) {
+    const tick = await runAutonomousKanbanWorkerTick(routerDeps);
+    if (tick.worked) {
+      tasksCompleted += 1;
+      actionsTaken.push(`Kanban feladat teljesítve: ${tick.cardId}`);
+    } else {
+      break;
+    }
+  }
+
+  if (state.memories.length > 0) {
+    actionsTaken.push(`${state.memories.length} memória elem átnézve az éjszakai ciklusban.`);
+  }
+
+  const reportSummary =
+    tasksCompleted > 0
+      ? `Éjszakai Műszak kész: ${tasksCompleted} Kanban feladat autonóm módon feldolgozva.`
+      : `Éjszakai Műszak kész: nincs feldolgozandó várakozó Kanban kártya (${state.memories.length} memória aktív).`;
+
+  const run: NightShiftRun = {
+    id: `night-${crypto.randomUUID().slice(0, 6)}`,
+    startedAt,
+    completedAt: new Date().toISOString(),
+    tasksCompleted,
+    reportSummary,
+    actionsTaken,
+  };
+
+  updateState((s) => {
+    s.nightShiftRuns.unshift(run);
+    if (s.nightShiftRuns.length > 30) s.nightShiftRuns = s.nightShiftRuns.slice(0, 30);
+    s.settings.lastNightShiftAt = run.completedAt;
+  });
+
+  appendAuditLog({
+    type: 'nightshift',
+    sourceAgentId: 'night-shift',
+    sourceAgentName: 'Éjszakai Műszak',
+    message: reportSummary,
+    verifiedExecution: true,
+  });
+
+  return run;
+}
+
+/** Ú157: Time Capsule Weekly Digest */
+export function generateWeeklyTimeCapsule(): TimeCapsuleDigest {
+  const state = getState();
+  const weekAgoMs = Date.now() - 7 * 24 * 3_600_000;
+  const msgCount = state.messages.filter((m) => Date.parse(m.timestamp) >= weekAgoMs).length;
+  const completedTasks = state.kanban.filter((c) => c.status === 'done' && Date.parse(c.updatedAt) >= weekAgoMs).length;
+  const newMemories = state.memories.filter((m) => Date.parse(m.createdAt) >= weekAgoMs).length;
+
+  const summaryMarkdown = [
+    `# Heti Időkapszula (${new Date().toISOString().slice(0, 10)})`,
+    `- Feldolgozott üzenetek (7 nap): **${msgCount}**`,
+    `- Befejezett Kanban feladatok: **${completedTasks}**`,
+    `- Újonnan rögzített memóriák: **${newMemories}**`,
+    `- Éjszakai Műszak futások: **${state.nightShiftRuns.length}**`,
+    `- Aktív költségkeret használat: **$${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}**`,
+  ].join('\n');
+
+  const capsule: TimeCapsuleDigest = {
+    id: `cap-${crypto.randomUUID().slice(0, 6)}`,
+    periodLabel: `7 napos összegzés (${new Date().toISOString().slice(0, 10)})`,
+    completedTasks,
+    newMemories,
+    spendUsd: state.settings.dailySpendUsd,
+    summaryMarkdown,
+    createdAt: new Date().toISOString(),
+  };
+
+  updateState((s) => {
+    s.timeCapsules.unshift(capsule);
+    if (s.timeCapsules.length > 20) s.timeCapsules = s.timeCapsules.slice(0, 20);
+  });
+
+  return capsule;
+}
+

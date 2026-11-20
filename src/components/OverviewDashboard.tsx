@@ -237,21 +237,21 @@ export const OverviewDashboard: React.FC<Props> = ({
         )}
 
         {isVisible('budget') && (
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-slate-600" />
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-slate-600 dark:text-slate-400" />
                 Költségkeret & Havi Projekció
               </h2>
               <button
                 type="button"
                 onClick={() => onNavigate('models')}
-                className="text-xs text-slate-500 hover:text-slate-900 font-mono"
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 font-mono"
               >
                 Router →
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className={`grid grid-cols-2 gap-3 text-xs ${state.settings.privacyMaskEnabled ? 'blur-sm select-none' : ''}`}>
               <div>
                 <div className="text-slate-500">Mai költés / Limit</div>
                 <div className="text-lg font-mono font-semibold tabular-nums">
@@ -262,14 +262,14 @@ export const OverviewDashboard: React.FC<Props> = ({
                 <div className="text-slate-500">Várható havi (30 nap)</div>
                 <div
                   className={`text-lg font-mono font-semibold tabular-nums ${
-                    projection?.alertTriggered ? 'text-red-700' : 'text-slate-900'
+                    projection?.alertTriggered ? 'text-red-700' : 'text-slate-900 dark:text-slate-100'
                   }`}
                 >
                   ${(projection?.projectedMonthlyUsd ?? state.settings.dailySpendUsd * 30).toFixed(2)}
                 </div>
               </div>
             </div>
-            <div className="text-xs text-slate-500 font-mono tabular-nums">
+            <div className={`text-xs text-slate-500 font-mono tabular-nums ${state.settings.privacyMaskEnabled ? 'blur-sm select-none' : ''}`}>
               Cache megtakarítás: ${state.gatewayAnalytics.savedUsd.toFixed(4)} · Guardrail blokk: {state.gatewayAnalytics.guardrailsBlocked}
             </div>
           </div>
@@ -432,19 +432,19 @@ export const OverviewDashboard: React.FC<Props> = ({
         )}
 
         {/* Ú59 Weather + M54 Hardening + M46 Morning Digest */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <CloudSun className="h-4 w-4 text-slate-600" />
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <CloudSun className="h-4 w-4 text-slate-600 dark:text-slate-400 shrink-0" />
               Helyi Időjárás & Hardening
             </h2>
             {hardening && (
               <button
                 type="button"
                 onClick={() => onNavigate('system')}
-                className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-slate-800 hover:underline tabular-nums"
+                className="inline-flex items-center gap-1 text-xs font-mono font-semibold text-slate-800 dark:text-slate-200 hover:underline tabular-nums whitespace-nowrap shrink-0"
               >
-                <ShieldAlert className="h-3.5 w-3.5" />
+                <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
                 Biztonság: {hardening.score}/100
               </button>
             )}
@@ -476,16 +476,16 @@ export const OverviewDashboard: React.FC<Props> = ({
           )}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Moon className="h-4 w-4 text-slate-600" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Moon className="h-4 w-4 text-slate-600 dark:text-slate-400" />
               Legutóbbi Éjszakai Álom Digest
             </h2>
             <button
               type="button"
               onClick={() => onNavigate('memory')}
-              className="text-xs text-slate-500 hover:text-slate-900 font-mono"
+              className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 font-mono"
             >
               Álomnapló →
             </button>
@@ -497,10 +497,53 @@ export const OverviewDashboard: React.FC<Props> = ({
               <div className="font-mono text-[11px] text-slate-500">
                 {new Date(state.dreamJournal[state.dreamJournal.length - 1].timestamp).toLocaleString()}
               </div>
-              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+              <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
                 {state.dreamJournal[state.dreamJournal.length - 1].morningDigest ||
                   state.dreamJournal[state.dreamJournal.length - 1].narrative}
               </p>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Rocket className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+              Heti Időkapszula & Éjszakai Műszak (Ú61, Ú157)
+            </h2>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch('/api/v3/time-capsule/generate', { method: 'POST' });
+                await onRefreshState();
+              }}
+              className="px-3 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg font-medium whitespace-nowrap shrink-0"
+            >
+              Időkapszula Generálás
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch('/api/v3/nightshift/run', { method: 'POST' });
+                await onRefreshState();
+              }}
+              className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg font-medium hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
+            >
+              Éjszakai Műszak Indítása
+            </button>
+          </div>
+          {state.timeCapsules?.[0] ? (
+            <pre className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+              {state.timeCapsules[0].summaryMarkdown}
+            </pre>
+          ) : (
+            <p className="text-xs text-slate-500">Még nincs generált heti időkapszula.</p>
+          )}
+          {state.nightShiftRuns?.[0] && (
+            <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+              Utolsó műszak: {state.nightShiftRuns[0].reportSummary}
             </div>
           )}
         </div>

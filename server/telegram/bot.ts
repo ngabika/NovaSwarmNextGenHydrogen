@@ -1,7 +1,13 @@
 import crypto from 'node:crypto';
 import type { ApprovalRequest } from '../../shared/types';
-import { handleUserTurn, resolveTargetAgent } from '../agents/engine';
+import {
+  generateWeeklyTimeCapsule,
+  handleUserTurn,
+  resolveTargetAgent,
+  runNightShiftCycle,
+} from '../agents/engine';
 import { resolvePairingRequest } from '../channels/connectors';
+import { pingClusterNodes, scanLanArpTable, sendWakeOnLanPacket } from '../infra/networkAndCluster';
 import { searchMemories } from '../memory/vectorStore';
 import {
   addSharedListItem,
@@ -17,6 +23,7 @@ import {
   getState,
   getTelegramTokenSecret,
   updateState,
+  verifyAuditLogChain,
 } from '../state/store';
 import { collectHardwareMetrics, checkOtaUpdates } from '../system/ops';
 
@@ -212,6 +219,60 @@ export async function processTelegramInput(
     return `Autonóm küldetés (${mission.status}): ${mission.goal}\n${mission.steps.map((s) => `- [${s.status}] ${s.title}`).join('\n')}`;
   }
 
+  /** Batch 3 Telegram Commands */
+  if (text === '/nightshift' || text === '/ejszaka') {
+    const run = await runNightShiftCycle();
+    return `${run.reportSummary}\n${run.actionsTaken.join('\n')}`;
+  }
+
+  if (text.startsWith('/wol')) {
+    const arg = text.replace(/^\/wol\s*/i, '').trim();
+    const dev = arg
+      ? state.wolDevices.find((d) => d.name.toLowerCase() === arg.toLowerCase() || d.mac.toLowerCase() === arg.toLowerCase())
+      : state.wolDevices[0];
+    const mac = dev?.mac || arg;
+    if (!mac) return 'Használat: /wol <MAC-cím vagy eszköz név>';
+    const res = await sendWakeOnLanPacket(mac, dev?.broadcastIp || '255.255.255.255');
+    return res.message;
+  }
+
+  if (text === '/crm') {
+    if (state.crmContacts.length === 0) return 'A CRM névjegyzék még üres.';
+    return `Személyes CRM (${state.crmContacts.length} db):\n${state.crmContacts
+      .slice(0, 12)
+      .map((c) => `• ${c.name} (${c.relation})${c.email ? ` — ${c.email}` : ''}`)
+      .join('\n')}`;
+  }
+
+  if (text === '/kapszula' || text === '/capsule') {
+    const cap = generateWeeklyTimeCapsule();
+    return cap.summaryMarkdown;
+  }
+
+  if (text === '/lan') {
+    const arp = scanLanArpTable();
+    if (arp.devices.length === 0) return `LAN ARP vizsgálat (${arp.source}): nincs rögzített szomszédos eszköz.`;
+    return `LAN Eszközök (${arp.source}):\n${arp.devices
+      .slice(0, 15)
+      .map((d) => `• ${d.ip} [${d.mac}] (${d.iface}, ${d.state})`)
+      .join('\n')}`;
+  }
+
+  if (text === '/audit') {
+    const chain = verifyAuditLogChain();
+    return `Audit Hash Lánc: ${chain.valid ? 'ÉP (Érvényes)' : 'SÉRÜLT'}\nEllenőrzött bejegyzések: ${chain.checkedEntries}${chain.brokenIds.length > 0 ? `\nEltérés ID: ${chain.brokenIds.join(', ')}` : ''}`;
+  }
+
+  if (text === '/cluster') {
+    const nodes = await pingClusterNodes();
+    if (nodes.length === 0) return 'Nincs konfigurált fürt csomópont.';
+    return `Fürt állapot:\n${nodes.map((n) => `• ${n.name} (${n.role}): ${n.status} ${n.latencyMs ?? '-'}ms`).join('\n')}`;
+  }
+
+  if (text === '/openapi') {
+    return 'OpenAPI 3.1 séma elérhető helyi hálózaton: GET /api/openapi.json';
+  }
+
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {
     const query = text.replace(/^\/(keres|ask)\s+/i, '').trim();
     const memMatches = searchMemories(query, 4, { reinforce: true });
@@ -278,6 +339,10 @@ export function buildTelegramStatusInlineKeyboard() {
     [
       { text: 'Állapot frissítése', callback_data: '/statusz' },
       { text: 'Kanban tábla', callback_data: '/kanban' },
+    ],
+    [
+      { text: 'Éjszakai Műszak', callback_data: '/nightshift' },
+      { text: 'Időkapszula', callback_data: '/kapszula' },
     ],
     [
       { text: 'Memória', callback_data: '/memoria' },
@@ -412,8 +477,9 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
         }
         const reply = await processTelegramInput(incoming, forcedAgentId);
         const trimmedCmd = incoming.trim();
+        const useInline = getState().settings.telegramInlineButtons !== false;
         const inlineButtons =
-          trimmedCmd === '/statusz' || trimmedCmd === '/status' || trimmedCmd === '/kanban'
+          useInline && (trimmedCmd === '/statusz' || trimmedCmd === '/status' || trimmedCmd === '/kanban' || trimmedCmd === '/nightshift')
             ? buildTelegramStatusInlineKeyboard()
             : undefined;
         await sendTelegramMessage(reply, {

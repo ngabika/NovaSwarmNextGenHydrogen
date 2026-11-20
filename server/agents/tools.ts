@@ -33,9 +33,27 @@ import { generateImageArtifactWithGemini } from '../providers/router';
 import { searchOfflineKnowledgePack } from '../rag/documents';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
 import {
+  evaluateRegexAndCron,
+  runCveVulnerabilityScan,
+} from '../power/devOpsStudio';
+import {
+  addCrmContact,
+  convertCurrencyLive,
+  generateQrSvg,
+} from '../power/lifeAndFinanceStudio';
+import {
+  pingClusterNodes,
+  sendWakeOnLanPacket,
+} from '../infra/networkAndCluster';
+import {
+  notarizeDocumentHash,
+  validateSafeOutboundUrl,
+} from '../security/egressAndCrypto';
+import {
   assertHostPermission,
   detectDestructiveOperation,
   requireDestructiveApproval,
+  shouldRequireApproval,
 } from '../security/permissionGate';
 import { assertNotForbiddenModificationZone } from '../selfmod/gitGuard';
 import { createAndValidateSkill } from '../skills/loader';
@@ -76,6 +94,14 @@ Elérhető eszközök:
 25. http_request: {"method": "GET|POST|PUT", "url": "https://...", "body": "..."} — élő REST/API kérés végrehajtása.
 26. db_query: {"engine": "sqlite|postgres", "target": "...", "sql": "SELECT ..."} — írásvédett SQL adatbázis lekérdezés.
 27. weather: {"location": "Budapest"} — valós idejű Open-Meteo időjárás és napi előrejelzés.
+28. wake_on_lan: {"mac": "AA:BB:CC:DD:EE:FF", "broadcastIp": "255.255.255.255"} — hálózati gép távoli ébresztése UDP Magic Packettel.
+29. regex_cron_tool: {"pattern": "...", "sampleText": "...", "naturalCronText": "..."} — Regex kiértékelő és Cron generátor.
+30. qr_generate: {"text": "https://..."} — offline SVG QR-kód generálása az erőforrástárba.
+31. crm_contact: {"action": "list|add", "name": "...", "relation": "...", "notes": "..."} — Személyes CRM névjegyek kezelése.
+32. cve_check: {} — projekt függőségek CVE sebezhetőségi vizsgálata (npm audit + OSV).
+33. finance_fx_convert: {"amount": 100, "from": "EUR", "to": "HUF"} — élő EKB devizaátváltás.
+34. hash_notarize: {"title": "...", "content": "..."} — SHA-256 dokumentum közjegyzői lenyomat rögzítése.
+35. cluster_status: {} — többgépes fürt és GPU Ollama csomópontok állapotának lekérdezése.
 Ha már minden adat megvan a válaszadáshoz, válaszolj normál szöveggel (<tool_call> nélkül).`;
 
 export function buildDynamicToolsInstruction(): string {
@@ -150,7 +176,7 @@ export async function executeAgentTool(params: {
 
       assertHostPermission(`exec:${command}`, agent.id);
       const destructive = detectDestructiveOperation(command);
-      if (destructive.isDestructive && destructive.type && destructive.title) {
+      if (destructive.isDestructive && destructive.type && destructive.title && shouldRequireApproval()) {
         const req = requireDestructiveApproval(destructive.type, destructive.title, command, agent.name);
         void import('../telegram/bot')
           .then((m) => m.notifyApprovalToTelegram(req))
@@ -250,11 +276,12 @@ export async function executeAgentTool(params: {
       };
     }
 
-    /** M7: Upgraded HTML->Markdown Reader */
+    /** M7 + M114: Upgraded HTML->Markdown Reader with SSRF URL safety check */
     if (toolName === 'web_fetch') {
       if (!agent.webSearchEnabled) throw new Error('Az ágens számára a webes lekérés le van tiltva.');
       const url = String(args.url || '').trim();
-      if (!/^https?:\/\//i.test(url)) throw new Error('Csak http/https URL engedélyezett.');
+      const safeUrl = validateSafeOutboundUrl(url, getState().settings.lanSubnetAllowlist);
+      if (!safeUrl.safe) throw new Error(safeUrl.reason || 'Tiltott vagy érvénytelen URL.');
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       const html = await res.text();
       const parsed = cleanHtmlToMarkdown(html, url);
@@ -659,10 +686,12 @@ export async function executeAgentTool(params: {
       };
     }
 
-    /** Ú32: HTTP / REST API Tool */
+    /** Ú32 + M114: HTTP / REST API Tool with SSRF check */
     if (toolName === 'http_request') {
       if (!agent.webSearchEnabled) throw new Error('Külső HTTP kérés le van tiltva ehhez az ágenshez.');
       const url = String(args.url || '').trim();
+      const safeUrl = validateSafeOutboundUrl(url, getState().settings.lanSubnetAllowlist);
+      if (!safeUrl.safe) throw new Error(safeUrl.reason || 'Tiltott URL.');
       const method = (String(args.method || 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE');
       const res = await executeApiStudioRequest({
         name: `Agent HTTP: ${url.slice(0, 30)}`,
@@ -702,6 +731,113 @@ export async function executeAgentTool(params: {
         observation: w.ok
           ? `${w.location}: ${w.temperatureC}°C, ${w.condition}, szél ${w.windKmh} km/h (napi min/max: ${w.dailyMinC}°C / ${w.dailyMaxC}°C)`
           : `Időjárás hiba: ${w.error}`,
+      };
+    }
+
+    /** Batch 3 Tools 28..35 */
+    if (toolName === 'wake_on_lan') {
+      const mac = String(args.mac || '').trim();
+      const broadcastIp = args.broadcastIp ? String(args.broadcastIp) : '255.255.255.255';
+      const wol = await sendWakeOnLanPacket(mac, broadcastIp);
+      return {
+        step: { tool: 'wake_on_lan', args: { mac, broadcastIp }, ok: wol.ok, sandboxed: isSandboxed, outputPreview: wol.message },
+        observation: wol.message,
+      };
+    }
+
+    if (toolName === 'regex_cron_tool') {
+      const out = evaluateRegexAndCron({
+        pattern: args.pattern ? String(args.pattern) : undefined,
+        flags: args.flags ? String(args.flags) : 'g',
+        sampleText: args.sampleText ? String(args.sampleText) : undefined,
+        cronExpression: args.cronExpression ? String(args.cronExpression) : undefined,
+        naturalCronText: args.naturalCronText ? String(args.naturalCronText) : undefined,
+      });
+      return {
+        step: { tool: 'regex_cron_tool', args, ok: true, sandboxed: isSandboxed, outputPreview: JSON.stringify(out).slice(0, 180) },
+        observation: JSON.stringify(out, null, 2),
+      };
+    }
+
+    if (toolName === 'qr_generate') {
+      const text = String(args.text || '').trim();
+      if (!text) throw new Error('text paraméter kötelező.');
+      const svg = generateQrSvg(text, 220);
+      const artId = `art-qr-${crypto.randomUUID().slice(0, 6)}`;
+      updateState((s) => {
+        s.artifacts.unshift({
+          id: artId,
+          title: `QR: ${text.slice(0, 40)}`,
+          kind: 'chart_svg',
+          urlOrContent: svg,
+          mimeType: 'image/svg+xml',
+          createdAt: new Date().toISOString(),
+        });
+      });
+      return {
+        step: { tool: 'qr_generate', args: { text }, ok: true, sandboxed: isSandboxed, outputPreview: artId },
+        observation: `SVG QR-kód elkészült (${artId}).`,
+        createdArtifactId: artId,
+      };
+    }
+
+    if (toolName === 'crm_contact') {
+      const action = String(args.action || 'list');
+      if (action === 'add') {
+        const contact = addCrmContact({
+          name: String(args.name || 'Új Kapcsolat'),
+          relation: args.relation ? String(args.relation) : 'Partner',
+          email: args.email ? String(args.email) : undefined,
+          notes: args.notes ? String(args.notes) : undefined,
+        });
+        return {
+          step: { tool: 'crm_contact', args: { action }, ok: true, sandboxed: isSandboxed, outputPreview: contact.id },
+          observation: `CRM kapcsolat mentve: ${contact.name} (${contact.id})`,
+        };
+      }
+      const list = getState().crmContacts.slice(0, 15).map((c) => `- ${c.name} (${c.relation}) ${c.email || ''}`).join('\n');
+      return {
+        step: { tool: 'crm_contact', args: { action }, ok: true, sandboxed: isSandboxed, outputPreview: `${getState().crmContacts.length} kapcsolat` },
+        observation: list || 'A CRM névjegyzék üres.',
+      };
+    }
+
+    if (toolName === 'cve_check') {
+      const scan = await runCveVulnerabilityScan();
+      return {
+        step: { tool: 'cve_check', args: {}, ok: scan.ok, sandboxed: isSandboxed, outputPreview: scan.summary },
+        observation: `${scan.summary}\n${scan.vulnerabilities.slice(0, 10).map((v) => `- [${v.severity}] ${v.name}: ${v.title}`).join('\n')}`,
+      };
+    }
+
+    if (toolName === 'finance_fx_convert') {
+      const fx = await convertCurrencyLive(
+        Number(args.amount || 100),
+        String(args.from || 'EUR'),
+        String(args.to || 'HUF')
+      );
+      return {
+        step: { tool: 'finance_fx_convert', args, ok: fx.ok, sandboxed: isSandboxed, outputPreview: `${fx.amount} ${fx.from} = ${fx.converted} ${fx.to}` },
+        observation: `${fx.amount} ${fx.from} = ${fx.converted} ${fx.to} (árfolyam: ${fx.rate}, forrás: ${fx.source})`,
+      };
+    }
+
+    if (toolName === 'hash_notarize') {
+      const title = String(args.title || 'Dokumentum');
+      const content = String(args.content || '');
+      const rec = notarizeDocumentHash({ fileName: title, textContent: content });
+      return {
+        step: { tool: 'hash_notarize', args: { title }, ok: true, sandboxed: isSandboxed, outputPreview: rec.sha256.slice(0, 16) },
+        observation: `Közjegyzői SHA-256 lenyomat rögzítve (${title}): ${rec.sha256}`,
+      };
+    }
+
+    if (toolName === 'cluster_status') {
+      const nodes = await pingClusterNodes();
+      const summary = nodes.map((n) => `- ${n.name} (${n.role}): ${n.status} (${n.latencyMs ?? '-'}ms)`).join('\n') || 'Nincs regisztrált fürt csomópont.';
+      return {
+        step: { tool: 'cluster_status', args: {}, ok: true, sandboxed: isSandboxed, outputPreview: `${nodes.length} csomópont` },
+        observation: summary,
       };
     }
 

@@ -92,6 +92,21 @@ const DESTRUCTIVE_PATTERNS: Array<{ type: DestructiveActionType; regex: RegExp; 
   },
 ];
 
+export function shouldRequireApproval(stateOverride?: NovaSwarmState): boolean {
+  const s = stateOverride ?? getState();
+  return s.settings.fullAutonomousMode === false;
+}
+
+/** M120: Action risk scoring (1-10) */
+export function scoreActionRisk(commandOrAction: string): number {
+  const lower = commandOrAction.toLowerCase();
+  if (/\b(mkfs|fdisk|parted|rm\s+-rf\s+\/|dd\s+if=|wipefs)\b/.test(lower)) return 10;
+  if (/\b(apt(-get)?\s+(upgrade|purge|remove)|ufw\s+|iptables\s+|systemctl\s+stop)\b/.test(lower)) return 7;
+  if (/\b(git\s+push|npm\s+install|docker\s+(stop|rm))\b/.test(lower)) return 5;
+  if (/\b(write|patch|commit|curl|post)\b/.test(lower)) return 3;
+  return 1;
+}
+
 export function detectDestructiveOperation(command: string): {
   isDestructive: boolean;
   type?: DestructiveActionType;
@@ -119,7 +134,7 @@ export function requireDestructiveApproval(
     requestedBy,
     impactSummary:
       impactSummary ||
-      `Művelet típusa: ${type}. Célpont: ${commandOrTarget}. A kérés 15 perc elteltével automatikusan lejár.`,
+      `Művelet típusa: ${type} (Kockázat: ${scoreActionRisk(commandOrTarget)}/10). Célpont: ${commandOrTarget}.`,
   });
   appendAuditLog({
     type: 'system',

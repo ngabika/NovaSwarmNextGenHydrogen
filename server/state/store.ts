@@ -18,8 +18,10 @@ import type {
   Settings,
   UnifiedMessage,
 } from '../../shared/types';
+import { novaBus } from './eventBus';
+import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -404,7 +406,7 @@ export function createDefaultSettings(): Settings {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     onboardingCompleted: false,
     language: 'hu',
-    hostPermissionsGranted: false,
+    hostPermissionsGranted: true,
     killSwitchActive: false,
     userProfile: '',
     primaryProvider: 'gemini',
@@ -465,13 +467,13 @@ export function createDefaultSettings(): Settings {
     defaultPreset: 'fast',
     responseCacheEnabled: true,
     responseCacheTtlSec: 600,
-    guardrailsEnabled: true,
+    guardrailsEnabled: false,
     guardrailBlockPii: false,
-    guardrailBlockSecrets: true,
-    guardrailBlockPromptInjection: true,
+    guardrailBlockSecrets: false,
+    guardrailBlockPromptInjection: false,
     heartbeatEnabled: true,
     heartbeatIntervalMinutes: 5,
-    channelPairingRequired: true,
+    channelPairingRequired: false,
     lastHeartbeatAt: null,
     lastHeartbeatSummary: null,
     kanbanWipLimit: 3,
@@ -480,7 +482,7 @@ export function createDefaultSettings(): Settings {
     instanceName: os.hostname().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'novaswarm-node',
     webAuthEnabled: false,
     webAuthHasPassword: hasWebAuthPassword(),
-    autonomousKanbanWorkerEnabled: false,
+    autonomousKanbanWorkerEnabled: true,
     embeddingMode: 'local_ngram',
     ollamaEmbeddingModel: 'nomic-embed-text',
     otaRepoSlug: process.env.NOVASWARM_OTA_REPO || 'ngabika/NovaSwarmNextGenHydrogen',
@@ -500,6 +502,20 @@ export function createDefaultSettings(): Settings {
     wakeWordEnabled: false,
     wakeWordPhrase: 'nova',
     dashboardWidgets: createDefaultDashboardWidgets(),
+    fullAutonomousMode: true,
+    themeMode: 'light',
+    privacyMaskEnabled: false,
+    nightShiftEnabled: true,
+    nightShiftIntervalMinutes: 30,
+    redTeamEnabled: false,
+    supervisorStrictness: 'permissive',
+    retentionDays: 90,
+    softDowngradeOnBudget: true,
+    defaultCurrency: 'HUF',
+    telegramInlineButtons: true,
+    lastNightShiftAt: null,
+    lanSubnetAllowlist: [],
+    totpEnabled: false,
   };
 }
 
@@ -631,6 +647,20 @@ export function createInitialState(): NovaSwarmState {
     agentBenchmarks: [],
     dynamicTools: [],
     missions: [],
+    crmContacts: [],
+    packages: [],
+    vehicleMaintenance: [],
+    homeInventory: [],
+    sharedLinks: [],
+    bookmarks: [],
+    mealPlan: [],
+    wolDevices: [],
+    clusterNodes: [],
+    notaryRecords: [],
+    nightShiftRuns: [],
+    timeCapsules: [],
+    budgetEnvelopes: [],
+    clipboardHistory: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -779,6 +809,40 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     agentBenchmarks: Array.isArray(source.agentBenchmarks) ? source.agentBenchmarks : [],
     dynamicTools: Array.isArray(source.dynamicTools) ? source.dynamicTools : [],
     missions: Array.isArray(source.missions) ? source.missions : [],
+    crmContacts: Array.isArray(source.crmContacts) ? source.crmContacts : [],
+    packages: Array.isArray(source.packages)
+      ? source.packages
+      : Array.isArray((source as { packageOrders?: unknown[] }).packageOrders)
+      ? ((source as { packageOrders?: NovaSwarmState['packages'] }).packageOrders ?? [])
+      : [],
+    vehicleMaintenance: Array.isArray(source.vehicleMaintenance)
+      ? source.vehicleMaintenance
+      : Array.isArray((source as { maintenanceItems?: unknown[] }).maintenanceItems)
+      ? ((source as { maintenanceItems?: NovaSwarmState['vehicleMaintenance'] }).maintenanceItems ?? [])
+      : [],
+    homeInventory: Array.isArray(source.homeInventory)
+      ? source.homeInventory
+      : Array.isArray((source as { inventoryItems?: unknown[] }).inventoryItems)
+      ? ((source as { inventoryItems?: NovaSwarmState['homeInventory'] }).inventoryItems ?? [])
+      : [],
+    sharedLinks: Array.isArray(source.sharedLinks)
+      ? source.sharedLinks
+      : Array.isArray((source as { sharedPortalLinks?: unknown[] }).sharedPortalLinks)
+      ? ((source as { sharedPortalLinks?: NovaSwarmState['sharedLinks'] }).sharedPortalLinks ?? [])
+      : [],
+    bookmarks: Array.isArray(source.bookmarks) ? source.bookmarks : [],
+    mealPlan: Array.isArray(source.mealPlan)
+      ? source.mealPlan
+      : Array.isArray((source as { mealPlans?: unknown[] }).mealPlans)
+      ? ((source as { mealPlans?: NovaSwarmState['mealPlan'] }).mealPlans ?? [])
+      : [],
+    wolDevices: Array.isArray(source.wolDevices) ? source.wolDevices : [],
+    clusterNodes: Array.isArray(source.clusterNodes) ? source.clusterNodes : [],
+    notaryRecords: Array.isArray(source.notaryRecords) ? source.notaryRecords : [],
+    nightShiftRuns: Array.isArray(source.nightShiftRuns) ? source.nightShiftRuns : [],
+    timeCapsules: Array.isArray(source.timeCapsules) ? source.timeCapsules : [],
+    budgetEnvelopes: Array.isArray(source.budgetEnvelopes) ? source.budgetEnvelopes : [],
+    clipboardHistory: Array.isArray(source.clipboardHistory) ? source.clipboardHistory : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),
@@ -899,14 +963,52 @@ export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarm
   return current;
 }
 
-export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): AuditLogEntry {
-  const full: AuditLogEntry = {
-    ...entry,
-    id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
-  };
+function computeAuditHash(entry: AuditLogEntry, prevHash: string): string {
+  const payload = `${prevHash}|${entry.id}|${entry.timestamp}|${entry.type}|${entry.sourceAgentId}|${entry.message}`;
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+export function verifyAuditLogChain(): {
+  valid: boolean;
+  checkedEntries: number;
+  brokenIds: string[];
+} {
+  const logs = getState().auditLogs;
+  const brokenIds: string[] = [];
+  let expectedPrev = 'GENESIS';
+  let checkedEntries = 0;
+
+  for (const log of logs) {
+    if (!log.hash) continue; // Legacy pre-chain entries
+    checkedEntries += 1;
+    const prevToUse = log.prevHash || expectedPrev;
+    const recomputed = computeAuditHash(log, prevToUse);
+    if (recomputed !== log.hash) {
+      brokenIds.push(log.id);
+    }
+    expectedPrev = log.hash;
+  }
+
+  return { valid: brokenIds.length === 0, checkedEntries, brokenIds };
+}
+
+export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | 'hash' | 'prevHash'>): AuditLogEntry {
+  const id = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+  let full!: AuditLogEntry;
 
   updateState((s) => {
+    const lastChained = [...s.auditLogs].reverse().find((x) => Boolean(x.hash));
+    const prevHash = lastChained?.hash || 'GENESIS';
+    const baseEntry: AuditLogEntry = {
+      ...entry,
+      id,
+      timestamp,
+      prevHash,
+    };
+    baseEntry.hash = computeAuditHash(baseEntry, prevHash);
+    full = baseEntry;
+
     s.auditLogs.push(full);
     const maxEntries = Math.max(100, s.settings.auditLogMaxEntries || 2000);
     if (s.auditLogs.length > maxEntries) {
@@ -922,6 +1024,8 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): 
     }
   });
 
+  syncAuditEntryToWal(full);
+  novaBus.emitEvent('audit:appended', { id: full.id, type: full.type, message: full.message });
   return full;
 }
 
@@ -943,7 +1047,29 @@ export function appendUnifiedMessage(
     }
   });
 
+  syncMessageToWal(full);
+  novaBus.emitEvent('state:updated', { section: 'messages', timestamp: full.timestamp });
   return full;
+}
+
+/** M156: Retention cleanup across transient logs/history */
+export function pruneRetentionData(daysOverride?: number): { prunedLogs: number; prunedClipboard: number } {
+  const days = Math.max(1, daysOverride ?? getState().settings.retentionDays ?? 90);
+  const cutoffMs = Date.now() - days * 86_400_000;
+  let prunedLogs = 0;
+  let prunedClipboard = 0;
+
+  updateState((s) => {
+    const beforeL = s.auditLogs.length;
+    s.auditLogs = s.auditLogs.filter((l) => Date.parse(l.timestamp) >= cutoffMs || l.type === 'security');
+    prunedLogs = beforeL - s.auditLogs.length;
+
+    const beforeC = s.clipboardHistory.length;
+    s.clipboardHistory = s.clipboardHistory.filter((c) => Date.parse(c.createdAt) >= cutoffMs);
+    prunedClipboard = beforeC - s.clipboardHistory.length;
+  });
+
+  return { prunedLogs, prunedClipboard };
 }
 
 export function createApprovalRequest(

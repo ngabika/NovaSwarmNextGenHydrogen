@@ -5,6 +5,7 @@ import {
   CheckSquare,
   Code2,
   Copy,
+  Eye,
   FileAudio,
   FolderPlus,
   GitBranch,
@@ -14,7 +15,9 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Send,
+  ShieldAlert,
   Slash,
   Sparkles,
   Square,
@@ -116,6 +119,8 @@ export const SwarmChatView: React.FC<Props> = ({
   const [showArchived, setShowArchived] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [redTeamBusyId, setRedTeamBusyId] = useState<string | null>(null);
+  const [previewOpenIds, setPreviewOpenIds] = useState<Record<string, boolean>>({});
 
   // Ötletláda (IdeaBox) state
   const [ideaTitle, setIdeaTitle] = useState('');
@@ -414,6 +419,41 @@ export const SwarmChatView: React.FC<Props> = ({
       await onRefreshState();
     } finally {
       setCouncilRunning(false);
+    }
+  };
+
+  const handleRedTeam = async (targetMessageId: string) => {
+    if (redTeamBusyId) return;
+    setRedTeamBusyId(targetMessageId);
+    setMediaNotice(null);
+    try {
+      const res = await fetch('/api/v3/chat/redteam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: selectedThreadId, targetMessageId }),
+      });
+      if (!res.ok) {
+        const d = (await res.json()) as { error?: string };
+        setMediaNotice(d.error || 'Red-Team elemzés hiba');
+      }
+      await onRefreshState();
+    } finally {
+      setRedTeamBusyId(null);
+    }
+  };
+
+  const handleRewind = async (messageId: string) => {
+    const res = await fetch('/api/v3/chat/rewind', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: selectedThreadId, messageId }),
+    });
+    if (res.ok) {
+      setMediaNotice('Beszélgetés visszapörgetve ehhez az állapothoz.');
+      await onRefreshState();
+    } else {
+      const d = (await res.json()) as { error?: string };
+      setMediaNotice(d.error || 'Visszapörgetés hiba');
     }
   };
 
@@ -908,6 +948,25 @@ export const SwarmChatView: React.FC<Props> = ({
                     >
                       <GitBranch className="h-3.5 w-3.5" />
                     </button>
+                    <button
+                      type="button"
+                      title="Visszapörgetés eddig az üzenetig (Time-Travel Rewind)"
+                      onClick={() => void handleRewind(m.id)}
+                      className="hover:opacity-100 opacity-70"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
+                    {m.senderType === 'agent' && (
+                      <button
+                        type="button"
+                        disabled={redTeamBusyId === m.id}
+                        title="Red-Team Ördög Ügyvédje kritika (Ú67)"
+                        onClick={() => void handleRedTeam(m.id)}
+                        className="hover:opacity-100 opacity-70 disabled:opacity-30"
+                      >
+                        <ShieldAlert className={`h-3.5 w-3.5 ${redTeamBusyId === m.id ? 'animate-pulse' : ''}`} />
+                      </button>
+                    )}
                     {m.senderType === 'agent' && msgIdx === threadMessages.length - 1 && (
                       <button
                         type="button"
@@ -938,18 +997,46 @@ export const SwarmChatView: React.FC<Props> = ({
                   </div>
                 </div>
                 <div className="text-sm whitespace-pre-wrap leading-relaxed font-sans">
-                  {m.content.split(/(```[\s\S]*?```)/g).map((part, pIdx) =>
-                    part.startsWith('```') && part.endsWith('```') ? (
-                      <pre
-                        key={pIdx}
-                        className="my-2 p-2.5 bg-slate-900 text-slate-100 rounded-md font-mono text-xs overflow-x-auto"
-                      >
-                        {part.replace(/^```[^\n]*\n?/, '').replace(/```$/, '')}
-                      </pre>
-                    ) : (
-                      <React.Fragment key={pIdx}>{part}</React.Fragment>
-                    )
-                  )}
+                  {m.content.split(/(```[\s\S]*?```)/g).map((part, pIdx) => {
+                    if (part.startsWith('```') && part.endsWith('```')) {
+                      const langMatch = part.match(/^```([^\n]*)\n?/);
+                      const fenceLang = (langMatch?.[1] || '').trim().toLowerCase();
+                      const code = part.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
+                      const canPreview = fenceLang === 'html' || fenceLang === 'svg' || code.trimStart().startsWith('<svg');
+                      const previewKey = `${m.id}-${pIdx}`;
+                      const isOpen = Boolean(previewOpenIds[previewKey]);
+                      return (
+                        <div key={pIdx} className="my-2 space-y-1.5">
+                          {canPreview && (
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPreviewOpenIds((prev) => ({ ...prev, [previewKey]: !prev[previewKey] }))
+                                }
+                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium border border-slate-300 bg-white text-slate-700 rounded hover:bg-slate-100 whitespace-nowrap shrink-0"
+                              >
+                                <Eye className="h-3 w-3" />
+                                {isOpen ? 'Előnézet elrejtése' : 'Élő Előnézet'}
+                              </button>
+                            </div>
+                          )}
+                          <pre className="p-2.5 bg-slate-900 text-slate-100 rounded-md font-mono text-xs overflow-x-auto">
+                            {code}
+                          </pre>
+                          {canPreview && isOpen && (
+                            <iframe
+                              sandbox=""
+                              srcDoc={fenceLang === 'svg' || code.trimStart().startsWith('<svg') ? `<!doctype html><html><body style="margin:8px;display:flex;justify-content:center">${code}</body></html>` : code}
+                              className="w-full h-56 bg-white border border-slate-300 rounded-md"
+                              title="Élő HTML/SVG előnézet"
+                            />
+                          )}
+                        </div>
+                      );
+                    }
+                    return <React.Fragment key={pIdx}>{part}</React.Fragment>;
+                  })}
                 </div>
                 {m.councilVotes && m.councilVotes.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-slate-200">
