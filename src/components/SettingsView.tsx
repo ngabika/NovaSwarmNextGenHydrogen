@@ -855,6 +855,121 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </label>
           </div>
         </div>
+
+        {/* Batch 5: Hardware-Adaptive Optimization & Proactive Second Self */}
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Hardver-Adaptív Optimalizáló, Pi Védelem & Proaktív Második Én (Batch 5)
+            </h3>
+            <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+              Profil: {form.detectedHardwareTier || 'auto'}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label htmlFor="set-ram-wd" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                RAM/OOM Őrszem Küszöb (%)
+              </label>
+              <input
+                id="set-ram-wd"
+                type="number"
+                min="55"
+                max="98"
+                value={form.ramWatchdogThresholdPercent ?? 85}
+                onChange={(e) => setForm({ ...form, ramWatchdogThresholdPercent: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-morning-brief" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Reggeli Brief Időpont (HH:MM)
+              </label>
+              <input
+                id="set-morning-brief"
+                type="text"
+                value={form.morningBriefTime || '07:30'}
+                onChange={(e) => setForm({ ...form, morningBriefTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-evening-brief" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Esti Összefoglaló Időpont (HH:MM)
+              </label>
+              <input
+                id="set-evening-brief"
+                type="text"
+                value={form.eveningBriefTime || '21:00'}
+                onChange={(e) => setForm({ ...form, eveningBriefTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-gpio-fan" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                GPIO Termikus Ventilátor Pin (opc.)
+              </label>
+              <input
+                id="set-gpio-fan"
+                type="number"
+                min="0"
+                max="53"
+                value={form.gpioFanPin ?? ''}
+                placeholder="pl. 17"
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    gpioFanPin: e.target.value === '' ? undefined : Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hardwareAutoOptimize !== false}
+                onChange={(e) => setForm({ ...form, hardwareAutoOptimize: e.target.checked })}
+              />
+              <span>Hardver-Adaptív Auto-Optimalizáló aktív induláskor (CPU/RAM/GPU alapú finomhangolás)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(form.sdCardSparingMode)}
+                onChange={(e) => setForm({ ...form, sdCardSparingMode: e.target.checked })}
+              />
+              <span>SD-kártya Kímélő Mód (gyors telemetria pufferelése memóriában íráscsökkentéssel)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hybridLocalFirst !== false}
+                onChange={(e) => setForm({ ...form, hybridLocalFirst: e.target.checked })}
+              />
+              <span>Hibrid Kontextus Routing (egyszerű feladatok helyi Ollama modellen, nehéz kódolás felhőben)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.telegramVoiceReplyEnabled !== false}
+                onChange={(e) => setForm({ ...form, telegramVoiceReplyEnabled: e.target.checked })}
+              />
+              <span>Telegram Walkie-Talkie (hangüzenetre automatikus Opus hangválasz küldése)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.selfHealingDaemonEnabled !== false}
+                onChange={(e) => setForm({ ...form, selfHealingDaemonEnabled: e.target.checked })}
+              />
+              <span>Eseményvezérelt Öngyógyító Démon + Automatikus Inbox Triage</span>
+            </label>
+          </div>
+        </div>
       </form>
 
       {/* LAN Operator Auth Lock Section */}

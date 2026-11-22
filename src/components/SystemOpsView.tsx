@@ -51,6 +51,9 @@ const Batch3InfraClusterPanel = lazy(() =>
 const Batch4HardwareNetPanel = lazy(() =>
   import('./Batch4HardwareNetPanel').then((m) => ({ default: m.Batch4HardwareNetPanel }))
 );
+const Batch5MigrationAndAutoPanel = lazy(() =>
+  import('./Batch5MigrationAndAutoPanel').then((m) => ({ default: m.Batch5MigrationAndAutoPanel }))
+);
 
 interface Props {
   language: LanguageCode;
@@ -85,7 +88,7 @@ export const SystemOpsView: React.FC<Props> = ({
   sandboxBackend,
   onRefreshState,
 }) => {
-  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'diagnostics'>('ops');
+  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'diagnostics'>('ops');
 
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
@@ -444,6 +447,7 @@ export const SystemOpsView: React.FC<Props> = ({
               { id: 'selfmod', label: 'Önfejlesztés, Git Diff & OTA' },
               { id: 'infra', label: 'Infra: Docker · Systemd · SSH · LAN/VPN' },
               { id: 'pi_hw_b4', label: 'Pi Hardver & Fájlok (B4)' },
+              { id: 'b5_migrate', label: 'Költöztető & Auto-Opt (B5)' },
               { id: 'diagnostics', label: 'Diagnosztika · .env · Cron · Audit Export' },
             ] as const
           ).map((t) => (
@@ -1840,6 +1844,11 @@ export const SystemOpsView: React.FC<Props> = ({
       {subTab === 'pi_hw_b4' && (
         <Suspense fallback={<div className="p-6 text-xs text-slate-500">Pi Hardver & Fájlok (B4) betöltése...</div>}>
           <Batch4HardwareNetPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+      {subTab === 'b5_migrate' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Költöztető & Auto-Optimalizáló (B5) betöltése...</div>}>
+          <Batch5MigrationAndAutoPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>

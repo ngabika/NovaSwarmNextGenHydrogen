@@ -841,6 +841,20 @@ export interface Settings {
   digitalDetoxMode?: boolean;
   deadManSwitchDays?: number;
   agentTemperatureBias?: number;
+  /** Batch 5: Hardware-Adaptive Optimization Engine, Voice Reply, Proactive Loops & GPIO Thermal Fan */
+  hardwareAutoOptimize?: boolean;
+  detectedHardwareTier?: HardwareTierId;
+  ramWatchdogThresholdPercent?: number;
+  sdCardSparingMode?: boolean;
+  hybridLocalFirst?: boolean;
+  telegramVoiceReplyEnabled?: boolean;
+  morningBriefTime?: string;
+  eveningBriefTime?: string;
+  inboxTriageEnabled?: boolean;
+  selfHealingDaemonEnabled?: boolean;
+  gpioFanPin?: number;
+  gpioFanTempThresholdC?: number;
+  lastMigrationRecord?: MigrationRunRecord | null;
 }
 
 /** Ú31: Deep Research Report */
@@ -1089,6 +1103,10 @@ export interface NovaSwarmState {
   telegramOutbox: TelegramOutboxItem[];
   knownLanMacs: KnownLanMac[];
   postMortems: PostMortemReport[];
+  /** Batch 5: Hardware profile snapshot, Visual Page Change Watch & Proactive Rule Events */
+  hardwareProfile?: HardwareAdaptiveProfile | null;
+  visualWatchItems?: VisualWatchItem[];
+  proactiveEvents?: ProactiveRuleEvent[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
@@ -1393,4 +1411,78 @@ export interface PostMortemReport {
   createdAt: string;
 }
 
+/** Batch 5: Hardware-Adaptive Optimization Tiers & Profile */
+export type HardwareTierId =
+  | 'ultra_light_pi'
+  | 'mid_sbc_vps'
+  | 'standard_desktop'
+  | 'workstation_gpu';
 
+export interface HardwareAdaptiveProfile {
+  tier: HardwareTierId;
+  tierLabel: string;
+  arch: string;
+  cpuCores: number;
+  ramTotalMb: number;
+  ramAvailableMb: number;
+  swapTotalMb: number;
+  storageKind: 'sd_or_emmc' | 'ssd_or_nvme' | 'unknown';
+  hasGpu: boolean;
+  gpuName: string;
+  recommendedOllamaModel: string;
+  recommendedNumCtx: number;
+  recommendedHeapMb: number;
+  recommendedConcurrency: number;
+  recommendedHeartbeatMinutes: number;
+  recommendedNightShiftMinutes: number;
+  recommendedDreamIdleMinutes: number;
+  recommendedOllamaIdleUnloadMinutes: number;
+  recommendedCpuThreshold: number;
+  recommendedRamWatchdogPercent: number;
+  sdCardSparingRecommended: boolean;
+  hybridLocalFirstRecommended: boolean;
+  detectedAt: string;
+  appliedNotes: string[];
+}
+
+/** Batch 5: One-Shot SSH Host Migration Record */
+export interface MigrationRunRecord {
+  id: string;
+  targetIp: string;
+  sshPort: number;
+  username: string;
+  targetAppPort: number;
+  stopOldInstance: boolean;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  stage: string;
+  targetHardwareSummary?: string;
+  newUrl?: string;
+  logs: string[];
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+/** Batch 5: Visual Page Change Detector Item */
+export interface VisualWatchItem {
+  id: string;
+  name: string;
+  url: string;
+  lastScreenshotHash?: string;
+  lastDomHash?: string;
+  lastCapturedBase64?: string;
+  lastCheckedAt?: string;
+  lastChangedAt?: string;
+  changeCount: number;
+  lastStatusNote?: string;
+}
+
+/** Batch 5: Proactive Second Self Event */
+export interface ProactiveRuleEvent {
+  id: string;
+  kind: 'morning_brief' | 'evening_brief' | 'inbox_triage' | 'self_heal' | 'ram_watchdog' | 'thermal_fan';
+  title: string;
+  summary: string;
+  notifiedTelegram: boolean;
+  createdAt: string;
+}

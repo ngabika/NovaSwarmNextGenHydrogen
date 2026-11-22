@@ -30,11 +30,11 @@ fi
 echo "[1/6] Rendszerfüggőségek ellenőrzése..."
 if command -v apt-get >/dev/null 2>&1; then
   $SUDO apt-get update -qq
-  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng pciutils lm-sensors bubblewrap iproute2 >/dev/null || true
+  $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng ffmpeg sshpass pciutils lm-sensors bubblewrap iproute2 >/dev/null || true
 elif command -v dnf >/dev/null 2>&1; then
-  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng pciutils bubblewrap iproute || true
+  $SUDO dnf install -y -q curl git gcc-c++ make python3 espeak-ng ffmpeg sshpass pciutils bubblewrap iproute || true
 elif command -v pacman >/dev/null 2>&1; then
-  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng pciutils bubblewrap iproute2 || true
+  $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng ffmpeg sshpass pciutils bubblewrap iproute2 || true
 fi
 
 # Node.js >= 20 check

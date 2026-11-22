@@ -21,7 +21,7 @@ import type {
 import { novaBus } from './eventBus';
 import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -523,6 +523,19 @@ export function createDefaultSettings(): Settings {
     digitalDetoxMode: false,
     deadManSwitchDays: 0,
     agentTemperatureBias: 0,
+    hardwareAutoOptimize: true,
+    detectedHardwareTier: ramMb <= 2200 ? 'ultra_light_pi' : ramMb <= 6144 ? 'mid_sbc_vps' : ramMb <= 14336 ? 'standard_desktop' : 'workstation_gpu',
+    ramWatchdogThresholdPercent: ramMb <= 2200 ? 84 : 90,
+    sdCardSparingMode: ramMb <= 2200 || os.arch() === 'arm64' || os.arch() === 'arm',
+    hybridLocalFirst: true,
+    telegramVoiceReplyEnabled: true,
+    morningBriefTime: '07:30',
+    eveningBriefTime: '21:00',
+    inboxTriageEnabled: true,
+    selfHealingDaemonEnabled: true,
+    gpioFanPin: undefined,
+    gpioFanTempThresholdC: 65,
+    lastMigrationRecord: null,
   };
 }
 
@@ -689,6 +702,9 @@ export function createInitialState(): NovaSwarmState {
     telegramOutbox: [],
     knownLanMacs: [],
     postMortems: [],
+    hardwareProfile: null,
+    visualWatchItems: [],
+    proactiveEvents: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -892,6 +908,9 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     telegramOutbox: Array.isArray(source.telegramOutbox) ? source.telegramOutbox : [],
     knownLanMacs: Array.isArray(source.knownLanMacs) ? source.knownLanMacs : [],
     postMortems: Array.isArray(source.postMortems) ? source.postMortems : [],
+    hardwareProfile: source.hardwareProfile ?? null,
+    visualWatchItems: Array.isArray(source.visualWatchItems) ? source.visualWatchItems : [],
+    proactiveEvents: Array.isArray(source.proactiveEvents) ? source.proactiveEvents : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),

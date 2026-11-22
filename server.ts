@@ -39,6 +39,16 @@ import {
   resizeTerminalSession,
   writeToTerminalSession,
 } from './server/terminal/ptyManager';
+import {
+  applyHardwareAdaptiveOptimization,
+  runRamOomWatchdogTick,
+} from './server/system/hardwareOptimizer';
+import {
+  buildProactiveBrief,
+  runEmailInboxTriage,
+  runSelfHealingDaemonTick,
+  runVisualWatchCheck,
+} from './server/power/batch5AutonomyEngine';
 
 dotenv.config();
 
@@ -229,6 +239,11 @@ async function bootstrap() {
   }
 
   getState();
+  try {
+    applyHardwareAdaptiveOptimization(false);
+  } catch {
+    // non-fatal on constrained containers
+  }
   startTelegramPolling();
 
   // Idle Dreaming + Autonomous Kanban Backlog Worker scheduler
@@ -344,6 +359,58 @@ async function bootstrap() {
       watchdogCounter += 1;
       if (watchdogCounter % 10 === 0 && s.watchedPages.length > 0) {
         void checkWatchedPages().then(() => broadcastEvent('state:updated'));
+      }
+      if (watchdogCounter % 15 === 0 && (s.visualWatchItems?.length ?? 0) > 0) {
+        void runVisualWatchCheck().then((vw) => {
+          for (const ch of vw.changedItems) {
+            void sendTelegramMessage(`Vizuális oldalváltozás észlelve: ${ch.name} (${ch.url})`);
+          }
+          if (vw.changedItems.length > 0) broadcastEvent('state:updated');
+        });
+      }
+      if (watchdogCounter % 5 === 0 && s.settings.selfHealingDaemonEnabled !== false) {
+        void runSelfHealingDaemonTick().then((h) => {
+          if (h.healedActions.length > 0 || h.failedServices.length > 0) broadcastEvent('state:updated');
+        });
+      }
+    }
+
+    // RAM/OOM Watchdog runs regardless of kill switch to protect host stability
+    void runRamOomWatchdogTick().then((wd) => {
+      if (wd.triggered) {
+        broadcastEvent('state:updated');
+        if (wd.ramPercent >= 93) {
+          void sendTelegramMessage(`RAM Őrszem riasztás (${wd.ramPercent}%): ${wd.actionsTaken.join(', ')}`);
+        }
+      }
+    });
+
+    // Proactive Morning/Evening Brief + Email Triage minute check
+    if (s.settings.onboardingCompleted && !s.settings.killSwitchActive) {
+      const nowD = new Date();
+      const hhmm = `${String(nowD.getHours()).padStart(2, '0')}:${String(nowD.getMinutes()).padStart(2, '0')}`;
+      const todayPrefix = nowD.toISOString().slice(0, 10);
+      const events = s.proactiveEvents || [];
+      if (
+        s.settings.morningBriefTime &&
+        hhmm === s.settings.morningBriefTime &&
+        !events.some((e) => e.kind === 'morning_brief' && e.createdAt.startsWith(todayPrefix))
+      ) {
+        void buildProactiveBrief('morning').then((b) => {
+          void sendTelegramMessage(b.text);
+          if (s.settings.inboxTriageEnabled !== false) runEmailInboxTriage();
+          broadcastEvent('state:updated');
+        });
+      }
+      if (
+        s.settings.eveningBriefTime &&
+        hhmm === s.settings.eveningBriefTime &&
+        !events.some((e) => e.kind === 'evening_brief' && e.createdAt.startsWith(todayPrefix))
+      ) {
+        void buildProactiveBrief('evening').then((b) => {
+          void sendTelegramMessage(b.text);
+          broadcastEvent('state:updated');
+        });
       }
     }
 

@@ -262,6 +262,7 @@ import {
 import { buildOpenApiSpec } from '../power/devOpsStudio';
 import { createUniversalV3Router } from './universalV3Router';
 import { createUniversalV4Router } from './universalV4Router';
+import { createUniversalV5Router } from './universalV5Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -688,6 +689,41 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         }
         if (typeof patch.totpEnabled === 'boolean') {
           s.settings.totpEnabled = patch.totpEnabled;
+        }
+        if (typeof patch.hardwareAutoOptimize === 'boolean') {
+          s.settings.hardwareAutoOptimize = patch.hardwareAutoOptimize;
+        }
+        if (typeof patch.ramWatchdogThresholdPercent === 'number' && patch.ramWatchdogThresholdPercent >= 50) {
+          s.settings.ramWatchdogThresholdPercent = Math.min(98, Math.round(patch.ramWatchdogThresholdPercent));
+        }
+        if (typeof patch.sdCardSparingMode === 'boolean') {
+          s.settings.sdCardSparingMode = patch.sdCardSparingMode;
+        }
+        if (typeof patch.hybridLocalFirst === 'boolean') {
+          s.settings.hybridLocalFirst = patch.hybridLocalFirst;
+        }
+        if (typeof patch.telegramVoiceReplyEnabled === 'boolean') {
+          s.settings.telegramVoiceReplyEnabled = patch.telegramVoiceReplyEnabled;
+        }
+        if (typeof patch.morningBriefTime === 'string' && /^\d{2}:\d{2}$/.test(patch.morningBriefTime.trim())) {
+          s.settings.morningBriefTime = patch.morningBriefTime.trim();
+        }
+        if (typeof patch.eveningBriefTime === 'string' && /^\d{2}:\d{2}$/.test(patch.eveningBriefTime.trim())) {
+          s.settings.eveningBriefTime = patch.eveningBriefTime.trim();
+        }
+        if (typeof patch.inboxTriageEnabled === 'boolean') {
+          s.settings.inboxTriageEnabled = patch.inboxTriageEnabled;
+        }
+        if (typeof patch.selfHealingDaemonEnabled === 'boolean') {
+          s.settings.selfHealingDaemonEnabled = patch.selfHealingDaemonEnabled;
+        }
+        if (typeof patch.gpioFanPin === 'number' && Number.isInteger(patch.gpioFanPin) && patch.gpioFanPin >= 0 && patch.gpioFanPin <= 53) {
+          s.settings.gpioFanPin = patch.gpioFanPin;
+        } else if (patch.gpioFanPin === undefined || patch.gpioFanPin === null) {
+          // leave unchanged unless explicitly cleared
+        }
+        if (typeof patch.gpioFanTempThresholdC === 'number' && patch.gpioFanTempThresholdC >= 35) {
+          s.settings.gpioFanTempThresholdC = Math.min(95, Math.round(patch.gpioFanTempThresholdC));
         }
       });
 
@@ -3391,6 +3427,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.use('/v3', createUniversalV3Router(broadcastEvent));
   router.use('/v4', createUniversalV4Router(broadcastEvent));
+  router.use('/v5', createUniversalV5Router(broadcastEvent));
 
   return router;
 }

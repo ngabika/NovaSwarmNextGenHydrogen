@@ -87,6 +87,18 @@
 - **Élet-Iránytű OKR -> Kanban (`Ú254`), RPG Produktivitási XP & Széria (`Ú237`), SQLite FTS5 + Globális Omnisearch (`M205, Ú259`), Egyedi Dinamikus Widgetek (`Ú258`), `Alt+N` Jegyzetfiók (`M230`) & LAN Ping (`M238`)**.
 - **Kétirányú iCal Export (`/api/v4/calendar.ics`, `M245`) & LoRA JSONL Chat Export (`/api/v4/export/jsonl`, `M219`)**.
 
+### 9. Batch 5 — Hardver-Adaptív Optimalizálás, 1-Kattintásos SSH Költöztető & Teljes Fizikai Autonómia
+- **Hardver-Adaptív Auto-Optimalizáló Engine**: Induláskor és kérésre elemzi a gép CPU magszámát, architektúráját (`aarch64`/`x86_64`), RAM/Swap méretét, tárhely típusát (`SD/eMMC` vs `NVMe/SSD`) és GPU képességét, és automatikusan hozzáigazítja az összes optimalizációt:
+  - `ultra_light_pi` (<= 2.2 GB RAM): `qwen2.5:1.5b`, `640 MB` V8 heap, `1` párhuzamos feladat, `84%` RAM Őrszem, aktív **SD-kártya kímélő gyűrűpuffer**, gyors Ollama memória-kiürítés (`4 perc`).
+  - `mid_sbc_vps` / `standard_desktop` / `workstation_gpu` (4–32+ GB RAM / NVIDIA GPU): skálázza a modell ajánlást (`qwen2.5:3b` → `qwen2.5-coder:7b`), Node heap korlátot (`2048 MB`), `2–8` szálas párhuzamosságot és sűrűbb autonóm ciklusokat.
+- **1-Kattintásos SSH Költöztető (`Rendszer & Diagnosztika` → `Költöztető & Auto-Opt`)**:
+  - Csak a cél gép helyi IP-je, SSH felhasználóneve és jelszava szükséges (a jelszó kizárólag átmeneti `SSH_ASKPASS` / `SSHPASS` memóriafolyamaton halad át — **soha** nem kerül mentésre adatbázisba vagy naplóba).
+  - Csomagolja és átviszi a teljes kódot, `.state.json`-t, titkosított `.secrets.vault.json`-t, SQLite WAL adatbázist, memória-széfet és skilleket; az új gépen telepíti a hiányzó függőségeket, lefuttatja az új hardverre szabott auto-optimalizálást, felépíti a `novaswarm.service`-t, és ellenőrzi a `/healthz` választ.
+  - Sikeres átállás után **automatikusan leállítja** a régi példány Telegram pollingját és helyi szolgáltatását, így onnantól kizárólag az új gépen fut tovább.
+- **Telegram Multimédia & Walkie-Talkie Mód**: Hangüzenetre `espeak-ng + ffmpeg opus (.ogg)` hangválasz (`sendVoice`), okos fotó-útválasztás (blokk -> Kiadások, garancia -> Okmány Széf, hibaképernyő -> Memória), valamint kétirányú fájlcsere (`document` feltöltés -> `lan-drop/` + `/getfile <útvonal>`).
+- **2 GB Pi RAM/OOM Őrszem & Hibrid Kontextus Router**: Automatikus Ollama modell-felszabadítás és cache-ürítés magas RAM terhelésnél, továbbá egyszerű kérések helyi/ingyenes, nehéz kódolási feladatok felhős modellre irányítása.
+- **Proaktív „Második Én” & Fizikai Világ**: Reggeli (`07:30`) és Esti (`21:00`) Főnöki Összefoglaló, Email Inbox Triage (csomagszám & számla kinyerés), Öngyógyító Démon, Önellenőrző/önjavító Dinamikus Eszközgyár, Headless Web Screenshot + Vizuális Oldalváltozás-Figyelő, USB/Pi Kamera (`/cam`), GPIO/I2C vezérlés + termikus ventilátor, CUPS nyomtatás és Hangszóró TTS.
+
 ---
 
 ## Telegram Parancsok (Teljes Távoli Vezérlés)
@@ -117,6 +129,16 @@ A Telegram botban közvetlenül használható parancsok (kódblokk-biztos darabo
 - `/audit` — SHA-256 audit lánc épségének ellenőrzése
 - `/openapi` — OpenAPI 3.1 API specifikáció összegző
 - `/idojaras` — Élő Open-Meteo időjárás jelentés
+- `/hwopt` — Hardver-adaptív profil és optimalizációk azonnali alkalmazása
+- `/brief` — Reggeli / Esti főnöki összefoglaló azonnali lekérése
+- `/inbox` — Bejövő emailek automatikus triage-a (csomagok, számlák, sürgős)
+- `/heal` — Öngyógyító démon + RAM/OOM őrszem futtatása
+- `/screenshot <url>` — Headless weboldal képernyőkép és kivonat
+- `/cam` — Csatlakoztatott USB/Pi kamera pillanatkép küldése
+- `/gpio read|set <pin> [0|1]` — Raspberry Pi GPIO tüske olvasás és vezérlés
+- `/print <szöveg>` — Nyomtatás helyi CUPS nyomtatón
+- `/getfile <útvonal>` — Gazdagép fájl letöltése közvetlenül Telegramon
+- `/hang <szöveg>` — Hangos bemondás a gazdagép hangszóróján
 - `/help` / `/parancsok` — Összes elérhető Telegram parancs listája
 - `/stop` — Vészleállító (Kill-Switch) azonnali aktiválása
 

@@ -32,6 +32,8 @@ import {
   runMultiAgentDebate,
   suggestRecipesFromPantry,
 } from '../power/batch4OmniStudio';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   appendAuditLog,
   getAgentTelegramTokenSecret,
@@ -41,6 +43,23 @@ import {
   verifyAuditLogChain,
 } from '../state/store';
 import { collectHardwareMetrics, checkOtaUpdates } from '../system/ops';
+import { saveLanDropFile } from '../infra/batch4PiHardwareAndNet';
+import {
+  applyHardwareAdaptiveOptimization,
+  runRamOomWatchdogTick,
+} from '../system/hardwareOptimizer';
+import {
+  buildProactiveBrief,
+  captureCameraSnapshot,
+  captureWebScreenshotOrDom,
+  printDocumentViaCups,
+  readOrWriteGpioPin,
+  routeTelegramPhotoIntent,
+  runEmailInboxTriage,
+  runSelfHealingDaemonTick,
+  speakHostSpeakerAnnouncement,
+  synthesizeTelegramVoiceOgg,
+} from '../power/batch5AutonomyEngine';
 
 let pollingActive = false;
 const botOffsets = new Map<string, number>();
@@ -96,6 +115,12 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'frissites', description: 'Rendszer és csomagfrissítések' },
           { command: 'lista', description: 'Bevásárlólista / tétel hozzáadás' },
           { command: 'kanban', description: 'Aktív Kanban kártyák' },
+          { command: 'screenshot', description: 'Weboldal képernyőkép (/screenshot url)' },
+          { command: 'cam', description: 'USB/Pi kamera pillanatkép' },
+          { command: 'gpio', description: 'GPIO tüske olvasás/vezérlés' },
+          { command: 'brief', description: 'Reggeli/Esti főnöki összefoglaló' },
+          { command: 'hwopt', description: 'Hardver-adaptív auto-optimalizálás' },
+          { command: 'heal', description: 'Öngyógyító démon & RAM őrszem' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -201,6 +226,82 @@ export async function sendTelegramMessage(
       });
     }
     return { sent: false, reason };
+  }
+}
+
+export async function sendTelegramPhoto(
+  imageBuffer: Buffer,
+  caption = '',
+  options?: { tokenOverride?: string; chatIdOverride?: string }
+): Promise<{ sent: boolean; reason?: string }> {
+  const state = getState();
+  const token = options?.tokenOverride || getTelegramTokenSecret();
+  const chatId = options?.chatIdOverride || state.settings.telegramChatId?.trim();
+  if (!token || !chatId) return { sent: false, reason: 'Telegram token vagy chat ID hiányzik.' };
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    if (caption) form.append('caption', caption.slice(0, 1000));
+    form.append('photo', new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }), 'capture.png');
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(15000),
+    });
+    return res.ok ? { sent: true } : { sent: false, reason: `HTTP ${res.status}` };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendTelegramDocument(
+  fileBuffer: Buffer,
+  fileName: string,
+  caption = '',
+  options?: { tokenOverride?: string; chatIdOverride?: string }
+): Promise<{ sent: boolean; reason?: string }> {
+  const state = getState();
+  const token = options?.tokenOverride || getTelegramTokenSecret();
+  const chatId = options?.chatIdOverride || state.settings.telegramChatId?.trim();
+  if (!token || !chatId) return { sent: false, reason: 'Telegram token vagy chat ID hiányzik.' };
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    if (caption) form.append('caption', caption.slice(0, 1000));
+    form.append('document', new Blob([new Uint8Array(fileBuffer)], { type: 'application/octet-stream' }), path.basename(fileName) || 'file.bin');
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(20000),
+    });
+    return res.ok ? { sent: true } : { sent: false, reason: `HTTP ${res.status}` };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendTelegramVoice(
+  oggBuffer: Buffer,
+  caption = '',
+  options?: { tokenOverride?: string; chatIdOverride?: string }
+): Promise<{ sent: boolean; reason?: string }> {
+  const state = getState();
+  const token = options?.tokenOverride || getTelegramTokenSecret();
+  const chatId = options?.chatIdOverride || state.settings.telegramChatId?.trim();
+  if (!token || !chatId) return { sent: false, reason: 'Telegram token vagy chat ID hiányzik.' };
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    if (caption) form.append('caption', caption.slice(0, 1000));
+    form.append('voice', new Blob([new Uint8Array(oggBuffer)], { type: 'audio/ogg' }), 'voice.ogg');
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendVoice`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(15000),
+    });
+    return res.ok ? { sent: true } : { sent: false, reason: `HTTP ${res.status}` };
+  } catch (err) {
+    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -415,10 +516,12 @@ export async function processTelegramInput(
   if (text === '/help' || text === '/parancsok' || text === '/start') {
     return [
       'NovaSwarm Parancsok:',
-      '/statusz · /autopilot · /top · /df',
-      '/mission <cél> · /nightshift · /kapszula',
+      '/statusz · /autopilot · /top · /df · /hwopt',
+      '/mission <cél> · /nightshift · /kapszula · /brief',
       '/kanban · /otlet <cél> · /lista [tétel]',
-      '/search <kifejezés> · /vita <téma>',
+      '/search <kifejezés> · /vita <téma> · /inbox · /heal',
+      '/screenshot <url> · /cam · /gpio read|set <pin> [0|1]',
+      '/print <szöveg> · /getfile <útvonal> · /hang <szöveg>',
       '/bash <magyar kérés> · /hiba · /frissites',
       '/lan · /behatolo · /wol <MAC> · /cluster',
       '/okmany · /arfigyelo · /recept · /xp · /stop',
@@ -509,6 +612,92 @@ export async function processTelegramInput(
     const intent = text.replace(/^\/bash\s+/i, '').trim();
     const res = await runBashCopilot(intent, true);
     return `Bash Copilot:\n$ ${res.command}\n(${res.explanation})\n\n${res.output || '(üres kimenet)'}`;
+  }
+
+  /** Batch 5 Commands: Hardware Adaptive, Second Self, Browser, Physical & File Transfer */
+  if (text === '/hwopt') {
+    const out = applyHardwareAdaptiveOptimization(true);
+    const wd = await runRamOomWatchdogTick();
+    return `${out.profile.tierLabel}\n${out.profile.appliedNotes.join('\n')}\nRAM Őrszem: ${wd.ramPercent}% (küszöb ${wd.thresholdPercent}%)`;
+  }
+
+  if (text === '/brief') {
+    const hour = new Date().getHours();
+    const b = await buildProactiveBrief(hour >= 17 ? 'evening' : 'morning');
+    return b.text;
+  }
+
+  if (text === '/inbox') {
+    const t = runEmailInboxTriage();
+    return `Email Triage (${t.scannedEmails} levél): +${t.packagesAdded} csomag · +${t.expensesAdded} kiadás · Sürgős: ${t.urgentAlerts.length}${t.urgentAlerts.length ? `\n${t.urgentAlerts.join('\n')}` : ''}`;
+  }
+
+  if (text === '/heal') {
+    const h = await runSelfHealingDaemonTick();
+    const wd = await runRamOomWatchdogTick();
+    return `Öngyógyító Démon:\n• Javítások: ${h.healedActions.join(' | ') || 'nincs'}\n• Hibás systemd unit: ${h.failedServices.join(', ') || '0'}\n• RAM Őrszem: ${wd.ramPercent}% (${wd.triggered ? 'BEAVATKOZOTT' : 'rendben'})`;
+  }
+
+  if (text.startsWith('/screenshot ')) {
+    const url = text.replace(/^\/screenshot\s+/i, '').trim();
+    const cap = await captureWebScreenshotOrDom(url);
+    if (!cap.ok) return `Screenshot hiba: ${cap.error}`;
+    if (cap.screenshotBase64) {
+      await sendTelegramPhoto(Buffer.from(cap.screenshotBase64, 'base64'), `Web Képernyőkép: ${cap.url}`);
+      return `Képernyőkép elküldve: ${cap.url}`;
+    }
+    return `Oldal előnézet (${cap.title || cap.url}):\n${(cap.textPreview || '').slice(0, 1200)}`;
+  }
+
+  if (text === '/cam') {
+    const snap = captureCameraSnapshot();
+    if (snap.ok && snap.imageBase64) {
+      await sendTelegramPhoto(Buffer.from(snap.imageBase64, 'base64'), `Kamera (${snap.toolUsed})`);
+      return `Kamera pillanatkép elküldve (${snap.toolUsed}).`;
+    }
+    return `Kamera nem elérhető: ${snap.error}`;
+  }
+
+  if (text.startsWith('/gpio ')) {
+    const parts = text.trim().split(/\s+/);
+    const op = parts[1];
+    const pin = Number(parts[2]);
+    if (op === 'read' && Number.isInteger(pin)) {
+      const r = readOrWriteGpioPin('read', pin);
+      return r.message;
+    }
+    if (op === 'set' && Number.isInteger(pin)) {
+      const val = Number(parts[3]) === 1 ? 1 : 0;
+      const r = readOrWriteGpioPin('set', pin, val);
+      return r.message;
+    }
+    return 'Használat: /gpio read <pin> vagy /gpio set <pin> <0|1>';
+  }
+
+  if (text.startsWith('/print ')) {
+    const content = text.replace(/^\/print\s+/i, '').trim();
+    const pr = printDocumentViaCups({ textContent: content });
+    return pr.message;
+  }
+
+  if (text.startsWith('/hang ')) {
+    const phrase = text.replace(/^\/hang\s+/i, '').trim();
+    const sp = speakHostSpeakerAnnouncement(phrase);
+    return sp.detail;
+  }
+
+  if (text.startsWith('/getfile ')) {
+    const rel = text.replace(/^\/getfile\s+/i, '').trim();
+    const cwd = process.cwd();
+    const resolved = path.resolve(cwd, rel);
+    const prefix = cwd.endsWith(path.sep) ? cwd : `${cwd}${path.sep}`;
+    if (!resolved.startsWith(prefix) || !fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
+      return `Fájl nem található vagy munkakönyvtáron kívül van: ${rel}`;
+    }
+    const buf = fs.readFileSync(resolved);
+    if (buf.length > 15 * 1024 * 1024) return 'A fájl meghaladja a 15 MB Telegram küldési korlátot.';
+    const sent = await sendTelegramDocument(buf, path.basename(resolved), `Fájl: ${rel}`);
+    return sent.sent ? `Fájl elküldve Telegramon: ${rel}` : `Küldés sikertelen: ${sent.reason}`;
   }
 
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {
@@ -639,6 +828,7 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
           photo?: Array<{ file_id: string; width?: number; height?: number }>;
           voice?: { file_id: string; mime_type?: string };
           audio?: { file_id: string; mime_type?: string };
+          document?: { file_id: string; file_name?: string; mime_type?: string };
         };
         callback_query?: { id: string; message?: { chat: { id: number } }; data?: string };
       }>;
@@ -652,13 +842,13 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
         continue;
       }
 
-      // 1. Telegram Photo (Multimodal Vision)
+      // 1. Telegram Photo (Multimodal Vision + Receipt/Warranty/Error Auto-Classifier)
       if (upd.message?.photo && upd.message.photo.length > 0) {
         const largest = upd.message.photo[upd.message.photo.length - 1];
         const file = await downloadTelegramFileBase64(token, largest.file_id, 'image/jpeg');
         if (file) {
           const state = getState();
-          const caption = upd.message.caption?.trim() || 'Elemezd a mellékelt képet.';
+          const caption = upd.message.caption?.trim() || 'Elemezd a mellékelt képet (blokk, garancia, hibaképernyő vagy általános).';
           const addressed = forcedAgentId
             ? state.agents.find((a) => a.id === forcedAgentId) ?? null
             : resolveTargetAgent(caption);
@@ -669,7 +859,12 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
             targetAgentId: addressed?.id ?? null,
             attachments: [{ kind: 'image', mimeType: file.mimeType, dataBase64: file.dataBase64 }],
           });
-          await sendTelegramMessage(`[${turn.coordinatorReply.senderName}]: ${turn.coordinatorReply.content}`, {
+          const routed = routeTelegramPhotoIntent({
+            caption,
+            aiReplyText: turn.coordinatorReply.content,
+          });
+          const suffix = routed.autoSavedNote ? `\n\n[${routed.autoSavedNote}]` : '';
+          await sendTelegramMessage(`[${turn.coordinatorReply.senderName}]: ${turn.coordinatorReply.content}${suffix}`, {
             tokenOverride: token,
             chatIdOverride: chatStr,
           });
@@ -677,7 +872,21 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
         }
       }
 
-      // 2. Telegram Voice / Audio Note (STT -> Agent Turn)
+      // 1b. Telegram Document Attachment -> Save to LAN Drop
+      if (upd.message?.document?.file_id) {
+        const doc = upd.message.document;
+        const file = await downloadTelegramFileBase64(token, doc.file_id, doc.mime_type || 'application/octet-stream');
+        if (file) {
+          const saved = saveLanDropFile(doc.file_name || 'telegram-file.bin', file.dataBase64);
+          await sendTelegramMessage(
+            `Fájl mentve a LAN Drop tárba: ${saved.fileName} (${Math.round(saved.sizeBytes / 1024)} KB)${upd.message.caption ? `\nMegjegyzés: ${upd.message.caption}` : ''}`,
+            { tokenOverride: token, chatIdOverride: chatStr }
+          );
+          continue;
+        }
+      }
+
+      // 2. Telegram Voice / Audio Note (STT -> Agent Turn -> Optional Walkie-Talkie Opus Voice Reply)
       const voiceObj = upd.message?.voice || upd.message?.audio;
       if (voiceObj?.file_id) {
         const file = await downloadTelegramFileBase64(token, voiceObj.file_id, voiceObj.mime_type || 'audio/ogg');
@@ -696,6 +905,15 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
                 tokenOverride: token,
                 chatIdOverride: chatStr,
               });
+              if (getState().settings.telegramVoiceReplyEnabled !== false) {
+                const tts = synthesizeTelegramVoiceOgg(reply);
+                if (tts.ok && tts.oggBuffer) {
+                  await sendTelegramVoice(tts.oggBuffer, '', {
+                    tokenOverride: token,
+                    chatIdOverride: chatStr,
+                  });
+                }
+              }
             } else {
               await sendTelegramMessage('A hangüzenet átírása üres eredményt adott.', {
                 tokenOverride: token,
