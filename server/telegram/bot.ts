@@ -60,6 +60,16 @@ import {
   speakHostSpeakerAnnouncement,
   synthesizeTelegramVoiceOgg,
 } from '../power/batch5AutonomyEngine';
+import {
+  createSmartReminder,
+  dispatchSwarmMeshTask,
+  evaluateAutonomyRules,
+  executeQuickMacro,
+  runDockerWatchtowerHeal,
+  runForensicSystemSnapshot,
+  runLanSentinelAndSpeedtest,
+  trustLanMacAddress,
+} from '../power/batch6ApexEngine';
 
 let pollingActive = false;
 const botOffsets = new Map<string, number>();
@@ -121,6 +131,12 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'brief', description: 'Reggeli/Esti főnöki összefoglaló' },
           { command: 'hwopt', description: 'Hardver-adaptív auto-optimalizálás' },
           { command: 'heal', description: 'Öngyógyító démon & RAM őrszem' },
+          { command: 'korkep', description: 'Forenzikus gazdagép folyamat & OOM kórkép' },
+          { command: 'emlekezteto', description: 'Időzített emlékeztető (/emlekezteto 15m szöveg)' },
+          { command: 'makro', description: '1-kattintásos makró futtatása (/makro takaritas)' },
+          { command: 'mesh', description: 'Swarm Mesh GPU/node feladatkiadás' },
+          { command: 'dockerfix', description: 'Docker konténer Watchtower önjavítás' },
+          { command: 'sebesseg', description: 'LAN őrszem & internet sebességmérés' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -698,6 +714,73 @@ export async function processTelegramInput(
     if (buf.length > 15 * 1024 * 1024) return 'A fájl meghaladja a 15 MB Telegram küldési korlátot.';
     const sent = await sendTelegramDocument(buf, path.basename(resolved), `Fájl: ${rel}`);
     return sent.sent ? `Fájl elküldve Telegramon: ${rel}` : `Küldés sikertelen: ${sent.reason}`;
+  }
+
+  if (text.startsWith('/emlekezteto ') || text.startsWith('/remind ')) {
+    const rest = text.replace(/^\/(emlekezteto|remind)\s+/i, '').trim();
+    const firstSpace = rest.search(/\s+/);
+    if (firstSpace < 1) {
+      return 'Használat: /emlekezteto 15m Üzenet szövege (vagy /emlekezteto 08:30 Standup)';
+    }
+    const timeExpr = rest.slice(0, firstSpace).trim();
+    const message = rest.slice(firstSpace).trim();
+    try {
+      const rem = createSmartReminder({ timeExpr, message, channel: 'both' });
+      return `⏰ Emlékeztető rögzítve (${new Date(rem.triggerAt).toLocaleString('hu-HU')}): "${rem.message}"`;
+    } catch (err) {
+      return `Emlékeztető hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/makro' || text.startsWith('/makro ')) {
+    const slug = text.replace(/^\/makro\s*/i, '').trim();
+    if (!slug) {
+      const list = (state.quickMacros || []).map((m) => `• /makro ${m.slug} — ${m.name}`).join('\n');
+      return `Elérhető 1-kattintásos makrók:\n${list || '(nincs)'}`;
+    }
+    try {
+      const out = await executeQuickMacro(slug);
+      return `⚡ Makró kész (${out.macro.name}):\n${out.summary}`;
+    } catch (err) {
+      return `Makró hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/korkep') {
+    const rep = runForensicSystemSnapshot();
+    return `🩺 Rendszer Kórkép:\n${rep.diagnosisSummary}\n• Top RAM: ${rep.topMemoryProcesses.slice(0, 3).join(' | ') || 'n/a'}\n• Javaslat: ${rep.recommendations.join(' | ')}`;
+  }
+
+  if (text === '/dockerfix') {
+    const d = await runDockerWatchtowerHeal({ autoRestartExited: true });
+    return `🐳 ${d.summary}`;
+  }
+
+  if (text === '/sebesseg') {
+    const n = await runLanSentinelAndSpeedtest({ runSpeedtest: true, notifyUnknown: false });
+    return `🌐 LAN & Sebességmérés:\n• Ping: ${n.record.pingMs ?? 'n/a'} ms | Letöltés: ${n.record.downloadMbps ?? 'n/a'} Mbps\n• LAN eszközök: ${n.record.lanDeviceCount} db (ismeretlen MAC: ${n.record.unknownMacCount})`;
+  }
+
+  if (text.startsWith('/trustmac ')) {
+    const mac = text.replace(/^\/trustmac\s+/i, '').trim();
+    try {
+      const out = trustLanMacAddress(mac);
+      return `✅ ${out.message}`;
+    } catch (err) {
+      return `MAC hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text.startsWith('/mesh ')) {
+    const prompt = text.replace(/^\/mesh\s+/i, '').trim();
+    const rec = await dispatchSwarmMeshTask({ prompt });
+    return `🕸️ Mesh válasz (${rec.nodeName} · ${rec.latencyMs}ms · ${rec.status}):\n${rec.responsePreview}`;
+  }
+
+  if (text === '/szabaly') {
+    const ev = await evaluateAutonomyRules();
+    const activeCount = (state.autonomyRules || []).filter((r) => r.enabled).length;
+    return `⚙️ Szabálymotor (${activeCount} aktív szabály): ${ev.triggered.length} aktiválódott most.${ev.triggered.length ? `\n${ev.triggered.map((t) => `• ${t.ruleName}: ${t.actionResult}`).join('\n')}` : ''}`;
   }
 
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {

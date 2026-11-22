@@ -49,6 +49,12 @@ import {
   runSelfHealingDaemonTick,
   runVisualWatchCheck,
 } from './server/power/batch5AutonomyEngine';
+import {
+  evaluateAutonomyRules,
+  processDueSmartReminders,
+  runDockerWatchtowerHeal,
+  runLanSentinelAndSpeedtest,
+} from './server/power/batch6ApexEngine';
 
 dotenv.config();
 
@@ -373,6 +379,17 @@ async function bootstrap() {
           if (h.healedActions.length > 0 || h.failedServices.length > 0) broadcastEvent('state:updated');
         });
       }
+      if (watchdogCounter % 5 === 0 && s.settings.dockerAutoHealEnabled !== false) {
+        void runDockerWatchtowerHeal({ autoRestartExited: true }).then((d) => {
+          if (d.restarted.length > 0) broadcastEvent('state:updated');
+        });
+      }
+      if (watchdogCounter % Math.max(10, s.settings.speedtestIntervalMinutes || 60) === 0) {
+        void runLanSentinelAndSpeedtest({ runSpeedtest: true }).then(() => broadcastEvent('state:updated'));
+      }
+      void evaluateAutonomyRules().then((ev) => {
+        if (ev.triggered.length > 0) broadcastEvent('state:updated');
+      });
     }
 
     // RAM/OOM Watchdog runs regardless of kill switch to protect host stability
@@ -417,15 +434,20 @@ async function bootstrap() {
     if (changed) broadcastEvent('state:updated');
   }, 60_000);
 
-  // M18 Bidirectional Discord/Slack Polling (every 30s)
+  // M18 Bidirectional Discord/Slack Polling & Batch 6 Smart Reminders (every 25s)
   setInterval(() => {
     const s = getState();
+    if (!s.settings.killSwitchActive) {
+      void processDueSmartReminders().then((rem) => {
+        if (rem.firedCount > 0) broadcastEvent('state:updated');
+      });
+    }
     if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
     if (!s.channelConnectors.some((c) => c.enabled && c.pollingEnabled)) return;
     void pollExternalChannels().then((r) => {
       if (r.processed > 0) broadcastEvent('state:updated');
     });
-  }, 30_000);
+  }, 25_000);
 
   // Ú61 Night Shift Scheduler & M156 Retention Pruner
   setInterval(() => {

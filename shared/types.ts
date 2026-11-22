@@ -855,6 +855,11 @@ export interface Settings {
   gpioFanPin?: number;
   gpioFanTempThresholdC?: number;
   lastMigrationRecord?: MigrationRunRecord | null;
+  /** Batch 6: Apex Autonomy Rules, Mesh Offload, Docker Watchtower & LAN Sentinel */
+  lanSentinelAutoAlert?: boolean;
+  dockerAutoHealEnabled?: boolean;
+  meshOffloadEnabled?: boolean;
+  speedtestIntervalMinutes?: number;
 }
 
 /** Ú31: Deep Research Report */
@@ -1107,6 +1112,13 @@ export interface NovaSwarmState {
   hardwareProfile?: HardwareAdaptiveProfile | null;
   visualWatchItems?: VisualWatchItem[];
   proactiveEvents?: ProactiveRuleEvent[];
+  /** Batch 6: Apex Event-Action Rules, Smart Reminders, Quick Macros, LAN Speedtests, Mesh Dispatches & Forensics */
+  autonomyRules?: AutonomyRule[];
+  smartReminders?: SmartReminder[];
+  quickMacros?: QuickMacro[];
+  networkSpeeds?: NetworkSpeedRecord[];
+  meshDispatches?: MeshDispatchRecord[];
+  lastForensicReport?: ForensicReportSnapshot | null;
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
@@ -1485,4 +1497,105 @@ export interface ProactiveRuleEvent {
   summary: string;
   notifiedTelegram: boolean;
   createdAt: string;
+}
+
+/** Batch 6: Natural Event-Action Rule Engine ("Ha ez történik -> Csináld ezt") */
+export type AutonomyRuleTriggerKind =
+  | 'ram_above'
+  | 'cpu_above'
+  | 'temp_above'
+  | 'disk_above'
+  | 'uptime_down'
+  | 'new_lan_mac'
+  | 'manual_event';
+
+export type AutonomyRuleActionKind =
+  | 'ram_cleanup'
+  | 'telegram_notify'
+  | 'run_agent_prompt'
+  | 'gpio_set'
+  | 'wol_wake'
+  | 'docker_heal'
+  | 'speak_tts';
+
+export interface AutonomyRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  triggerKind: AutonomyRuleTriggerKind;
+  thresholdValue: number;
+  actionKind: AutonomyRuleActionKind;
+  actionTarget: string;
+  cooldownMinutes: number;
+  triggerCount: number;
+  lastTriggeredAt?: string;
+  createdAt: string;
+}
+
+/** Batch 6: Persistent Smart Reminder ("/emlekezteto 15m ...") */
+export interface SmartReminder {
+  id: string;
+  message: string;
+  triggerAt: string;
+  channel: 'telegram' | 'web' | 'both';
+  fired: boolean;
+  firedAt?: string;
+  createdAt: string;
+}
+
+/** Batch 6: 1-Tap Composite Quick Macro */
+export type MacroStepKind =
+  | 'ram_watchdog'
+  | 'sd_flush'
+  | 'ollama_unload'
+  | 'docker_heal'
+  | 'lan_sentinel'
+  | 'forensic_snapshot'
+  | 'morning_brief'
+  | 'self_heal';
+
+export interface QuickMacro {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  steps: MacroStepKind[];
+  runCount: number;
+  lastRunAt?: string;
+  lastSummary?: string;
+}
+
+/** Batch 6: Network Latency & Speedtest History */
+export interface NetworkSpeedRecord {
+  id: string;
+  pingMs: number | null;
+  downloadMbps: number | null;
+  lanDeviceCount: number;
+  unknownMacCount: number;
+  checkedAt: string;
+  note: string;
+}
+
+/** Batch 6: Swarm Mesh Node Dispatch History */
+export interface MeshDispatchRecord {
+  id: string;
+  nodeName: string;
+  nodeUrl: string;
+  promptPreview: string;
+  latencyMs: number;
+  status: 'ok' | 'fallback_local' | 'failed';
+  responsePreview: string;
+  createdAt: string;
+}
+
+/** Batch 6: Forensic Root-Cause Host Snapshot */
+export interface ForensicReportSnapshot {
+  id: string;
+  createdAt: string;
+  topMemoryProcesses: string[];
+  failedUnits: string[];
+  oomKernelHits: string[];
+  inodeUsageLines: string[];
+  diagnosisSummary: string;
+  recommendations: string[];
 }

@@ -21,7 +21,7 @@ import type {
 import { novaBus } from './eventBus';
 import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -536,6 +536,10 @@ export function createDefaultSettings(): Settings {
     gpioFanPin: undefined,
     gpioFanTempThresholdC: 65,
     lastMigrationRecord: null,
+    lanSentinelAutoAlert: true,
+    dockerAutoHealEnabled: true,
+    meshOffloadEnabled: true,
+    speedtestIntervalMinutes: 60,
   };
 }
 
@@ -705,6 +709,42 @@ export function createInitialState(): NovaSwarmState {
     hardwareProfile: null,
     visualWatchItems: [],
     proactiveEvents: [],
+    autonomyRules: [
+      {
+        id: 'rule-default-ram-guard',
+        name: 'Automatikus RAM & Cache Felszabadítás (88% felett)',
+        enabled: true,
+        triggerKind: 'ram_above',
+        thresholdValue: 88,
+        actionKind: 'ram_cleanup',
+        actionTarget: 'auto',
+        cooldownMinutes: 10,
+        triggerCount: 0,
+        createdAt: now,
+      },
+    ],
+    smartReminders: [],
+    quickMacros: [
+      {
+        id: 'macro-night-cleanup',
+        slug: 'takaritas',
+        name: 'Éjszakai Rendszertakarítás',
+        description: 'RAM őrszem tisztítás, SD puffer kiírás és tétlen Ollama modell ürítés egy kattintással.',
+        steps: ['ram_watchdog', 'sd_flush', 'ollama_unload'],
+        runCount: 0,
+      },
+      {
+        id: 'macro-full-health',
+        slug: 'korkep',
+        name: 'Teljes Állapot & Hálózat Kórkép',
+        description: 'Öngyógyító démon, Docker konténer javítás, LAN őrszem és forenzikus folyamatkép.',
+        steps: ['self_heal', 'docker_heal', 'lan_sentinel', 'forensic_snapshot'],
+        runCount: 0,
+      },
+    ],
+    networkSpeeds: [],
+    meshDispatches: [],
+    lastForensicReport: null,
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -911,6 +951,18 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     hardwareProfile: source.hardwareProfile ?? null,
     visualWatchItems: Array.isArray(source.visualWatchItems) ? source.visualWatchItems : [],
     proactiveEvents: Array.isArray(source.proactiveEvents) ? source.proactiveEvents : [],
+    autonomyRules:
+      Array.isArray(source.autonomyRules) && source.autonomyRules.length > 0
+        ? source.autonomyRules
+        : base.autonomyRules,
+    smartReminders: Array.isArray(source.smartReminders) ? source.smartReminders : [],
+    quickMacros:
+      Array.isArray(source.quickMacros) && source.quickMacros.length > 0
+        ? source.quickMacros
+        : base.quickMacros,
+    networkSpeeds: Array.isArray(source.networkSpeeds) ? source.networkSpeeds : [],
+    meshDispatches: Array.isArray(source.meshDispatches) ? source.meshDispatches : [],
+    lastForensicReport: source.lastForensicReport ?? null,
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),

@@ -139,8 +139,26 @@ A Telegram botban közvetlenül használható parancsok (kódblokk-biztos darabo
 - `/print <szöveg>` — Nyomtatás helyi CUPS nyomtatón
 - `/getfile <útvonal>` — Gazdagép fájl letöltése közvetlenül Telegramon
 - `/hang <szöveg>` — Hangos bemondás a gazdagép hangszóróján
+- `/emlekezteto <15m|08:30> <üzenet>` — Időzített emlékeztető Telegramra és hangszóróra
+- `/makro [slug]` — 1-kattintásos kompozit makrók listázása vagy futtatása (`takaritas`, `korkep`)
+- `/korkep` — Élő forenzikus rendszer-kórkép (Top RAM folyamatok, OOM napló, inode-ok)
+- `/mesh <prompt>` — Swarm Mesh GPU / workstation csomópont feladat-kiosztás
+- `/dockerfix` — Hibás/leállt Docker konténerek Watchtower önjavítása
+- `/sebesseg` — LAN eszközellenőrzés és internet sebességmérés
+- `/trustmac <mac>` — Új LAN eszköz MAC-cím felvétele a megbízható listára
+- `/szabaly` — Eseményvezérelt autonóm szabálymotor azonnali kiértékelése
 - `/help` / `/parancsok` — Összes elérhető Telegram parancs listája
 - `/stop` — Vészleállító (Kill-Switch) azonnali aktiválása
+
+---
+
+## 10. Apex Labor & Autonóm Hálózat-Felügyelet (Batch 6)
+
+A **Rendszer & Doksik → Apex Labor & Hálózat (B6)** nézetben elérhető csúcsfunkciók:
+- **Eseményvezérelt Autonóm Szabálymotor („Ha ez → Csináld ezt”)**: CPU, RAM, hőmérséklet, lemez, leállt Uptime vagy ismeretlen LAN MAC küszöbök alapján automatikus RAM tisztítás, Telegram riasztás, GPIO vezérlés, Wake-on-LAN vagy Docker újraindítás cooldown védelemmel.
+- **1-Kattintásos Kompozit Makrók & Okos Emlékeztetők**: Beépített és egyedi makrók (`takaritas`, `korkep`), valamint pontos (`08:30`) vagy relatív (`15m`, `2óra`) időzített emlékeztetők.
+- **Swarm Mesh GPU / Node Offload**: Automatikusan kiválasztja a leggyorsabb online GPU-s vagy asztali fürtcsomópontot a feladatokhoz, helyi failoverrel.
+- **LAN Őrszem, Sebességmérés, Docker Watchtower & Forenzikus Kórkép**: Ismeretlen MAC-eszközök azonnali jelzése, internet sávszélesség-naplózás, hibás Docker konténerek önjavítása és élő `ps`/kernel OOM kórkép.
 
 ---
 

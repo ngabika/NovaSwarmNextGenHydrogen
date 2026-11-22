@@ -263,6 +263,7 @@ import { buildOpenApiSpec } from '../power/devOpsStudio';
 import { createUniversalV3Router } from './universalV3Router';
 import { createUniversalV4Router } from './universalV4Router';
 import { createUniversalV5Router } from './universalV5Router';
+import { createUniversalV6Router } from './universalV6Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -724,6 +725,18 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         }
         if (typeof patch.gpioFanTempThresholdC === 'number' && patch.gpioFanTempThresholdC >= 35) {
           s.settings.gpioFanTempThresholdC = Math.min(95, Math.round(patch.gpioFanTempThresholdC));
+        }
+        if (typeof patch.lanSentinelAutoAlert === 'boolean') {
+          s.settings.lanSentinelAutoAlert = patch.lanSentinelAutoAlert;
+        }
+        if (typeof patch.dockerAutoHealEnabled === 'boolean') {
+          s.settings.dockerAutoHealEnabled = patch.dockerAutoHealEnabled;
+        }
+        if (typeof patch.meshOffloadEnabled === 'boolean') {
+          s.settings.meshOffloadEnabled = patch.meshOffloadEnabled;
+        }
+        if (typeof patch.speedtestIntervalMinutes === 'number' && patch.speedtestIntervalMinutes >= 5) {
+          s.settings.speedtestIntervalMinutes = Math.min(1440, Math.round(patch.speedtestIntervalMinutes));
         }
       });
 
@@ -3428,6 +3441,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.use('/v3', createUniversalV3Router(broadcastEvent));
   router.use('/v4', createUniversalV4Router(broadcastEvent));
   router.use('/v5', createUniversalV5Router(broadcastEvent));
+  router.use('/v6', createUniversalV6Router(broadcastEvent));
 
   return router;
 }

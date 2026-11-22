@@ -970,6 +970,55 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </label>
           </div>
         </div>
+
+        {/* Batch 6: Apex LAN Sentinel, Docker Watchtower & Swarm Mesh Offload */}
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Apex Hálózat-Őrszem, Docker Watchtower & Mesh Offload (Batch 6)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="set-speed-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                LAN & Sebességmérés Intervallum (perc)
+              </label>
+              <input
+                id="set-speed-int"
+                type="number"
+                min="10"
+                max="1440"
+                value={form.speedtestIntervalMinutes ?? 60}
+                onChange={(e) => setForm({ ...form, speedtestIntervalMinutes: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.lanSentinelAutoAlert !== false}
+                onChange={(e) => setForm({ ...form, lanSentinelAutoAlert: e.target.checked })}
+              />
+              <span>LAN Őrszem azonnali Telegram riasztás ismeretlen MAC-cím csatlakozásakor</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.dockerAutoHealEnabled !== false}
+                onChange={(e) => setForm({ ...form, dockerAutoHealEnabled: e.target.checked })}
+              />
+              <span>Docker Watchtower automatikus leállt / hibás konténer újraindítás</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.meshOffloadEnabled !== false}
+                onChange={(e) => setForm({ ...form, meshOffloadEnabled: e.target.checked })}
+              />
+              <span>Swarm Mesh automatikus GPU / workstation node feladat-kiosztás engedélyezve</span>
+            </label>
+          </div>
+        </div>
       </form>
 
       {/* LAN Operator Auth Lock Section */}
