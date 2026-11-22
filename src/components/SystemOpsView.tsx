@@ -36,6 +36,7 @@ import type {
   CronTask,
   HardwareMetrics,
   LanguageCode,
+  NovaSwarmState,
   OtaVersionStatus,
   Settings,
   SshHostProfile,
@@ -46,6 +47,9 @@ import { tr } from '../locales/translations';
 
 const Batch3InfraClusterPanel = lazy(() =>
   import('./Batch3InfraClusterPanel').then((m) => ({ default: m.Batch3InfraClusterPanel }))
+);
+const Batch4HardwareNetPanel = lazy(() =>
+  import('./Batch4HardwareNetPanel').then((m) => ({ default: m.Batch4HardwareNetPanel }))
 );
 
 interface Props {
@@ -60,6 +64,7 @@ interface Props {
   sshProfiles: SshHostProfile[];
   clusterNodes?: ClusterNode[];
   settings: Settings;
+  state?: NovaSwarmState;
   sandboxBackend?: string;
   onRefreshState: () => Promise<void>;
 }
@@ -76,10 +81,11 @@ export const SystemOpsView: React.FC<Props> = ({
   sshProfiles,
   clusterNodes = [],
   settings,
+  state,
   sandboxBackend,
   onRefreshState,
 }) => {
-  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'diagnostics'>('ops');
+  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'diagnostics'>('ops');
 
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
@@ -437,6 +443,7 @@ export const SystemOpsView: React.FC<Props> = ({
               { id: 'ops', label: 'Felügyelet, Uptime, SSL & Mentés' },
               { id: 'selfmod', label: 'Önfejlesztés, Git Diff & OTA' },
               { id: 'infra', label: 'Infra: Docker · Systemd · SSH · LAN/VPN' },
+              { id: 'pi_hw_b4', label: 'Pi Hardver & Fájlok (B4)' },
               { id: 'diagnostics', label: 'Diagnosztika · .env · Cron · Audit Export' },
             ] as const
           ).map((t) => (
@@ -1829,6 +1836,11 @@ export const SystemOpsView: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+      {subTab === 'pi_hw_b4' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Pi Hardver & Fájlok (B4) betöltése...</div>}>
+          <Batch4HardwareNetPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
       )}
     </div>
   );

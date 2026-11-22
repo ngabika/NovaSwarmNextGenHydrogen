@@ -11,7 +11,9 @@ coverage/
 .state.json
 .state.json.tmp
 .secrets.vault.json
-memory-vault/
-backups/
-skills/
+/memory-vault/
+/backups/
+/skills/
+/rag-docs/
+/novaswarm.sqlite*
 .playwright-cli/

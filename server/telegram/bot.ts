@@ -18,6 +18,21 @@ import {
 import { invokeWithFailover } from '../providers/router';
 import { activateKillSwitch, resolveApproval } from '../security/permissionGate';
 import {
+  collectPiHardwareDeepStatus,
+  checkSystemPackageUpdates,
+  detectLanIntruders,
+  generatePostMortemReport,
+  runBashCopilot,
+} from '../infra/batch4PiHardwareAndNet';
+import {
+  checkExpiringDocuments,
+  checkPriceWatchItem,
+  getAutopilotSummary,
+  runGlobalOmnisearch,
+  runMultiAgentDebate,
+  suggestRecipesFromPantry,
+} from '../power/batch4OmniStudio';
+import {
   appendAuditLog,
   getAgentTelegramTokenSecret,
   getState,
@@ -29,6 +44,102 @@ import { collectHardwareMetrics, checkOtaUpdates } from '../system/ops';
 
 let pollingActive = false;
 const botOffsets = new Map<string, number>();
+let commandsSyncedToken: string | null = null;
+
+/** M183: Split long Telegram replies safely without breaking triple-backtick code fences */
+export function splitTelegramMessageSafe(text: string, maxLen = 3900): string[] {
+  const clean = text.trim();
+  if (clean.length <= maxLen) return [clean];
+
+  const chunks: string[] = [];
+  let current = '';
+  let insideFence = false;
+
+  for (const line of clean.split('\n')) {
+    const fenceToggles = (line.match(/```/g) || []).length % 2 === 1;
+    if ((current + '\n' + line).length > maxLen && current.length > 0) {
+      chunks.push(insideFence ? `${current}\n\`\`\`` : current);
+      current = insideFence ? `\`\`\`\n${line}` : line;
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+    if (fenceToggles) insideFence = !insideFence;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/** M182: Automatically register all Hungarian Telegram bot commands with BotFather API */
+export async function syncTelegramBotCommands(token: string): Promise<void> {
+  if (!token || commandsSyncedToken === token) return;
+  commandsSyncedToken = token;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'statusz', description: 'Rendszer állapot, hőmérséklet és költség' },
+          { command: 'autopilot', description: 'Autopilot 24/7 főagy összefoglaló' },
+          { command: 'mission', description: 'Autonóm küldetés indítása' },
+          { command: 'nightshift', description: 'Éjszakai Műszak futtatása' },
+          { command: 'top', description: 'CPU, RAM, ZRAM és szenzorok' },
+          { command: 'search', description: 'Mindent-Kereső (Omnisearch)' },
+          { command: 'bash', description: 'Bash Copilot (magyar -> parancs)' },
+          { command: 'vita', description: 'Több-ágenses Pro/Kontra vita' },
+          { command: 'behatolo', description: 'Ismeretlen LAN MAC eszközök' },
+          { command: 'okmany', description: 'Lejáró garanciák és okmányok' },
+          { command: 'arfigyelo', description: 'Webshop árfigyelő állapot' },
+          { command: 'recept', description: 'Receptek a kamra készletből' },
+          { command: 'xp', description: 'Saját RPG szint és széria' },
+          { command: 'hiba', description: 'Automatikus Post-Mortem diagnosztika' },
+          { command: 'frissites', description: 'Rendszer és csomagfrissítések' },
+          { command: 'lista', description: 'Bevásárlólista / tétel hozzáadás' },
+          { command: 'kanban', description: 'Aktív Kanban kártyák' },
+          { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
+        ],
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
+/** M193: Flush queued offline Telegram messages when connectivity returns */
+export async function flushTelegramOutbox(): Promise<number> {
+  const s = getState();
+  if (!s.settings.telegramEnabled || s.telegramOutbox.length === 0) return 0;
+  const token = getTelegramTokenSecret();
+  if (!token) return 0;
+
+  let delivered = 0;
+  const remaining = [...s.telegramOutbox];
+  for (const item of [...s.telegramOutbox]) {
+    const res = await sendTelegramMessage(item.text, {
+      chatIdOverride: item.chatId,
+      skipOutboxQueue: true,
+    });
+    if (res.sent) {
+      delivered += 1;
+      const idx = remaining.findIndex((x) => x.id === item.id);
+      if (idx >= 0) remaining.splice(idx, 1);
+    } else {
+      const target = remaining.find((x) => x.id === item.id);
+      if (target) {
+        target.attempts += 1;
+        target.lastError = res.reason;
+      }
+      break; // Network still unreachable
+    }
+  }
+  if (delivered > 0 || remaining.length !== s.telegramOutbox.length) {
+    updateState((draft) => {
+      draft.telegramOutbox = remaining.slice(0, 50);
+    });
+  }
+  return delivered;
+}
 
 export async function sendTelegramMessage(
   text: string,
@@ -36,6 +147,8 @@ export async function sendTelegramMessage(
     inlineButtons?: Array<Array<{ text: string; callback_data: string }>>;
     tokenOverride?: string;
     chatIdOverride?: string;
+    silent?: boolean;
+    skipOutboxQueue?: boolean;
   }
 ): Promise<{ sent: boolean; reason?: string }> {
   const state = getState();
@@ -46,23 +159,48 @@ export async function sendTelegramMessage(
     return { sent: false, reason: 'Telegram nincs konfigurálva (token vagy chat ID hiányzik)' };
   }
 
+  const chunks = splitTelegramMessageSafe(text, 3900);
+  const hour = new Date().getHours();
+  const disableNotification =
+    options?.silent ?? (Boolean(state.settings.telegramSilentNight) && (hour >= 23 || hour < 7));
+
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text.slice(0, 4000),
-        reply_markup: options?.inlineButtons ? { inline_keyboard: options.inlineButtons } : undefined,
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      return { sent: false, reason: `HTTP ${res.status}` };
+    for (let i = 0; i < chunks.length; i++) {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: chunks[i],
+          disable_notification: disableNotification,
+          reply_markup:
+            i === chunks.length - 1 && options?.inlineButtons
+              ? { inline_keyboard: options.inlineButtons }
+              : undefined,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        return { sent: false, reason: `HTTP ${res.status}` };
+      }
     }
     return { sent: true };
   } catch (err) {
-    return { sent: false, reason: err instanceof Error ? err.message : String(err) };
+    const reason = err instanceof Error ? err.message : String(err);
+    if (!options?.skipOutboxQueue) {
+      updateState((s) => {
+        s.telegramOutbox.push({
+          id: `tgq-${crypto.randomUUID().slice(0, 8)}`,
+          text: text.slice(0, 3900),
+          chatId,
+          attempts: 1,
+          lastError: reason,
+          createdAt: new Date().toISOString(),
+        });
+        s.telegramOutbox = s.telegramOutbox.slice(-50);
+      });
+    }
+    return { sent: false, reason };
   }
 }
 
@@ -273,6 +411,106 @@ export async function processTelegramInput(
     return 'OpenAPI 3.1 séma elérhető helyi hálózaton: GET /api/openapi.json';
   }
 
+  /** Batch 4 Telegram Commands (M191, M194, Ú161, Ú194, Ú209, Ú210, Ú212, Ú226, Ú237, Ú251, Ú252, Ú253, Ú260) */
+  if (text === '/help' || text === '/parancsok' || text === '/start') {
+    return [
+      'NovaSwarm Parancsok:',
+      '/statusz · /autopilot · /top · /df',
+      '/mission <cél> · /nightshift · /kapszula',
+      '/kanban · /otlet <cél> · /lista [tétel]',
+      '/search <kifejezés> · /vita <téma>',
+      '/bash <magyar kérés> · /hiba · /frissites',
+      '/lan · /behatolo · /wol <MAC> · /cluster',
+      '/okmany · /arfigyelo · /recept · /xp · /stop',
+    ].join('\n');
+  }
+
+  if (text === '/top' || text === '/df') {
+    const deep = collectPiHardwareDeepStatus();
+    const disks = deep.blockDevices.slice(0, 6).map((b) => `• ${b.name}: ${b.size}${b.mountpoint ? ` (${b.mountpoint})` : ''}`).join('\n');
+    const temps = deep.thermalZones.slice(0, 4).map((t) => `${t.name}=${t.tempC}°C`).join(', ');
+    return [
+      `Rendszer Telemetria (${deep.hostname} · ${deep.arch}):`,
+      `• Load 1m: ${deep.loadAvg1m} (küszöb: ${deep.cpuThreshold})${deep.loadThrottleActive ? ' [THROTTLED]' : ''}`,
+      `• Szabad RAM: ${deep.memAvailableMb} MB | ZRAM: ${deep.zramPresent ? 'AKTÍV' : 'Nincs'} | Swap szabad: ${deep.swapFreeMb}/${deep.swapTotalMb} MB`,
+      `• Hőfokok: ${temps || 'N/A'} | Uptime: ${deep.uptimeHours} óra`,
+      `• GPIO chipek: ${deep.gpioChips.length} | I2C buszok: ${deep.i2cBuses.length}`,
+      disks ? `Lemezek:\n${disks}` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  if (text.startsWith('/search ')) {
+    const q = text.replace(/^\/search\s+/i, '').trim();
+    const res = runGlobalOmnisearch(q, 10);
+    if (res.hits.length === 0) return `Omnisearch (${q}): nincs találat.`;
+    return `Omnisearch "${q}" (${res.totalHits} találat):\n${res.hits.map((h) => `• [${h.source}] ${h.title}: ${h.snippet}`).join('\n')}`;
+  }
+
+  if (text === '/hiba' || text === '/postmortem') {
+    const pm = generatePostMortemReport();
+    return `${pm.title}\nOk: ${pm.rootCause}\nÉrintett naplók: ${pm.affectedEntries}\nJavaslat:\n${pm.remediationSteps.map((s) => `- ${s}`).join('\n')}`;
+  }
+
+  if (text.startsWith('/vita ')) {
+    const topic = text.replace(/^\/vita\s+/i, '').trim();
+    const run = await runMultiAgentDebate(topic);
+    return `Vita (${run.topic}) — Győztes: ${run.winnerSide.toUpperCase()}\n\n${run.judgeVerdict}`;
+  }
+
+  if (text === '/xp') {
+    const xp = state.userXp;
+    return `RPG Profil:\n• Szint: ${xp.level} | XP: ${xp.xp}\n• Széria: ${xp.streakDays} nap\n• Jelvények: ${xp.badges.join(', ')}`;
+  }
+
+  if (text === '/okmany') {
+    const exp = checkExpiringDocuments(45);
+    if (exp.length === 0) return 'Nincs 45 napon belül lejáró garancia vagy okmány a széfben.';
+    return `Közelgő lejáratok:\n${exp.map((d) => `• ${d.title} (${d.category}): ${d.daysLeft} nap (${d.expiresAt})`).join('\n')}`;
+  }
+
+  if (text === '/arfigyelo') {
+    if (state.priceWatches.length === 0) return 'Nincs aktív webshop árfigyelő.';
+    for (const pw of state.priceWatches.slice(0, 5)) {
+      await checkPriceWatchItem(pw.id);
+    }
+    const fresh = getState().priceWatches;
+    return `Árfigyelők (${fresh.length} db):\n${fresh.slice(0, 8).map((p) => `• ${p.name}: ${p.lastPrice ?? '?'} ${p.currency} (cél: ${p.targetPrice} ${p.currency})`).join('\n')}`;
+  }
+
+  if (text === '/recept') {
+    const recs = suggestRecipesFromPantry().slice(0, 4);
+    return `Receptek a kamra készletből:\n${recs.map((r) => `• ${r.name} (${r.matchPercent}% egyezés · ${r.calories} kcal · ${r.minutes} perc)${r.missingIngredients.length ? ` — Hiányzik: ${r.missingIngredients.join(', ')}` : ''}`).join('\n')}`;
+  }
+
+  if (text === '/behatolo') {
+    const res = detectLanIntruders(false);
+    return res.unknownDevices.length === 0
+      ? `LAN Behatolás-szűrő OK: ${res.totalSeen} eszköz látott, 0 ismeretlen MAC.`
+      : `FIGYELEM! ${res.unknownDevices.length} ismeretlen MAC a LAN-on:\n${res.unknownDevices.map((d) => `• ${d.ip} [${d.mac}] (${d.iface})`).join('\n')}`;
+  }
+
+  if (text === '/frissites') {
+    const up = checkSystemPackageUpdates();
+    return `Csomagfrissítések:\n• APT frissíthető csomagok: ${up.aptAvailable ? up.aptUpgradableCount : 'N/A'}\n${up.aptPackages.slice(0, 8).join('\n') || ''}\n• NPM: ${up.npmOutdatedSummary.slice(0, 300)}`;
+  }
+
+  if (text === '/autopilot') {
+    const ap = getAutopilotSummary();
+    return [
+      `Autopilot 24/7 Főagy:`,
+      `• Teljes Autonómia: ${ap.fullAutonomousMode ? 'AKTÍV' : 'Ki'} | Nulla Alap Biztonság: ${ap.zeroDefaultSecurity ? 'IGEN' : 'Egyéni'}`,
+      `• Aktív ágensek: ${ap.activeAgents} | Nyitott Kanban: ${ap.openKanban} | Memóriák: ${ap.memoriesCount}`,
+      `• Éjszakai Műszak kész feladatok: ${ap.completedNightTasks} | XP Szint: ${ap.xpLevel}`,
+      `Következő tervek:\n${ap.nextAutonomousPlans.map((p) => `- ${p}`).join('\n')}`,
+    ].join('\n');
+  }
+
+  if (text.startsWith('/bash ')) {
+    const intent = text.replace(/^\/bash\s+/i, '').trim();
+    const res = await runBashCopilot(intent, true);
+    return `Bash Copilot:\n$ ${res.command}\n(${res.explanation})\n\n${res.output || '(üres kimenet)'}`;
+  }
+
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {
     const query = text.replace(/^\/(keres|ask)\s+/i, '').trim();
     const memMatches = searchMemories(query, 4, { reinforce: true });
@@ -409,6 +647,10 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
       botOffsets.set(botKey, Math.max(botOffsets.get(botKey) ?? 0, upd.update_id));
       const chatId = upd.message?.chat?.id ?? upd.callback_query?.message?.chat?.id;
       const chatStr = chatId ? String(chatId) : undefined;
+      const allowList = getState().settings.telegramAllowedChatIds || [];
+      if (allowList.length > 0 && (!chatStr || !allowList.includes(chatStr))) {
+        continue;
+      }
 
       // 1. Telegram Photo (Multimodal Vision)
       if (upd.message?.photo && upd.message.photo.length > 0) {
@@ -505,6 +747,8 @@ export function startTelegramPolling(): void {
     if (!state.settings.killSwitchActive) {
       const mainToken = getTelegramTokenSecret();
       if (state.settings.telegramEnabled && mainToken) {
+        void syncTelegramBotCommands(mainToken);
+        void flushTelegramOutbox();
         await pollSingleBot('main', mainToken);
       }
 

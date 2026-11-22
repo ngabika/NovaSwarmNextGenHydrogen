@@ -261,6 +261,7 @@ import {
 } from '../web/searchAndBrowser';
 import { buildOpenApiSpec } from '../power/devOpsStudio';
 import { createUniversalV3Router } from './universalV3Router';
+import { createUniversalV4Router } from './universalV4Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -3389,6 +3390,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   });
 
   router.use('/v3', createUniversalV3Router(broadcastEvent));
+  router.use('/v4', createUniversalV4Router(broadcastEvent));
 
   return router;
 }

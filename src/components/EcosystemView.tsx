@@ -30,6 +30,9 @@ import type { NovaSwarmState, WorkflowStep } from '../../shared/types';
 const Batch3LifePortalPanel = lazy(() =>
   import('./Batch3LifePortalPanel').then((m) => ({ default: m.Batch3LifePortalPanel }))
 );
+const Batch4LifeAndAutopilotPanel = lazy(() =>
+  import('./Batch4LifeAndAutopilotPanel').then((m) => ({ default: m.Batch4LifeAndAutopilotPanel }))
+);
 
 interface Props {
   state: NovaSwarmState;
@@ -50,6 +53,7 @@ type EcoTab =
   | 'journal'
   | 'lists_subs'
   | 'life_portal'
+  | 'life_os_b4'
   | 'bundle';
 
 export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
@@ -187,6 +191,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
     { id: 'habits', label: 'Szokások & Fókusz', icon: <Timer className="h-3.5 w-3.5" /> },
     { id: 'expenses', label: 'Pénzügyek & CSV', icon: <Wallet className="h-3.5 w-3.5" /> },
     { id: 'life_portal', label: 'CRM, Csomagok & Deviza', icon: <Package className="h-3.5 w-3.5" /> },
+    { id: 'life_os_b4', label: 'Élet-OS, XP & Széf (B4)', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
     { id: 'bundle', label: 'Csomag Export/Import', icon: <Download className="h-3.5 w-3.5" /> },
   ];
 
@@ -1642,6 +1647,12 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'life_portal' && (
         <Suspense fallback={<div className="p-6 text-xs text-slate-500">Életvitel & CRM modul betöltése...</div>}>
           <Batch3LifePortalPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+
+      {tab === 'life_os_b4' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Élet-OS, XP & Széf (B4) betöltése...</div>}>
+          <Batch4LifeAndAutopilotPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>

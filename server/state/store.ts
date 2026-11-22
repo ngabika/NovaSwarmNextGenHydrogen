@@ -21,7 +21,7 @@ import type {
 import { novaBus } from './eventBus';
 import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -516,6 +516,13 @@ export function createDefaultSettings(): Settings {
     lastNightShiftAt: null,
     lanSubnetAllowlist: [],
     totpEnabled: false,
+    telegramAllowedChatIds: [],
+    telegramDigestTime: '07:30',
+    telegramSilentNight: true,
+    cpuLoadThrottleThreshold: 4.0,
+    digitalDetoxMode: false,
+    deadManSwitchDays: 0,
+    agentTemperatureBias: 0,
   };
 }
 
@@ -661,6 +668,27 @@ export function createInitialState(): NovaSwarmState {
     timeCapsules: [],
     budgetEnvelopes: [],
     clipboardHistory: [],
+    priceWatches: [],
+    documentSafe: [],
+    hostedMiniApps: [],
+    apiMocks: [],
+    ephemeralNotes: [],
+    lifeGoals: [],
+    customWidgets: [],
+    debateRuns: [],
+    missionCheckpoints: [],
+    userXp: {
+      xp: 0,
+      level: 1,
+      streakDays: 0,
+      lastAwardDate: null,
+      badges: ['Raj Kezdő'],
+      recentEvents: [],
+    },
+    backgroundJobs: [],
+    telegramOutbox: [],
+    knownLanMacs: [],
+    postMortems: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -843,6 +871,27 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     timeCapsules: Array.isArray(source.timeCapsules) ? source.timeCapsules : [],
     budgetEnvelopes: Array.isArray(source.budgetEnvelopes) ? source.budgetEnvelopes : [],
     clipboardHistory: Array.isArray(source.clipboardHistory) ? source.clipboardHistory : [],
+    priceWatches: Array.isArray(source.priceWatches) ? source.priceWatches : [],
+    documentSafe: Array.isArray(source.documentSafe) ? source.documentSafe : [],
+    hostedMiniApps: Array.isArray(source.hostedMiniApps) ? source.hostedMiniApps : [],
+    apiMocks: Array.isArray(source.apiMocks) ? source.apiMocks : [],
+    ephemeralNotes: Array.isArray(source.ephemeralNotes) ? source.ephemeralNotes : [],
+    lifeGoals: Array.isArray(source.lifeGoals) ? source.lifeGoals : [],
+    customWidgets: Array.isArray(source.customWidgets) ? source.customWidgets : [],
+    debateRuns: Array.isArray(source.debateRuns) ? source.debateRuns : [],
+    missionCheckpoints: Array.isArray(source.missionCheckpoints) ? source.missionCheckpoints : [],
+    userXp: source.userXp
+      ? {
+          ...base.userXp,
+          ...source.userXp,
+          badges: Array.isArray(source.userXp.badges) ? source.userXp.badges : base.userXp.badges,
+          recentEvents: Array.isArray(source.userXp.recentEvents) ? source.userXp.recentEvents : [],
+        }
+      : base.userXp,
+    backgroundJobs: Array.isArray(source.backgroundJobs) ? source.backgroundJobs : [],
+    telegramOutbox: Array.isArray(source.telegramOutbox) ? source.telegramOutbox : [],
+    knownLanMacs: Array.isArray(source.knownLanMacs) ? source.knownLanMacs : [],
+    postMortems: Array.isArray(source.postMortems) ? source.postMortems : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),

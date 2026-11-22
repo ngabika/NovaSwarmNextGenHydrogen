@@ -833,6 +833,14 @@ export interface Settings {
   lastNightShiftAt?: string | null;
   lanSubnetAllowlist?: string[];
   totpEnabled?: boolean;
+  /** Batch 4 (M168, M189, M190, M200, Ú225, Ú246): Adaptive Pi & Telegram controls */
+  telegramAllowedChatIds?: string[];
+  telegramDigestTime?: string;
+  telegramSilentNight?: boolean;
+  cpuLoadThrottleThreshold?: number;
+  digitalDetoxMode?: boolean;
+  deadManSwitchDays?: number;
+  agentTemperatureBias?: number;
 }
 
 /** Ú31: Deep Research Report */
@@ -1066,6 +1074,21 @@ export interface NovaSwarmState {
   timeCapsules: TimeCapsuleDigest[];
   budgetEnvelopes: BudgetEnvelope[];
   clipboardHistory: ClipboardHistoryItem[];
+  /** Batch 4 (M161–M260 & Ú161–Ú260) domain collections */
+  priceWatches: PriceWatchItem[];
+  documentSafe: DocumentSafeItem[];
+  hostedMiniApps: HostedMiniApp[];
+  apiMocks: ApiMockEndpoint[];
+  ephemeralNotes: EphemeralNote[];
+  lifeGoals: LifeGoalOkr[];
+  customWidgets: CustomDashboardWidget[];
+  debateRuns: SwarmDebateRun[];
+  missionCheckpoints: MissionCheckpoint[];
+  userXp: UserXpProfile;
+  backgroundJobs: BackgroundWorkerJob[];
+  telegramOutbox: TelegramOutboxItem[];
+  knownLanMacs: KnownLanMac[];
+  postMortems: PostMortemReport[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
@@ -1218,4 +1241,156 @@ export interface ClipboardHistoryItem {
   kind: string;
   createdAt: string;
 }
+
+/** Ú210: Webshop Price Watch */
+export interface PriceWatchItem {
+  id: string;
+  name: string;
+  url: string;
+  currency: string;
+  targetPrice: number;
+  lastPrice: number | null;
+  priceHistory: Array<{ price: number; checkedAt: string }>;
+  lastCheckedAt: string | null;
+  lastError?: string;
+}
+
+/** Ú209: Warranty, Contract & Document Safe */
+export interface DocumentSafeItem {
+  id: string;
+  title: string;
+  category: 'warranty' | 'contract' | 'identity' | 'insurance' | 'other';
+  expiresAt: string;
+  issuer?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** Ú206: Self-Hosted Prompt-Built Mini-App */
+export interface HostedMiniApp {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  htmlContent: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Ú218: Live API Mock Endpoint */
+export interface ApiMockEndpoint {
+  id: string;
+  slug: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  statusCode: number;
+  responseJson: string;
+  hitCount: number;
+  createdAt: string;
+}
+
+/** Ú244 & Ú257: Ephemeral / Burn-After-Reading Note */
+export interface EphemeralNote {
+  id: string;
+  token: string;
+  title: string;
+  content: string;
+  oneTimeRead: boolean;
+  expiresAt: string;
+  readCount: number;
+  burned: boolean;
+  createdAt: string;
+}
+
+/** Ú254: Life Compass OKR Goal */
+export interface LifeGoalOkr {
+  id: string;
+  title: string;
+  quarter: string;
+  progressPercent: number;
+  milestones: Array<{ id: string; title: string; done: boolean; kanbanCardId?: string }>;
+  createdAt: string;
+}
+
+/** Ú258: Custom Dynamic Overview Widget */
+export interface CustomDashboardWidget {
+  id: string;
+  title: string;
+  kind: 'http_json' | 'shell_cmd';
+  source: string;
+  lastValue?: string;
+  lastUpdatedAt?: string;
+}
+
+/** Ú226: Multi-Agent Debate Theater */
+export interface SwarmDebateRun {
+  id: string;
+  topic: string;
+  proArgument: string;
+  contraArgument: string;
+  judgeVerdict: string;
+  winnerSide: 'pro' | 'contra' | 'balanced';
+  createdAt: string;
+}
+
+/** M163: Interrupted Mission Crash-Recovery Checkpoint */
+export interface MissionCheckpoint {
+  id: string;
+  missionId: string;
+  goal: string;
+  completedStepIndices: number[];
+  partialOutputs: string[];
+  updatedAt: string;
+}
+
+/** Ú237: Gamified Productivity XP & Streaks */
+export interface UserXpProfile {
+  xp: number;
+  level: number;
+  streakDays: number;
+  lastAwardDate: string | null;
+  badges: string[];
+  recentEvents: Array<{ reason: string; points: number; at: string }>;
+}
+
+/** Ú250: Background Worker Job Tracker */
+export interface BackgroundWorkerJob {
+  id: string;
+  label: string;
+  kind: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  progressPercent: number;
+  detail: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+/** M193: Offline Telegram Outbox Retry Queue */
+export interface TelegramOutboxItem {
+  id: string;
+  text: string;
+  chatId?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: string;
+}
+
+/** Ú194: Known LAN MAC Registry for Intruder Detection */
+export interface KnownLanMac {
+  mac: string;
+  label: string;
+  ip: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/** Ú253: Automatic Post-Mortem Diagnostic Report */
+export interface PostMortemReport {
+  id: string;
+  title: string;
+  rootCause: string;
+  affectedEntries: number;
+  remediationSteps: string[];
+  createdAt: string;
+}
+
 

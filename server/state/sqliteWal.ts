@@ -7,7 +7,8 @@ const SQLITE_PATH = path.resolve(process.cwd(), 'novaswarm.sqlite');
 let dbInstance: DatabaseSync | null = null;
 let currentDbPath: string | null = null;
 
-export const WAL_SCHEMA_VERSION = 3;
+export const WAL_SCHEMA_VERSION = 4;
+let fts5Supported = true;
 
 export function getWalDatabase(customPath?: string): DatabaseSync {
   const target = customPath || SQLITE_PATH;
@@ -60,6 +61,19 @@ export function getWalDatabase(customPath?: string): DatabaseSync {
       timestamp TEXT NOT NULL
     );
   `);
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS fts_docs USING fts5(
+        doc_id UNINDEXED,
+        kind UNINDEXED,
+        title,
+        body
+      );
+    `);
+    fts5Supported = true;
+  } catch {
+    fts5Supported = false;
+  }
   const existingVer = db
     .prepare('SELECT MAX(version) as v FROM schema_migrations')
     .get() as { v: number | null } | undefined;
@@ -90,6 +104,15 @@ export function syncAuditEntryToWal(entry: AuditLogEntry, customPath?: string): 
       entry.hash || null,
       entry.prevHash || null
     );
+    if (fts5Supported) {
+      db.prepare('DELETE FROM fts_docs WHERE doc_id = ?').run(`audit:${entry.id}`);
+      db.prepare('INSERT INTO fts_docs (doc_id, kind, title, body) VALUES (?, ?, ?, ?)').run(
+        `audit:${entry.id}`,
+        'audit',
+        `${entry.type} - ${entry.sourceAgentName}`,
+        entry.message
+      );
+    }
   } catch {
     // Non-fatal fallback to JSON atomic store
   }
@@ -109,6 +132,15 @@ export function syncMemoryToWal(mem: MemoryEntry, customPath?: string): void {
       mem.content,
       mem.lastAccessedAt || mem.createdAt
     );
+    if (fts5Supported) {
+      db.prepare('DELETE FROM fts_docs WHERE doc_id = ?').run(`mem:${mem.id}`);
+      db.prepare('INSERT INTO fts_docs (doc_id, kind, title, body) VALUES (?, ?, ?, ?)').run(
+        `mem:${mem.id}`,
+        'memory',
+        mem.entity,
+        mem.content
+      );
+    }
   } catch {
     // ignore
   }
@@ -129,6 +161,15 @@ export function syncMessageToWal(msg: UnifiedMessage, customPath?: string): void
       msg.content,
       msg.timestamp
     );
+    if (fts5Supported) {
+      db.prepare('DELETE FROM fts_docs WHERE doc_id = ?').run(`msg:${msg.id}`);
+      db.prepare('INSERT INTO fts_docs (doc_id, kind, title, body) VALUES (?, ?, ?, ?)').run(
+        `msg:${msg.id}`,
+        'message',
+        `${msg.senderName} (${msg.channel})`,
+        msg.content
+      );
+    }
   } catch {
     // ignore
   }
@@ -202,6 +243,73 @@ export function getSqliteWalStatus(customPath?: string): {
   };
 }
 
+/** M205: SQLite FTS5 full-text search across indexed audit logs, memories, and messages */
+export function searchWalFullText(
+  query: string,
+  limit = 20,
+  customPath?: string
+): Array<{ docId: string; kind: string; title: string; body: string }> {
+  const clean = query.trim();
+  if (!clean) return [];
+  const db = getWalDatabase(customPath);
+  const capped = Math.min(100, Math.max(1, limit));
+
+  if (fts5Supported) {
+    try {
+      const ftsQuery = clean
+        .replace(/["*^():]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((t) => `"${t}"*`)
+        .join(' AND ');
+      if (ftsQuery) {
+        return db
+          .prepare(
+            `SELECT doc_id as docId, kind, title, body FROM fts_docs WHERE fts_docs MATCH ? LIMIT ?`
+          )
+          .all(ftsQuery, capped) as Array<{ docId: string; kind: string; title: string; body: string }>;
+      }
+    } catch {
+      // fall through to LIKE
+    }
+  }
+
+  const pattern = `%${clean}%`;
+  const memRows = db
+    .prepare(
+      `SELECT ('mem:' || id) as docId, 'memory' as kind, entity as title, content as body
+       FROM memories_index WHERE entity LIKE ? OR content LIKE ? LIMIT ?`
+    )
+    .all(pattern, pattern, capped) as Array<{ docId: string; kind: string; title: string; body: string }>;
+  const msgRows = db
+    .prepare(
+      `SELECT ('msg:' || id) as docId, 'message' as kind, sender_name as title, content as body
+       FROM messages_index WHERE sender_name LIKE ? OR content LIKE ? LIMIT ?`
+    )
+    .all(pattern, pattern, capped) as Array<{ docId: string; kind: string; title: string; body: string }>;
+  return [...memRows, ...msgRows].slice(0, capped);
+}
+
+/** M204: SQLite WAL checkpoint & VACUUM maintenance */
+export function runSqliteMaintenance(customPath?: string): {
+  ok: boolean;
+  beforeBytes: number;
+  afterBytes: number;
+  savedBytes: number;
+} {
+  const target = customPath || SQLITE_PATH;
+  const db = getWalDatabase(target);
+  const beforeBytes = fs.existsSync(target) ? fs.statSync(target).size : 0;
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;');
+  const afterBytes = fs.existsSync(target) ? fs.statSync(target).size : 0;
+  return {
+    ok: true,
+    beforeBytes,
+    afterBytes,
+    savedBytes: Math.max(0, beforeBytes - afterBytes),
+  };
+}
+
 export function closeWalDatabaseForTests(): void {
   if (dbInstance) {
     try {
@@ -215,3 +323,4 @@ export function closeWalDatabaseForTests(): void {
 }
 
 export const closeSqliteWal = closeWalDatabaseForTests;
+

@@ -69,30 +69,55 @@
   - **Csomagkövető** (GLS/MPL/Foxpost), **Otthoni Készlet (Kamra)**, **Heti Étrend -> Bevásárlólista Automatikus Szinkron**, **Jármű & Karbantartási Napló**,
   - **Read-It-Later Könyvjelző Archiváló**, **Időkorlátos Megosztott Portál Linkek**, **Borítékkal (Envelope) Költségvetés**, és **Élő Devizaváltó (EKB/Frankfurter)**.
 
-### 7. Rendszerüzemeltetés, Többgépes Fürt & Hálózati Eszköztár
+### 7. Rendszerüzemeltetés, Többgépes Fürt, Pi Hardver & Fájlkezelő
+- **Raspberry Pi & Linux Mély Hardver Telemetria (`Ú161–Ú165, M207–M208`)**: GPIO/I2C busz felderítés, Bluetooth eszközök, UPS akku állapot, `lsblk` lemezek, ZRAM / MemAvailable, automatikus LoadAvg fojtás-riasztás, valamint FFmpeg / Whisper / CUPS észlelés.
+- **Kétpaneles Webes Fájlkezelő (`Ú199`) & LAN Drop (`Ú188`)**: Helyi fájlrendszer böngészés, szövegszerkesztés és azonnali böngésző alapú fájlcserélő.
+- **Bash Copilot (`Ú251`), Automatikus Post-Mortem (`Ú253`), Okosmérő (`Ú167`) & LAN Behatolás-szűrő (`Ú194`)**: Természetes nyelvű magyar kérésből futtatható Linux parancs, hiba-elemző jelentés és ismeretlen MAC cím észlelés.
 - **Wake-on-LAN (Valódi UDP Magic Packet)** & **WireGuard X25519 Kulcspár + Kliens Konfig + QR Kód**.
 - **LAN ARP Eszközszkenner**, **Hálózati Sebességteszt**, **OSINT Domain Ellenőrző (DNS / SPF / DMARC / TLS)**, **SSH Auth Log & Titkos Fájl Jogosultság Auditor**.
 - **Többgépes Fürt & Távoli GPU Ollama Csomópontok (`Cluster`)** automatikus terhelés-átadással.
 - **Phoenix Teljes Rendszer-Visszaállítási Pillanatkép (`Ú160`)**, **Valós Linux Kernel Sandbox** (`docker` / `bwrap` / `unshare`), **PTY Terminál (`xterm.js` + `node-pty`)**, **GitHub OTA Frissítés** és **Terminál CLI (`npm run cli`)**.
 
+### 8. Batch 4 Omni Stúdió, Élet-OS, XP & Autopilot 24/7 (`M161–M260` & `Ú161–Ú260`)
+- **Önálló Mini-App Építő (`/apps/:slug`, `Ú206`) & Live API Mock Szerver (`/mock/:slug`, `Ú218`)**: Promptból vagy sablonból készített, közvetlenül hosztolt HTML webalkalmazások és élő JSON API végpontok.
+- **Raj Vita Színház (`Ú226`) & DAG Küldetés-ütemező (`M161, M163, M175`)**: Pro / Kontra / Bíró több-ágenses vitagép, topologikus hullám-ütemező, költség-előrejelzés és összeomlásbiztos checkpointok.
+- **Matematika Függvényrajzoló SVG (`Ú234`), Vektor Logó Generátor (`Ú232`), Prezentáció & Kvíz (`Ú238–Ú239`)**.
+- **Égő Cetli Egyszeri Titokmegosztó (`/burn/:token`, `Ú244, Ú257`)**: Első megnyitás után automatikusan megsemmisülő ideiglenes jegyzetek.
+- **Okmány & Garancia Széf (`Ú209`), Webshop Árfigyelő (`Ú210`), Kamra Receptajánló (`Ú212`) & Bank CSV Kategorizáló (`Ú208`)**.
+- **Élet-Iránytű OKR -> Kanban (`Ú254`), RPG Produktivitási XP & Széria (`Ú237`), SQLite FTS5 + Globális Omnisearch (`M205, Ú259`), Egyedi Dinamikus Widgetek (`Ú258`), `Alt+N` Jegyzetfiók (`M230`) & LAN Ping (`M238`)**.
+- **Kétirányú iCal Export (`/api/v4/calendar.ics`, `M245`) & LoRA JSONL Chat Export (`/api/v4/export/jsonl`, `M219`)**.
+
 ---
 
 ## Telegram Parancsok (Teljes Távoli Vezérlés)
 
-A Telegram botban közvetlenül használható parancsok (belső üzenetek automatikus AI raj-feldolgozása mellett):
+A Telegram botban közvetlenül használható parancsok (kódblokk-biztos darabolással `M183`, automatikus BotFather menüvel `M182` és offline várólistával `M193`):
 - `/statusz` — Rendszer állapot, hőmérséklet, napi költség és futó feladatok
+- `/autopilot` — Autopilot 24/7 főagy összefoglaló és közelgő autonóm tervek
+- `/top` / `/df` — CPU, RAM, ZRAM, hőfokok, GPIO/I2C és lemezek
 - `/mission <cél>` — Autonóm küldetés indítása azonnal
 - `/nightshift` — Éjszakai Műszak azonnali indítása
 - `/kapszula` — Heti Időkapszula összefoglaló lekérése
 - `/kanban` — Aktív Kanban kártyák listázása
-- `/lista` — Bevásárlólista / megosztott lista megtekintése és bővítése
+- `/lista [tétel]` — Bevásárlólista / megosztott lista megtekintése és bővítése
+- `/search <kifejezés>` — Globális Omnisearch (SQLite FTS5 + Memória + Kanban + Okmányok)
+- `/vita <téma>` — Pro / Kontra / Bíró Raj Vita futtatása
+- `/bash <magyar kérés>` — Bash Copilot (magyar kérésből biztonságos parancs + kimenet)
+- `/hiba` — Automatikus Post-Mortem hibaanalízis
+- `/frissites` — Rendszer APT / NPM frissítések ellenőrzése
 - `/crm` — CRM kapcsolatok gyors elérése
+- `/okmany` — Közelgő garancia és okmány lejáratok
+- `/arfigyelo` — Webshop árfigyelők azonnali ellenőrzése
+- `/recept` — Receptjavaslatok az otthoni kamra készlet alapján
+- `/xp` — Saját RPG szint, XP és napi széria lekérése
+- `/behatolo` — Ismeretlen LAN MAC címek ellenőrzése
 - `/wol <MAC>` — Hálózati gép ébresztése Wake-on-LAN csomaggal
 - `/lan` — Helyi hálózati ARP eszközök listázása
 - `/cluster` — Távoli fürt / GPU Ollama csomópontok állapota és pingje
 - `/audit` — SHA-256 audit lánc épségének ellenőrzése
 - `/openapi` — OpenAPI 3.1 API specifikáció összegző
 - `/idojaras` — Élő Open-Meteo időjárás jelentés
+- `/help` / `/parancsok` — Összes elérhető Telegram parancs listája
 - `/stop` — Vészleállító (Kill-Switch) azonnali aktiválása
 
 ---

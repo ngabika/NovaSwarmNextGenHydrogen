@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Activity,
+  Award,
   Bot,
   Calendar,
   CheckCircle2,
@@ -9,11 +10,15 @@ import {
   DollarSign,
   Eye,
   EyeOff,
+  LayoutGrid,
   Moon,
   Newspaper,
+  RefreshCw,
   Rocket,
+  Search,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Wrench,
 } from 'lucide-react';
 import type { DashboardWidgetConfig, HardwareMetrics, NovaSwarmState } from '../../shared/types';
@@ -46,6 +51,11 @@ export const OverviewDashboard: React.FC<Props> = ({
   const [hardening, setHardening] = useState<{ score: number; checksCount?: number } | null>(null);
   const [doctorMsg, setDoctorMsg] = useState<string | null>(null);
   const [doctorBusy, setDoctorBusy] = useState(false);
+  const [omniQuery, setOmniQuery] = useState('');
+  const [omniHits, setOmniHits] = useState<Array<{ source: string; title: string; snippet: string }>>([]);
+  const [omniBusy, setOmniBusy] = useState(false);
+  const [omniRan, setOmniRan] = useState(false);
+  const [widgetsBusy, setWidgetsBusy] = useState(false);
 
   useEffect(() => {
     void fetch('/api/gateway/projection')
@@ -188,6 +198,87 @@ export const OverviewDashboard: React.FC<Props> = ({
           ))}
         </div>
       )}
+
+      {/* Ú237 RPG XP Profile Strip + Ú259 Quick Global Omnisearch */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <Award className="h-4 w-4 text-amber-600 shrink-0" />
+            <div className="text-xs">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">
+                Szint {state.userXp?.level ?? 1} · {state.userXp?.xp ?? 0} XP · {state.userXp?.streakDays ?? 0} napos széria
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                {(state.userXp?.badges || []).slice(0, 3).join(' · ') || 'Autopilot 24/7 Aktív'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('ecosystem')}
+            className="text-[11px] font-medium px-2.5 py-1 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
+          >
+            Élet-OS & XP →
+          </button>
+        </div>
+
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!omniQuery.trim()) return;
+            setOmniBusy(true);
+            setOmniRan(true);
+            try {
+              const r = await fetch(`/api/v4/omnisearch?q=${encodeURIComponent(omniQuery.trim())}`);
+              if (r.ok) {
+                const d = (await r.json()) as { hits?: Array<{ source: string; title: string; snippet: string }> };
+                setOmniHits(d.hits || []);
+              }
+            } finally {
+              setOmniBusy(false);
+            }
+          }}
+          className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 space-y-2"
+        >
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-slate-500 shrink-0" />
+            <input
+              type="text"
+              value={omniQuery}
+              onChange={(e) => setOmniQuery(e.target.value)}
+              placeholder="Globális Omnisearch (Memória, Kanban, Okmányok, Chat, FTS5)..."
+              aria-label="Globális Omnisearch"
+              className="flex-1 min-w-0 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950"
+            />
+            <button
+              type="submit"
+              disabled={omniBusy || !omniQuery.trim()}
+              className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
+            >
+              {omniBusy ? 'Keresés...' : 'Keresés'}
+            </button>
+          </div>
+          {omniRan && (
+            <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
+              {omniHits.length === 0 ? (
+                <div className="text-slate-500">Nincs találat erre: &ldquo;{omniQuery}&rdquo;.</div>
+              ) : (
+                omniHits.slice(0, 6).map((h, i) => (
+                  <div key={i} className="p-1.5 bg-slate-50 dark:bg-slate-800/70 rounded flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded mr-1.5">
+                        {h.source}
+                      </span>
+                      <span className="font-medium text-slate-900 dark:text-slate-100">{h.title}</span>
+                      <span className="text-slate-500 dark:text-slate-400 ml-1.5 truncate">{h.snippet}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </form>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {isVisible('hardware') && (
@@ -544,6 +635,64 @@ export const OverviewDashboard: React.FC<Props> = ({
           {state.nightShiftRuns?.[0] && (
             <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
               Utolsó műszak: {state.nightShiftRuns[0].reportSummary}
+            </div>
+          )}
+        </div>
+
+        {/* Ú258: Custom Dynamic Widgets */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 min-w-0">
+              <LayoutGrid className="h-4 w-4 text-slate-600 dark:text-slate-400 shrink-0" />
+              <span>Egyedi Dinamikus Widgetek (Ú258)</span>
+            </h2>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={widgetsBusy}
+                onClick={async () => {
+                  setWidgetsBusy(true);
+                  try {
+                    await fetch('/api/v4/widgets/custom/refresh', { method: 'POST' });
+                    await onRefreshState();
+                  } finally {
+                    setWidgetsBusy(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className="h-3 w-3" />
+                {widgetsBusy ? 'Frissítés...' : 'Frissítés'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('system')}
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 font-mono whitespace-nowrap shrink-0"
+              >
+                Szerkesztés →
+              </button>
+            </div>
+          </div>
+          {(state.customWidgets || []).length === 0 ? (
+            <p className="text-xs text-slate-500">
+              Még nincs egyedi widget. Hozz létre egyet a Rendszerműveletek → Pi Hardver &amp; Fájlok (B4) fülön!
+            </p>
+          ) : (
+            <div className="space-y-2 text-xs">
+              {(state.customWidgets || []).map((w) => (
+                <div key={w.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                      <Sparkles className="h-3 w-3 text-blue-600 shrink-0" />
+                      {w.title}
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-500 truncate">{w.source}</div>
+                  </div>
+                  <div className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 shrink-0">
+                    {w.lastValue || '—'}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

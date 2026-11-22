@@ -35,6 +35,9 @@ const Batch3DevOpsPanel = lazy(() =>
 const Batch3DataCreativePanel = lazy(() =>
   import('./Batch3DataCreativePanel').then((m) => ({ default: m.Batch3DataCreativePanel }))
 );
+const Batch4OmniWorkbenchPanel = lazy(() =>
+  import('./Batch4OmniWorkbenchPanel').then((m) => ({ default: m.Batch4OmniWorkbenchPanel }))
+);
 
 interface Props {
   state: NovaSwarmState;
@@ -50,7 +53,8 @@ type WorkbenchTab =
   | 'lang_learn'
   | 'arena'
   | 'devops'
-  | 'data_creative';
+  | 'data_creative'
+  | 'omni_b4';
 
 interface DiffRow {
   type: 'same' | 'added' | 'removed' | 'changed';
@@ -153,6 +157,7 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
     { id: 'arena', label: 'Prompt Aréna', icon: <Scale className="h-3.5 w-3.5" /> },
     { id: 'devops', label: 'DevOps & CVE', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
     { id: 'data_creative', label: 'Adat, QR & Közjegyző', icon: <Sparkles className="h-3.5 w-3.5" /> },
+    { id: 'omni_b4', label: 'Omni Stúdió (B4)', icon: <Flame className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -1241,6 +1246,12 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
       {subTab === 'data_creative' && (
         <Suspense fallback={<div className="p-6 text-xs text-slate-500">Adat & Kreatív Stúdió betöltése...</div>}>
           <Batch3DataCreativePanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+
+      {subTab === 'omni_b4' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Omni Stúdió (B4) betöltése...</div>}>
+          <Batch4OmniWorkbenchPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>
