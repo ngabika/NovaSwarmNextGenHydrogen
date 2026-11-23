@@ -78,6 +78,18 @@ import {
   scanLanOpenPorts,
   setOperatingMode,
 } from '../power/batch7UniverseEngine';
+import {
+  analyzeNumericSeries,
+  convertUnitsAndTimezones,
+  exportOmniExecutiveReportMarkdown,
+  processMeetingNotes,
+  runRedTeamCritique,
+  sanitizeSensitiveText,
+  searchOmniCapabilities,
+  setActivePersona,
+  setActiveUserContext,
+  transformTextTone,
+} from '../power/batch8SingularityEngine';
 import type { OperatingModeId } from '../../shared/types';
 import { addPersistentMemory } from '../memory/vectorStore';
 
@@ -178,6 +190,15 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'lanmap', description: 'Hálózati nyitott portok vizsgálata' },
           { command: 'varlog', description: 'Rendszernapló anomália & OOM kiugrás' },
           { command: 'ha', description: 'Természetes magyar szabály vagy időzítő' },
+          { command: 'omni', description: '200+ képességű Omni-katalógus keresése' },
+          { command: 'persona', description: 'Aktív szakértő persona váltása' },
+          { command: 'kontextus', description: 'Élethelyzet/kontextus profil váltása' },
+          { command: 'redteam', description: 'Vakfolt és kockázatelemző kritika' },
+          { command: 'szamol', description: 'Statisztika vagy mértékegység-átváltás' },
+          { command: 'atalakit', description: 'Szöveg hangnem-átalakító (BLUF/hivatalos)' },
+          { command: 'anonimizal', description: 'PII és API kulcs anonimizáló' },
+          { command: 'teendok', description: 'Akciópontok kinyerése szövegből' },
+          { command: 'v8riport', description: 'Omni vezetői Markdown riport' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -590,6 +611,9 @@ export async function processTelegramInput(
       '/bash <magyar kérés> · /hiba · /frissites',
       '/lan · /behatolo · /lanmap · /varlog · /wol <MAC>',
       '/arfolyam · /mod <mód> · /ha <magyar szabály/idő>',
+      '/omni [szűrő] · /persona [név] · /kontextus [név]',
+      '/redteam <ötlet> · /szamol <számok|érték unit->unit>',
+      '/atalakit <szöveg> · /anonimizal <szöveg> · /teendok <jegyzet> · /v8riport',
       '/okmany · /arfigyelo · /recept · /xp · /stop',
     ].join('\n');
   }
@@ -876,6 +900,108 @@ export async function processTelegramInput(
     } catch (err) {
       return `Természetes automatizálás hiba: ${err instanceof Error ? err.message : String(err)}`;
     }
+  }
+
+  /** Batch 8 Omni-Agent & Singularity Engine Telegram Commands (Ú551–Ú560) */
+  if (text === '/omni' || text.startsWith('/omni ')) {
+    const q = text.replace(/^\/omni\s*/i, '').trim();
+    const res = searchOmniCapabilities(q);
+    return [
+      `🧠 Omni-Ágens Képesség Katalógus (${res.totalCount} összesen, találat: ${res.items.length}):`,
+      ...res.items.slice(0, 10).map((c) => `• [${c.code}] ${c.title} (${c.category})`),
+    ].join('\n');
+  }
+
+  if (text === '/persona' || text.startsWith('/persona ')) {
+    const arg = text.replace(/^\/persona\s*/i, '').trim();
+    const personas = state.agentPersonas || [];
+    if (!arg) {
+      const cur = personas.find((p) => p.id === state.settings.activePersonaId);
+      return `Aktív Persona: ${cur ? `${cur.name} (${cur.roleTitle})` : 'Alapértelmezett'}\nElérhető: ${personas.map((p) => p.name).join(', ')}`;
+    }
+    try {
+      const p = setActivePersona(arg);
+      return `🎭 Aktív persona váltva: ${p.name} (${p.roleTitle}) — ${p.tone}`;
+    } catch (err) {
+      return `Persona hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/kontextus' || text.startsWith('/kontextus ')) {
+    const arg = text.replace(/^\/kontextus\s*/i, '').trim();
+    const contexts = state.userContextProfiles || [];
+    if (!arg) {
+      const cur = contexts.find((c) => c.id === state.settings.activeUserContextId);
+      return `Aktív Kontextus: ${cur ? `${cur.name} (${cur.focusArea})` : 'Általános'}\nElérhető: ${contexts.map((c) => c.name).join(', ')}`;
+    }
+    try {
+      const c = setActiveUserContext(arg);
+      return `🧭 Kontextus profil váltva: ${c.name} — ${c.rules}`;
+    } catch (err) {
+      return `Kontextus hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/matrix' || text.startsWith('/matrix ')) {
+    const topic = text.replace(/^\/matrix\s*/i, '').trim() || 'Architektúra / Megoldás választás';
+    return `📊 Döntési Mátrix indításához nyisd meg a Web UI-ban a Rendszer -> Omni-Ágens Stúdió (B8) -> Kognitív Tervező fület, vagy add meg a szempontokat chatben a(z) "${topic}" témához.`;
+  }
+
+  if (text.startsWith('/redteam ')) {
+    const proposal = text.replace(/^\/redteam\s+/i, '').trim();
+    try {
+      const rt = runRedTeamCritique(proposal);
+      return `🛡️ Red-Team Vakfolt Kritika (Kockázat: ${rt.riskScore}/100):\n• Vakfoltok:\n${rt.blindSpots.map((b) => `  - ${b}`).join('\n')}\n• Javaslatok:\n${rt.recommendations.map((r) => `  - ${r}`).join('\n')}`;
+    } catch (err) {
+      return `Red-Team hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text.startsWith('/szamol ')) {
+    const expr = text.replace(/^\/szamol\s+/i, '').trim();
+    const convMatch = expr.match(/^(-?\d+(?:[.,]\d+)?)\s*([a-zA-Z/]+)\s*(?:->|to|ba|be)\s*([a-zA-Z/]+)$/i);
+    try {
+      if (convMatch) {
+        const val = Number(convMatch[1].replace(',', '.'));
+        const out = convertUnitsAndTimezones(val, convMatch[2], convMatch[3]);
+        return `🧮 Átváltás: ${out.formatted}\nVilágóra: ${out.worldClocks.slice(0, 3).map((w) => `${w.city} ${w.time}`).join(' · ')}`;
+      }
+      const st = analyzeNumericSeries(expr);
+      return `📈 Statisztika (n=${st.count}): Átlag=${st.mean} · Medián=${st.median} · Szórás=${st.stdDev} · Min/Max=${st.min}/${st.max} · P95=${st.p95} · Anomáliák=${st.anomalies.length}`;
+    } catch (err) {
+      return `Számítási hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text.startsWith('/atalakit ')) {
+    const body = text.replace(/^\/atalakit\s+/i, '').trim();
+    try {
+      const res = transformTextTone(body, 'bullet_executive');
+      return `✍️ Vezetői (BLUF) átalakítás:\n${res.transformed}`;
+    } catch (err) {
+      return `Átalakítási hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text.startsWith('/anonimizal ')) {
+    const body = text.replace(/^\/anonimizal\s+/i, '').trim();
+    const res = sanitizeSensitiveText(body);
+    return `🔒 Anonimizálva (${res.redactionsCount} maszkolás · ${res.categoriesFound.join(', ') || 'tiszta'}):\n${res.sanitized}`;
+  }
+
+  if (text.startsWith('/teendok ')) {
+    const notes = text.replace(/^\/teendok\s+/i, '').trim();
+    try {
+      const mtg = processMeetingNotes('Telegram Jegyzet', notes);
+      return `📝 ${mtg.summary}\n${mtg.actionItems.map((a) => `• ${a.text}${a.owner ? ` (@${a.owner})` : ''}`).join('\n')}`;
+    } catch (err) {
+      return `Teendő kinyerés hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/v8riport') {
+    const rep = exportOmniExecutiveReportMarkdown();
+    return rep.markdown;
   }
 
   if (text === '/tts_last') {

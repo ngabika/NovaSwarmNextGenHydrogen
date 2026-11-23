@@ -1115,6 +1115,85 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </label>
           </div>
 
+          {/* Batch 8: Omni-Ágens Személyre Szabás & Viselkedés */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Omni-Ágens Személyre Szabás &amp; Kognitív Viselkedés (Batch 8)
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="set-default-tone" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Alapértelmezett Válaszstílus
+                </label>
+                <select
+                  id="set-default-tone"
+                  value={form.defaultResponseTone || 'balanced'}
+                  onChange={(e) => setForm({ ...form, defaultResponseTone: e.target.value as Settings['defaultResponseTone'] })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+                >
+                  <option value="balanced">Kiegyensúlyozott (Balanced)</option>
+                  <option value="concise">Tömör, lényegre törő (Concise)</option>
+                  <option value="executive">Vezetői összefoglaló (Executive / BLUF)</option>
+                  <option value="technical">Mély technikai (Technical)</option>
+                  <option value="didactic">Tanító / magyarázó (Didactic)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="set-adaptive-verbosity" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Válasz Részletessége (Adaptív Mélység)
+                </label>
+                <select
+                  id="set-adaptive-verbosity"
+                  value={form.adaptiveVerbosity || 'balanced'}
+                  onChange={(e) => setForm({ ...form, adaptiveVerbosity: e.target.value as Settings['adaptiveVerbosity'] })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+                >
+                  <option value="concise">Tömör (Concise)</option>
+                  <option value="balanced">Kiegyensúlyozott (Balanced)</option>
+                  <option value="exhaustive">Kimerítő, mély (Exhaustive)</option>
+                </select>
+              </div>
+              <div className="flex flex-col justify-end text-xs text-slate-500 dark:text-slate-400">
+                <span>Aktív Persona ID: <span className="font-mono">{form.activePersonaId || 'nincs'}</span></span>
+                <span>Aktív Kontextus ID: <span className="font-mono">{form.activeUserContextId || 'nincs'}</span></span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.autoInjectFactVault !== false}
+                  onChange={(e) => setForm({ ...form, autoInjectFactVault: e.target.checked })}
+                />
+                <span>Személyes Ténybank (Fact Vault) automatikus betöltése az ágensek rendszerpromptjába</span>
+              </label>
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.agentSelfCritiquePass !== false}
+                  onChange={(e) => setForm({ ...form, agentSelfCritiquePass: e.target.checked })}
+                />
+                <span>Ágens önellenőrző kritikai menet válaszadás előtt (pontosság és biztonság)</span>
+              </label>
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.proactiveFollowUpSuggestions !== false}
+                  onChange={(e) => setForm({ ...form, proactiveFollowUpSuggestions: e.target.checked })}
+                />
+                <span>Proaktív következő lépési javaslatok felajánlása válaszok végén</span>
+              </label>
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.autoExtractActionItems !== false}
+                  onChange={(e) => setForm({ ...form, autoExtractActionItems: e.target.checked })}
+                />
+                <span>Akciópontok automatikus felismerése megbeszélés- és chat-jegyzetekből</span>
+              </label>
+            </div>
+          </div>
+
           <div className="pt-2 flex flex-wrap items-center gap-3">
             {!confirmReset ? (
               <button

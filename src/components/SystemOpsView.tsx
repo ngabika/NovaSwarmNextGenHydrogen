@@ -60,6 +60,9 @@ const Batch6ApexLabPanel = lazy(() =>
 const Batch7UniverseLabPanel = lazy(() =>
   import('./Batch7UniverseLabPanel').then((m) => ({ default: m.Batch7UniverseLabPanel }))
 );
+const Batch8SingularityPanel = lazy(() =>
+  import('./Batch8SingularityPanel').then((m) => ({ default: m.Batch8SingularityPanel }))
+);
 
 interface Props {
   language: LanguageCode;
@@ -94,7 +97,7 @@ export const SystemOpsView: React.FC<Props> = ({
   sandboxBackend,
   onRefreshState,
 }) => {
-  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'diagnostics'>('ops');
+  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
 
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
@@ -456,6 +459,7 @@ export const SystemOpsView: React.FC<Props> = ({
               { id: 'b5_migrate', label: 'Költöztető & Auto-Opt (B5)' },
               { id: 'b6_apex', label: 'Apex Labor & Hálózat (B6)' },
               { id: 'b7_universe', label: 'Univerzális OS & Élet (B7)' },
+              { id: 'b8_omni', label: 'Omni-Ágens Stúdió (B8)' },
               { id: 'diagnostics', label: 'Diagnosztika · .env · Cron · Audit Export' },
             ] as const
           ).map((t) => (
@@ -1865,8 +1869,13 @@ export const SystemOpsView: React.FC<Props> = ({
         </Suspense>
       )}
       {subTab === 'b7_universe' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Univerzális OS & Élet-központ (B7) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Univerzális OS &amp; Élet-központ (B7) betöltése...</div>}>
           <Batch7UniverseLabPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+      {subTab === 'b8_omni' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Omni-Ágens Stúdió (B8) betöltése...</div>}>
+          <Batch8SingularityPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>

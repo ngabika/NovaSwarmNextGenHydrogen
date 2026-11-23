@@ -1,11 +1,11 @@
 {
   "settings": {
-    "schemaVersion": 12,
+    "schemaVersion": 13,
     "onboardingCompleted": true,
     "language": "hu",
     "hostPermissionsGranted": true,
     "killSwitchActive": false,
-    "userProfile": "Rendszermérnök felhasználó, tömör technikai válaszokat preferál.",
+    "userProfile": "",
     "primaryProvider": "gemini",
     "secondaryProvider": "openrouter",
     "ollamaOnlyMode": false,
@@ -21,7 +21,7 @@
           "maskedKey": "AQ.A...rMYQ",
           "enabled": true,
           "failureCount": 0,
-          "createdAt": "2026-11-23T19:41:33.429Z"
+          "createdAt": "2026-11-23T20:05:43.010Z"
         }
       ],
       "openai": [
@@ -59,8 +59,8 @@
     "telegramHasToken": false,
     "backupSchedule": "daily",
     "cloudBackupGoogleDriveConnected": false,
-    "lastBackupAt": "2026-11-23T19:42:35.637Z",
-    "lastBackupLocation": "local",
+    "lastBackupAt": null,
+    "lastBackupLocation": "none",
     "backupRsyncTarget": "",
     "ttsEnabled": false,
     "ttsHostSpeakerEnabled": false,
@@ -75,10 +75,10 @@
     "guardrailBlockSecrets": false,
     "guardrailBlockPromptInjection": false,
     "heartbeatEnabled": true,
-    "heartbeatIntervalMinutes": 45,
+    "heartbeatIntervalMinutes": 4,
     "channelPairingRequired": false,
-    "lastHeartbeatAt": "2026-11-23T19:42:33.454Z",
-    "lastHeartbeatSummary": "Heartbeat rendben (0 uptime cél, 0 aktív feladat)",
+    "lastHeartbeatAt": null,
+    "lastHeartbeatSummary": null,
     "kanbanWipLimit": 3,
     "kanbanAgingHours": 48,
     "federationEnabled": false,
@@ -168,13 +168,21 @@
     "dockerAutoHealEnabled": true,
     "meshOffloadEnabled": true,
     "speedtestIntervalMinutes": 60,
-    "operatingMode": "focus",
+    "operatingMode": "normal",
     "compactUiMode": false,
     "compactLocalPrompt": false,
     "timezone": "Europe/Budapest",
     "telegramStreamEdit": true,
     "telegramMessageDebounceMs": 1200,
-    "currencyAlertThresholdHuf": 410
+    "currencyAlertThresholdHuf": 410,
+    "activePersonaId": "persona-architect",
+    "activeUserContextId": "ctx-work",
+    "adaptiveVerbosity": "balanced",
+    "proactiveFollowUpSuggestions": true,
+    "autoInjectFactVault": true,
+    "autoExtractActionItems": true,
+    "agentSelfCritiquePass": false,
+    "defaultResponseTone": "professional"
   },
   "agents": [
     {
@@ -190,19 +198,19 @@
       "hostExecutionEnabled": true,
       "active": true,
       "isSupervisor": true,
-      "createdAt": "2026-11-23T19:41:23.327Z",
-      "updatedAt": "2026-11-23T19:41:23.327Z",
+      "createdAt": "2026-11-23T20:05:40.417Z",
+      "updatedAt": "2026-11-23T20:05:40.417Z",
       "dailySpendUsd": 0,
       "voiceReplyMode": "off",
       "runTimestamps": []
     },
     {
-      "id": "agent-ae64a063",
+      "id": "agent-de60e542",
       "name": "Központi Asszisztens",
-      "avatar": "cpu",
+      "avatar": "bot",
       "role": "Általános Asszisztens",
       "parentAgentId": null,
-      "systemPrompt": "Teljesen autonóm, kezdeményező és precíz személyi AI ágens.",
+      "systemPrompt": "Sokoldalú személyi koordinátor vagy. Átlátod a napi teendőket, kutatsz, rendszerezel, és szükség esetén szakértő alágenseket hozol létre.",
       "modelId": "gemini-4-hydrogen",
       "providerId": "gemini",
       "webSearchEnabled": true,
@@ -214,8 +222,8 @@
       "dailySpendUsd": 0,
       "voiceReplyMode": "off",
       "runTimestamps": [],
-      "createdAt": "2026-11-23T19:41:52.652Z",
-      "updatedAt": "2026-11-23T19:41:52.652Z"
+      "createdAt": "2026-11-23T20:07:19.325Z",
+      "updatedAt": "2026-11-23T20:07:19.325Z"
     }
   ],
   "kanban": [],
@@ -227,10 +235,10 @@
       "sourceAgentName": "Eszközépítő",
       "message": "Új dinamikus eszköz regisztrálva: sum_args (sandbox_js)",
       "verifiedExecution": true,
-      "id": "5191e635-5c6a-43a1-9462-840d63e2d785",
-      "timestamp": "2026-11-23T19:41:23.328Z",
+      "id": "c0bfaa4f-70b2-46c1-8c6b-d7f6ceaafc10",
+      "timestamp": "2026-11-23T20:05:40.418Z",
       "prevHash": "GENESIS",
-      "hash": "5b1f7235a1c06b2d450a48642849ca7982349597ef7ba9465b0d348dc66f7736"
+      "hash": "bca61954c0640455facb1790ecc2e99d78f5e9f7d0a8acd38ee996b23940dfe4"
     },
     {
       "type": "supervisor",
@@ -238,10 +246,10 @@
       "sourceAgentName": "Felügyelő Auditor",
       "message": "Sandbox dry-run (unshare_net_sandbox): exit=0, valós fájlrendszer érintetlen=true",
       "verifiedExecution": true,
-      "id": "fbd6151f-4553-4a94-981c-e749d074c826",
-      "timestamp": "2026-11-23T19:41:23.398Z",
-      "prevHash": "5b1f7235a1c06b2d450a48642849ca7982349597ef7ba9465b0d348dc66f7736",
-      "hash": "5e61f5022f67492616e5e93fe9be9ed63c45c6b29400a9ab2d65b7fcb2b88909"
+      "id": "5b7dfc78-e77e-46f0-950c-8558e3d0eaef",
+      "timestamp": "2026-11-23T20:05:40.482Z",
+      "prevHash": "bca61954c0640455facb1790ecc2e99d78f5e9f7d0a8acd38ee996b23940dfe4",
+      "hash": "865ba057d9d2253083de6009fd89e7663d08e4370a5087a5137e480ed79e3aad"
     },
     {
       "type": "system",
@@ -249,10 +257,10 @@
       "sourceAgentName": "Öngyógyító Doktor",
       "message": "Diagnosztika kész: 1 javítás, 1 figyelmeztetés.",
       "verifiedExecution": true,
-      "id": "abd39e93-9e20-44bd-9cd7-7ed4450b3830",
-      "timestamp": "2026-11-23T19:41:23.402Z",
-      "prevHash": "5e61f5022f67492616e5e93fe9be9ed63c45c6b29400a9ab2d65b7fcb2b88909",
-      "hash": "1c8f63e30f447aa34d439573fa850b7d15572c381606e1eaa215775a9817fc65"
+      "id": "674832c6-1e3d-4e4c-b874-c47c8e7a25e7",
+      "timestamp": "2026-11-23T20:05:40.486Z",
+      "prevHash": "865ba057d9d2253083de6009fd89e7663d08e4370a5087a5137e480ed79e3aad",
+      "hash": "e59008ccf04113f27337497c0f6c2858964070fc213a33d70d1699092ce7b4f7"
     },
     {
       "type": "system",
@@ -260,54 +268,21 @@
       "sourceAgentName": "Hardver-Adaptív Optimalizáló",
       "message": "Auto-profil alkalmazva [Normál Asztali / VPS (8 GB kategória)]: modell=qwen2.5:3b, heap=1280MB, RAM őrszem=88%",
       "verifiedExecution": true,
-      "id": "086f9cac-dd05-44ce-985e-57f00de3965b",
-      "timestamp": "2026-11-23T19:41:33.441Z",
-      "prevHash": "1c8f63e30f447aa34d439573fa850b7d15572c381606e1eaa215775a9817fc65",
-      "hash": "d987964d9fda59878cb2c03be681f47957d68db4e99bada4f1331e54f28aebf2"
+      "id": "117b6290-26c1-4386-8588-ca7a6cb87ee4",
+      "timestamp": "2026-11-23T20:05:43.021Z",
+      "prevHash": "e59008ccf04113f27337497c0f6c2858964070fc213a33d70d1699092ce7b4f7",
+      "hash": "dac29346a50dacc7a568c0ed72d4f72c1350cdc4542eb14cc47b6484cb4729fd"
     },
     {
       "type": "system",
-      "sourceAgentId": "agent-ae64a063",
+      "sourceAgentId": "agent-de60e542",
       "sourceAgentName": "Központi Asszisztens",
       "message": "Új ágens létrehozva: Központi Asszisztens (Általános Asszisztens)",
       "verifiedExecution": true,
-      "id": "d092dcbb-acbc-4ae5-9598-6e8d6c88a059",
-      "timestamp": "2026-11-23T19:41:52.653Z",
-      "prevHash": "d987964d9fda59878cb2c03be681f47957d68db4e99bada4f1331e54f28aebf2",
-      "hash": "50fb3fb88065218bb2c16d813b8de13b4635d5c4044e348fff749ce44f6a4556"
-    },
-    {
-      "type": "system",
-      "sourceAgentId": "mode-switch",
-      "sourceAgentName": "Üzemmód Váltó",
-      "message": "Üzemmód átállítva: Mély Fókusz (focus)",
-      "verifiedExecution": true,
-      "id": "dc26ebbf-b1ea-4030-a572-e914ee36718a",
-      "timestamp": "2026-11-23T19:41:56.221Z",
-      "prevHash": "50fb3fb88065218bb2c16d813b8de13b4635d5c4044e348fff749ce44f6a4556",
-      "hash": "8b0cdafefb77b4f5d51738cb86f58ceddb394032941044fb4fc129a345390259"
-    },
-    {
-      "type": "system",
-      "sourceAgentId": "mode-switch",
-      "sourceAgentName": "Üzemmód Váltó",
-      "message": "Üzemmód átállítva: Mély Fókusz (focus)",
-      "verifiedExecution": true,
-      "id": "37069022-9ed6-4d59-a3f6-8d16b58dfcbc",
-      "timestamp": "2026-11-23T19:42:32.224Z",
-      "prevHash": "8b0cdafefb77b4f5d51738cb86f58ceddb394032941044fb4fc129a345390259",
-      "hash": "7b4d31160a596e6cb4e17704904addebf2a8809a0af590029a2a01e99df3fe72"
-    },
-    {
-      "type": "system",
-      "sourceAgentId": "backup-engine",
-      "sourceAgentName": "Mentés Rendszer",
-      "message": "Biztonsági mentés elkészült KIZÁRÓLAG lokálisan (novaswarm-backup-2026-11-23T19-42-35-636Z.json) — felhő nincs bekötve.",
-      "verifiedExecution": true,
-      "id": "6467f34d-42e2-4c64-89f1-83132287f801",
-      "timestamp": "2026-11-23T19:42:35.638Z",
-      "prevHash": "7b4d31160a596e6cb4e17704904addebf2a8809a0af590029a2a01e99df3fe72",
-      "hash": "8b698d1e61330571aaacae1f8ca102f803ffb764fa2171762bef888882c59ff7"
+      "id": "5d7d9ef4-43d1-4cdc-aa8a-5315967591f7",
+      "timestamp": "2026-11-23T20:07:19.328Z",
+      "prevHash": "dac29346a50dacc7a568c0ed72d4f72c1350cdc4542eb14cc47b6484cb4729fd",
+      "hash": "609ec8d3688bae1e44e15c5473c097571b7a4d51822b9e7c93f871d04a51ce9f"
     }
   ],
   "mcpServers": [
@@ -345,15 +320,15 @@
       "folder": "Általános",
       "isolationMode": "main_host",
       "channelSource": "web",
-      "createdAt": "2026-11-23T19:41:23.327Z",
-      "updatedAt": "2026-11-23T19:41:23.327Z"
+      "createdAt": "2026-11-23T20:05:40.417Z",
+      "updatedAt": "2026-11-23T20:05:40.417Z"
     }
   ],
   "messages": [],
   "cronTasks": [],
   "approvals": [],
   "supervisor": {
-    "lastAuditAt": "2026-11-23T19:41:23.397Z",
+    "lastAuditAt": "2026-11-23T20:05:40.481Z",
     "status": "nominal",
     "lastSummary": "Rendszer készenlétben — várakozás az első ágens körre.",
     "discrepanciesFound": 0,
@@ -413,15 +388,7 @@
       "sourceNote": "Lokális hardver-kapacitás (nincs felhős kvóta-korlát)"
     }
   },
-  "backups": [
-    {
-      "id": "bkp-df14ed57",
-      "createdAt": "2026-11-23T19:42:35.637Z",
-      "fileName": "novaswarm-backup-2026-11-23T19-42-35-636Z.json",
-      "sizeBytes": 23008,
-      "destination": "local"
-    }
-  ],
+  "backups": [],
   "virtualKeys": [],
   "gatewayAnalytics": {
     "totalProxyRequests": 0,
@@ -486,7 +453,7 @@
       "command": "/briefing",
       "body": "Készíts napi áttekintést a nyitott Kanban kártyákból, mai naptárból, uptime állapotból és friss RSS hírekből.",
       "category": "Rendszer",
-      "createdAt": "2026-11-23T19:41:23.327Z"
+      "createdAt": "2026-11-23T20:05:40.417Z"
     },
     {
       "id": "tpl-host-health",
@@ -494,7 +461,7 @@
       "command": "/diagnosztika",
       "body": "Ellenőrizd a CPU, RAM, lemez, systemd szolgáltatások és SSL tanúsítványok állapotát, és jelezd ha beavatkozás kell.",
       "category": "Üzemeltetés",
-      "createdAt": "2026-11-23T19:41:23.327Z"
+      "createdAt": "2026-11-23T20:05:40.417Z"
     }
   ],
   "artifacts": [],
@@ -539,13 +506,13 @@
   "agentBenchmarks": [],
   "dynamicTools": [
     {
-      "id": "dyn-07117f",
+      "id": "dyn-7ab2c3",
       "name": "sum_args",
       "description": "Összeadja az a és b paramétert",
       "kind": "sandbox_js",
       "targetOrCode": "console.log(Number(ARGS.a) + Number(ARGS.b));",
       "enabled": true,
-      "createdAt": "2026-11-23T19:41:23.328Z"
+      "createdAt": "2026-11-23T20:05:40.417Z"
     }
   ],
   "missions": [],
@@ -592,7 +559,7 @@
     "arch": "linux/x64",
     "cpuCores": 4,
     "ramTotalMb": 12288,
-    "ramAvailableMb": 11513,
+    "ramAvailableMb": 11366,
     "swapTotalMb": 0,
     "storageKind": "unknown",
     "hasGpu": false,
@@ -609,7 +576,7 @@
     "recommendedRamWatchdogPercent": 88,
     "sdCardSparingRecommended": false,
     "hybridLocalFirstRecommended": true,
-    "detectedAt": "2026-11-23T19:41:33.440Z",
+    "detectedAt": "2026-11-23T20:05:43.020Z",
     "appliedNotes": [
       "Profil: Normál Asztali / VPS (8 GB kategória) (4 mag, 12288 MB RAM, Arch: linux/x64)",
       "Ajánlott lokális modell: qwen2.5:3b (NumCtx=4096, IdleUnload=15p)",
@@ -631,7 +598,7 @@
       "actionTarget": "auto",
       "cooldownMinutes": 10,
       "triggerCount": 0,
-      "createdAt": "2026-11-23T19:41:23.327Z"
+      "createdAt": "2026-11-23T20:05:40.417Z"
     }
   ],
   "smartReminders": [],
@@ -673,27 +640,10 @@
       "author": "NovaSwarm Alapelv",
       "source": "Rendszerfilozófia",
       "pinned": true,
-      "createdAt": "2026-11-23T19:41:23.327Z"
+      "createdAt": "2026-11-23T20:05:40.417Z"
     }
   ],
-  "countdownTimers": [
-    {
-      "id": "tmr-58752183",
-      "label": "teszt",
-      "durationSec": 600,
-      "endsAt": "2026-11-23T19:52:32.302Z",
-      "completed": false,
-      "createdAt": "2026-11-23T19:42:32.302Z"
-    },
-    {
-      "id": "tmr-27eb6493",
-      "label": "teszt",
-      "durationSec": 600,
-      "endsAt": "2026-11-23T19:51:56.574Z",
-      "completed": false,
-      "createdAt": "2026-11-23T19:41:56.574Z"
-    }
-  ],
+  "countdownTimers": [],
   "medicationReminders": [],
   "lentItems": [],
   "fuelLogs": [],
@@ -705,40 +655,548 @@
   "tripPlans": [],
   "mediaBacklog": [],
   "fixedExpenses": [],
-  "currencyRates": {
-    "base": "EUR",
-    "date": "2026-11-23",
-    "rates": {
-      "CHF": 0.9186,
-      "GBP": 0.83673,
-      "HUF": 372.28,
-      "USD": 1.0939
-    },
-    "fetchedAt": "2026-11-23T19:43:23.522Z",
-    "source": "frankfurter.app (ECB)"
-  },
-  "lanPortScans": [
-    {
-      "id": "pscan-687f07ea",
-      "host": "127.0.0.1",
-      "openPorts": [
-        {
-          "port": 3000,
-          "service": "NovaSwarm UI",
-          "latencyMs": 2
-        },
-        {
-          "port": 8080,
-          "service": "HTTP-Alt",
-          "latencyMs": 2
-        }
-      ],
-      "scannedAt": "2026-11-23T19:42:35.375Z"
-    }
-  ],
+  "currencyRates": null,
+  "lanPortScans": [],
   "webhookHistory": [],
   "dropShareTokens": [],
   "sharedScratchpad": "",
-  "lastActivityAt": "2026-11-23T19:41:23.327Z",
+  "agentPersonas": [
+    {
+      "id": "persona-architect",
+      "name": "Szoftverarchitektus",
+      "roleTitle": "Rendszertervező & Skálázási Szakértő",
+      "tone": "precíz, strukturált, kompromisszum-tudatos",
+      "systemGuidance": "Válaszolj architektúra-szemlélettel: emeld ki az adatáramlást, a szűk keresztmetszeteket, az alternatívákat és a hibakezelést.",
+      "strengths": [
+        "Rendszertervezés",
+        "API séma",
+        "Teljesítmény"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-sysadmin",
+      "name": "Linux & Homelab Mester",
+      "roleTitle": "Debian / ARM64 / Docker Üzemeltető",
+      "tone": "tömör, diagnosztikus, biztonságtudatos",
+      "systemGuidance": "Adj közvetlenül futtatható Linux parancsokat, systemd/journalctl/docker diagnosztikát, külön figyelve az ARM64 és alacsony RAM korlátokra.",
+      "strengths": [
+        "Systemd",
+        "Hálózat",
+        "Hibaelhárítás"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-researcher",
+      "name": "Mélykutató & Elemző",
+      "roleTitle": "Adatvezérelt Kritikai Kutató",
+      "tone": "objektív, bizonyíték-orientált, alapos",
+      "systemGuidance": "Különítsd el a tényeket a feltételezésektől, jelöld a bizonytalanságokat, és strukturáld a megállapításokat forrás-szempontok szerint.",
+      "strengths": [
+        "Kutatás",
+        "Tényellenőrzés",
+        "Szintézis"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-strategist",
+      "name": "Üzleti & Termék Stratéga",
+      "roleTitle": "ROI, Piac & Prioritás Tanácsadó",
+      "tone": "céltudatos, döntésorientált, számszerűsítő",
+      "systemGuidance": "Minden javaslatnál emeld ki a várható üzleti hatást, az idő/költség ráfordítást, a RICE prioritást és a következő konkrét lépést.",
+      "strengths": [
+        "Stratégia",
+        "RICE/WSJF",
+        "Piaci pozicionálás"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-socratic",
+      "name": "Szókratészi Mentor",
+      "roleTitle": "Mélytanulás & Kérdezéstechnikai Tanár",
+      "tone": "bátorító, gondolatébresztő, fokozatos",
+      "systemGuidance": "Magyarázz analógiákkal, bontsd lépésekre a komplex fogalmakat, és zárd rövid ellenőrző kérdésekkel a megértés mélyítéséhez.",
+      "strengths": [
+        "Oktatás",
+        "Feynman-technika",
+        "Analógiák"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-reviewer",
+      "name": "Szigorú Kód Reviewer",
+      "roleTitle": "Minőségbiztosítás & Refaktorálási Auditor",
+      "tone": "tárgyilagos, hibavadász, konstruktív",
+      "systemGuidance": "Keress peremfeltételeket, versenyhelyzeteket (race condition), N+1 lekérdezéseket, memória-szivárgást és javasolj tiszta teszteseteket.",
+      "strengths": [
+        "Code Review",
+        "Tesztelés",
+        "Tiszta Kód"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-secops",
+      "name": "DevSecOps Auditor",
+      "roleTitle": "Kibervédelmi & Titokkezelési Mérnök",
+      "tone": "éber, védelmi fókuszú, szabványkövető",
+      "systemGuidance": "Vizsgálj minden bemenetet hitelesítés, jogosultság, injekció-védelem, TLS és legkisebb jogosultság elve szerint.",
+      "strengths": [
+        "Biztonság",
+        "OWASP",
+        "Titkosítás"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-finance",
+      "name": "Személyes Pénzügyi Tervező",
+      "roleTitle": "Cashflow, Deviza & Befektetési Elemző",
+      "tone": "higgadt, számszerű, kockázatkezelő",
+      "systemGuidance": "Számolj pontos nettó/bruttó, reálhozam, infláció és likviditási tartalék mutatókkal magyar környezetre szabva.",
+      "strengths": [
+        "Pénzügy",
+        "Adózás",
+        "Hozamszámítás"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-coach",
+      "name": "Fókusz & Teljesítmény Coach",
+      "roleTitle": "Időmenedzsment & Szokásépítő Partner",
+      "tone": "támogató, fegyelmezett, gyakorlatias",
+      "systemGuidance": "Segíts csökkenteni a kognitív terhelést: bontsd a nagy célokat 25 perces első lépésekre és védd a mélymunka idősávokat.",
+      "strengths": [
+        "Időbeosztás",
+        "Szokások",
+        "Energia"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-legal",
+      "name": "Magyar Ügyintézési & Szerződés Asszisztens",
+      "roleTitle": "Hivatalos Iratok & Fogyasztóvédelem",
+      "tone": "szabatos, hivatali, közérthető",
+      "systemGuidance": "Fogalmazz szabatos magyar hivatali leveleket és mutass rá a szerződések kockázatos záradékaira (jogi tanácsadás helyetti előkészítésként).",
+      "strengths": [
+        "Iratminták",
+        "Szerződés-elemzés",
+        "Reklamáció"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-pm",
+      "name": "Agilis Termékmenedzser",
+      "roleTitle": "Specifikáció, User Story & Ütemterv",
+      "tone": "tiszta, felhasználóközpontú, mérhető",
+      "systemGuidance": "Készíts világos elfogadási kritériumokat (Given/When/Then), MVP határokat és mérhető KPI-okat.",
+      "strengths": [
+        "Product Spec",
+        "User Story",
+        "Prioritás"
+      ],
+      "builtIn": true
+    },
+    {
+      "id": "persona-writer",
+      "name": "Szerkesztő & Kreatív Író",
+      "roleTitle": "Stilisztika, Tömörítés & Történetmesélés",
+      "tone": "választékos, ritmusos, lényegre törő",
+      "systemGuidance": "Tisztítsd meg a szöveget a töltelékszavaktól, erősítsd az aktív igéket és igazodj a kért célközönséghez.",
+      "strengths": [
+        "Szövegírás",
+        "Szerkesztés",
+        "Prezentáció"
+      ],
+      "builtIn": true
+    }
+  ],
+  "userContextProfiles": [
+    {
+      "id": "ctx-work",
+      "name": "Munka & Mély Fejlesztés",
+      "focusArea": "Kódolás, architektúra, rendszermérnöki munka",
+      "rules": "Elsőbbség a technikai pontosságnak, példakódnak és azonnal futtatható parancsoknak.",
+      "preferredVerbosity": "concise"
+    },
+    {
+      "id": "ctx-home",
+      "name": "Otthon & Okosotthon",
+      "focusArea": "Háztartás, karbantartás, családi teendők, kiadások",
+      "rules": "Gyakorlatias, rövid lépések, emlékeztetők és költségkímélő javaslatok.",
+      "preferredVerbosity": "balanced"
+    },
+    {
+      "id": "ctx-study",
+      "name": "Tanulás & Kutatás",
+      "focusArea": "Új technológiák, nyelvek, vizsgafelkészülés",
+      "rules": "Lépésről lépésre építkező magyarázatok példákkal és ellenőrző kérdésekkel.",
+      "preferredVerbosity": "exhaustive"
+    },
+    {
+      "id": "ctx-travel",
+      "name": "Utazás & Mobil",
+      "focusArea": "Útvonalak, csomaglisták, gyors Telegram kommunikáció",
+      "rules": "Ultra-tömör, mobilbarát válaszok bullet pontokban.",
+      "preferredVerbosity": "concise"
+    },
+    {
+      "id": "ctx-finance",
+      "name": "Pénzügy & Adminisztráció",
+      "focusArea": "Költségvetés, befektetések, hivatalos ügyek",
+      "rules": "Számok pontos feltüntetése HUF/EUR bontásban, kockázati figyelmeztetésekkel.",
+      "preferredVerbosity": "balanced"
+    }
+  ],
+  "writingStyleSamples": [],
+  "factVault": [],
+  "goalTrees": [],
+  "agentHandoffs": [],
+  "decisionMatrixRuns": [],
+  "scenarioSimulations": [],
+  "redTeamCritiques": [],
+  "studyPlans": [],
+  "meetingBriefs": [],
+  "glossaryTerms": [
+    {
+      "id": "gl-rrf",
+      "term": "RRF (Reciprocal Rank Fusion)",
+      "domain": "AI Memória",
+      "definition": "Több keresőalgoritmus (pl. vektoros + BM25 kulcsszavas) rangsorát egyesítő robusztus pontozási eljárás: sum(1 / (k + rank)).",
+      "example": "A NovaSwarm hibrid memóriakeresője RRF-fel rangsorolja a találatokat.",
+      "createdAt": "2026-11-23T20:05:40.417Z"
+    },
+    {
+      "id": "gl-mmr",
+      "term": "MMR (Maximal Marginal Relevance)",
+      "domain": "Információ-visszakeresés",
+      "definition": "Olyan szűrési stratégia, amely a relevancia mellett bünteti a túl hasonló (redundáns) találatokat a változatos kontextus érdekében.",
+      "createdAt": "2026-11-23T20:05:40.417Z"
+    }
+  ],
+  "readingDigests": [],
+  "codeSnippets": [
+    {
+      "id": "snip-systemd-tail",
+      "title": "Systemd élő hibakereső napló",
+      "language": "bash",
+      "code": "journalctl -u {{service}} -n {{lines}} -f --no-pager",
+      "tags": [
+        "linux",
+        "systemd",
+        "debug"
+      ],
+      "useCount": 0,
+      "createdAt": "2026-11-23T20:05:40.417Z"
+    },
+    {
+      "id": "snip-docker-cleanup",
+      "title": "Biztonságos Docker lemezfelszabadítás",
+      "language": "bash",
+      "code": "docker image prune -af --filter \"until={{hours}}h\" && docker builder prune -f",
+      "tags": [
+        "docker",
+        "cleanup"
+      ],
+      "useCount": 0,
+      "createdAt": "2026-11-23T20:05:40.417Z"
+    },
+    {
+      "id": "snip-sqlite-backup",
+      "title": "Online SQLite konzisztens mentés",
+      "language": "bash",
+      "code": "sqlite3 {{db_path}} \".backup '{{out_path}}'\"",
+      "tags": [
+        "sqlite",
+        "backup"
+      ],
+      "useCount": 0,
+      "createdAt": "2026-11-23T20:05:40.417Z"
+    }
+  ],
+  "architectureBlueprints": [],
+  "incidentPlaybooks": [
+    {
+      "id": "pb-oom",
+      "slug": "linux-oom",
+      "title": "Magas RAM / OOM Killer Elhárítás",
+      "severity": "critical",
+      "symptoms": [
+        "Szolgáltatás hirtelen újraindul",
+        "dmesg Killed process",
+        "Swap 95%+"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "free -m && ps aux --sort=-%mem | head -n 10",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "dmesg -T | grep -i -E \"oom|killed\" | tail -n 15",
+          "done": false
+        },
+        {
+          "id": "s3",
+          "commandOrCheck": "Ollama modell ürítés / Node heap limit ellenőrzése",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "pb-nginx-502",
+      "slug": "reverse-proxy-502",
+      "title": "Reverse Proxy 502 Bad Gateway",
+      "severity": "high",
+      "symptoms": [
+        "502 válasz böngészőben",
+        "Upstream kapcsolat elutasítva"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "ss -tulpn | grep :3000",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "systemctl status novaswarm --no-pager",
+          "done": false
+        },
+        {
+          "id": "s3",
+          "commandOrCheck": "nginx -t && journalctl -u nginx -n 40",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "pb-docker-crash",
+      "slug": "docker-crashloop",
+      "title": "Docker Konténer CrashLoopBackOff",
+      "severity": "high",
+      "symptoms": [
+        "Restarting státusz",
+        "Kilépési kód 1 vagy 137"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "docker ps -a --format \"table {{.Names}}\\t{{.Status}}\"",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "docker logs --tail 80 <kontener>",
+          "done": false
+        },
+        {
+          "id": "s3",
+          "commandOrCheck": "docker system df (lemezhely ellenőrzés)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "pb-sqlite-lock",
+      "slug": "sqlite-locked",
+      "title": "SQLite Database Locked / WAL Recovery",
+      "severity": "medium",
+      "symptoms": [
+        "SQLITE_BUSY",
+        "Lassú írási művelet"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA quick_check;",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "lsof | grep .sqlite (zároló folyamatok listázása)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "pb-ssl-exp",
+      "slug": "ssl-expiry",
+      "title": "TLS / SSL Tanúsítvány Lejárat",
+      "severity": "high",
+      "symptoms": [
+        "ERR_CERT_DATE_INVALID",
+        "< 7 nap hátra"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "certbot certificates || openssl s_client -connect host:443",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "certbot renew --dry-run && systemctl reload nginx",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "pb-io-wait",
+      "slug": "sd-iowait",
+      "title": "Magas Lemez I/O Wait / SD Lassulás",
+      "severity": "medium",
+      "symptoms": [
+        "Load average magas alacsony CPU mellett",
+        "wa% > 25%"
+      ],
+      "steps": [
+        {
+          "id": "s1",
+          "commandOrCheck": "vmstat 1 5 && df -h && df -i",
+          "done": false
+        },
+        {
+          "id": "s2",
+          "commandOrCheck": "SD-kártya Kímélő Mód engedélyezése + WAL flush",
+          "done": false
+        }
+      ]
+    }
+  ],
+  "communicationDrafts": [],
+  "wellnessLogs": [],
+  "smartChecklists": [
+    {
+      "id": "chk-server-setup",
+      "title": "Új Linux / Pi Szerver Élesítés",
+      "category": "Üzemeltetés",
+      "items": [
+        {
+          "id": "i1",
+          "label": "SSH kulcsos belépés + Fail2ban ellenőrzése",
+          "checked": false
+        },
+        {
+          "id": "i2",
+          "label": "UFW tűzfal portok szűkítése (22, 80, 443, 3000)",
+          "checked": false
+        },
+        {
+          "id": "i3",
+          "label": "ZRAM / Swap + loginctl enable-linger beállítása",
+          "checked": false
+        },
+        {
+          "id": "i4",
+          "label": "Automatikus biztonsági mentés és Telegram tesztüzenet",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "chk-release-qa",
+      "title": "Kódkiadás Előtti Minőség-Ellenőrzés",
+      "category": "Fejlesztés",
+      "items": [
+        {
+          "id": "i1",
+          "label": "npm run lint és npm run build zöld",
+          "checked": false
+        },
+        {
+          "id": "i2",
+          "label": "Teljes unit tesztcsomag futtatása (0 fail)",
+          "checked": false
+        },
+        {
+          "id": "i3",
+          "label": "Titkos kulcsok (.env / vault) gitignore ellenőrzése",
+          "checked": false
+        },
+        {
+          "id": "i4",
+          "label": "Changelog frissítése és rollback tag létrehozása",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "chk-travel",
+      "title": "Utazás Indulási Ellenőrzőlista",
+      "category": "Élet-OS",
+      "items": [
+        {
+          "id": "i1",
+          "label": "Személyi / Útlevél, bankkártya, biztosítás",
+          "checked": false
+        },
+        {
+          "id": "i2",
+          "label": "Töltők, powerbank, adapter, fülhallgató",
+          "checked": false
+        },
+        {
+          "id": "i3",
+          "label": "NovaSwarm \"Utazás\" üzemmód bekapcsolása",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "chk-security-audit",
+      "title": "Havi Otthoni Hálózat & Adatvédelem Audit",
+      "category": "Biztonság",
+      "items": [
+        {
+          "id": "i1",
+          "label": "LAN ismeretlen MAC-címek ellenőrzése",
+          "checked": false
+        },
+        {
+          "id": "i2",
+          "label": "Kiszivárgott jelszavak (HIBP) és API kulcs rotáció",
+          "checked": false
+        },
+        {
+          "id": "i3",
+          "label": "Offline biztonsági mentés visszaállítási próba",
+          "checked": false
+        }
+      ]
+    },
+    {
+      "id": "chk-weekly-reset",
+      "title": "Heti Vasárnapi Rendszerezés (GTD)",
+      "category": "Produktivitás",
+      "items": [
+        {
+          "id": "i1",
+          "label": "Kanban kártyák és lejárt határidők átnézése",
+          "checked": false
+        },
+        {
+          "id": "i2",
+          "label": "Havi fix kiadások és előfizetések ellenőrzése",
+          "checked": false
+        },
+        {
+          "id": "i3",
+          "label": "Következő hét Top 3 céljának rögzítése",
+          "checked": false
+        }
+      ]
+    }
+  ],
+  "timeBlocks": [],
+  "lastActivityAt": "2026-11-23T20:05:40.417Z",
   "activeExplicitTaskAgentId": null
 }

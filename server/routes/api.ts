@@ -265,6 +265,7 @@ import { createUniversalV4Router } from './universalV4Router';
 import { createUniversalV5Router } from './universalV5Router';
 import { createUniversalV6Router } from './universalV6Router';
 import { createUniversalV7Router } from './universalV7Router';
+import { createUniversalV8Router } from './universalV8Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -3471,6 +3472,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.use('/v5', createUniversalV5Router(broadcastEvent));
   router.use('/v6', createUniversalV6Router(broadcastEvent));
   router.use('/v7', createUniversalV7Router(broadcastEvent));
+  router.use('/v8', createUniversalV8Router(broadcastEvent));
 
   return router;
 }

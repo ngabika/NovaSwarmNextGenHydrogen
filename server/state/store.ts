@@ -18,10 +18,18 @@ import type {
   Settings,
   UnifiedMessage,
 } from '../../shared/types';
+import {
+  createDefaultAgentPersonas,
+  createDefaultCodeSnippets,
+  createDefaultGlossaryTerms,
+  createDefaultIncidentPlaybooks,
+  createDefaultSmartChecklists,
+  createDefaultUserContexts,
+} from '../power/batch8SingularityEngine';
 import { novaBus } from './eventBus';
 import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -547,6 +555,14 @@ export function createDefaultSettings(): Settings {
     telegramStreamEdit: true,
     telegramMessageDebounceMs: 1200,
     currencyAlertThresholdHuf: 410,
+    activePersonaId: 'persona-architect',
+    activeUserContextId: 'ctx-work',
+    adaptiveVerbosity: 'balanced',
+    proactiveFollowUpSuggestions: true,
+    autoInjectFactVault: true,
+    autoExtractActionItems: true,
+    agentSelfCritiquePass: false,
+    defaultResponseTone: 'professional',
   };
 }
 
@@ -777,6 +793,26 @@ export function createInitialState(): NovaSwarmState {
     webhookHistory: [],
     dropShareTokens: [],
     sharedScratchpad: '',
+    agentPersonas: createDefaultAgentPersonas(),
+    userContextProfiles: createDefaultUserContexts(),
+    writingStyleSamples: [],
+    factVault: [],
+    goalTrees: [],
+    agentHandoffs: [],
+    decisionMatrixRuns: [],
+    scenarioSimulations: [],
+    redTeamCritiques: [],
+    studyPlans: [],
+    meetingBriefs: [],
+    glossaryTerms: createDefaultGlossaryTerms(),
+    readingDigests: [],
+    codeSnippets: createDefaultCodeSnippets(),
+    architectureBlueprints: [],
+    incidentPlaybooks: createDefaultIncidentPlaybooks(),
+    communicationDrafts: [],
+    wellnessLogs: [],
+    smartChecklists: createDefaultSmartChecklists(),
+    timeBlocks: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -1012,6 +1048,44 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     webhookHistory: Array.isArray(source.webhookHistory) ? source.webhookHistory : [],
     dropShareTokens: Array.isArray(source.dropShareTokens) ? source.dropShareTokens : [],
     sharedScratchpad: typeof source.sharedScratchpad === 'string' ? source.sharedScratchpad : '',
+    agentPersonas:
+      Array.isArray(source.agentPersonas) && source.agentPersonas.length > 0
+        ? source.agentPersonas
+        : base.agentPersonas,
+    userContextProfiles:
+      Array.isArray(source.userContextProfiles) && source.userContextProfiles.length > 0
+        ? source.userContextProfiles
+        : base.userContextProfiles,
+    writingStyleSamples: Array.isArray(source.writingStyleSamples) ? source.writingStyleSamples : [],
+    factVault: Array.isArray(source.factVault) ? source.factVault : [],
+    goalTrees: Array.isArray(source.goalTrees) ? source.goalTrees : [],
+    agentHandoffs: Array.isArray(source.agentHandoffs) ? source.agentHandoffs : [],
+    decisionMatrixRuns: Array.isArray(source.decisionMatrixRuns) ? source.decisionMatrixRuns : [],
+    scenarioSimulations: Array.isArray(source.scenarioSimulations) ? source.scenarioSimulations : [],
+    redTeamCritiques: Array.isArray(source.redTeamCritiques) ? source.redTeamCritiques : [],
+    studyPlans: Array.isArray(source.studyPlans) ? source.studyPlans : [],
+    meetingBriefs: Array.isArray(source.meetingBriefs) ? source.meetingBriefs : [],
+    glossaryTerms:
+      Array.isArray(source.glossaryTerms) && source.glossaryTerms.length > 0
+        ? source.glossaryTerms
+        : base.glossaryTerms,
+    readingDigests: Array.isArray(source.readingDigests) ? source.readingDigests : [],
+    codeSnippets:
+      Array.isArray(source.codeSnippets) && source.codeSnippets.length > 0
+        ? source.codeSnippets
+        : base.codeSnippets,
+    architectureBlueprints: Array.isArray(source.architectureBlueprints) ? source.architectureBlueprints : [],
+    incidentPlaybooks:
+      Array.isArray(source.incidentPlaybooks) && source.incidentPlaybooks.length > 0
+        ? source.incidentPlaybooks
+        : base.incidentPlaybooks,
+    communicationDrafts: Array.isArray(source.communicationDrafts) ? source.communicationDrafts : [],
+    wellnessLogs: Array.isArray(source.wellnessLogs) ? source.wellnessLogs : [],
+    smartChecklists:
+      Array.isArray(source.smartChecklists) && source.smartChecklists.length > 0
+        ? source.smartChecklists
+        : base.smartChecklists,
+    timeBlocks: Array.isArray(source.timeBlocks) ? source.timeBlocks : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),

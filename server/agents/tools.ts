@@ -63,6 +63,22 @@ import {
   performWebSearch,
   runHeadlessBrowserAction,
 } from '../web/searchAndBrowser';
+import {
+  analyzeNumericSeries,
+  auditSqlQuery,
+  calculateFinancialModel,
+  convertUnitsAndTimezones,
+  evaluateDecisionMatrix,
+  generateArchitectureBlueprint,
+  lintInfraManifest,
+  processMeetingNotes,
+  queryFactVault,
+  runRedTeamCritique,
+  runScenarioSimulation,
+  sanitizeSensitiveText,
+  transformTextTone,
+  upsertFactVault,
+} from '../power/batch8SingularityEngine';
 
 export const AGENT_TOOLS_INSTRUCTION = `Eszköz-használati protokoll (párhuzamos és többlépéses eszköz-lánc):
 Ha egy művelethez valós rendszeradat, fájl, webes keresés, memória, Kanban kártya, kép, diagram, okosotthon vagy al-ágens szükséges, válaszolj egy vagy akár több <tool_call>{"name":"...","args":{...}}</tool_call> blokkal, és várd meg az eredményt!
@@ -102,6 +118,7 @@ Elérhető eszközök:
 33. finance_fx_convert: {"amount": 100, "from": "EUR", "to": "HUF"} — élő EKB devizaátváltás.
 34. hash_notarize: {"title": "...", "content": "..."} — SHA-256 dokumentum közjegyzői lenyomat rögzítése.
 35. cluster_status: {} — többgépes fürt és GPU Ollama csomópontok állapotának lekérdezése.
+36. omni_toolkit: {"mode": "decision_matrix|scenario|redteam|meeting_extract|sql_audit|infra_lint|stats|finance|unit_convert|tone_rewrite|blueprint|fact_save|fact_query|sanitize", ...} — 200+ képességű Omni-Asszisztens kognitív, elemző, pénzügyi, adatvédelmi és fejlesztői eszköztár.
 Ha már minden adat megvan a válaszadáshoz, válaszolj normál szöveggel (<tool_call> nélkül).`;
 
 export function buildDynamicToolsInstruction(): string {
@@ -838,6 +855,68 @@ export async function executeAgentTool(params: {
       return {
         step: { tool: 'cluster_status', args: {}, ok: true, sandboxed: isSandboxed, outputPreview: `${nodes.length} csomópont` },
         observation: summary,
+      };
+    }
+
+    if (toolName === 'omni_toolkit') {
+      const mode = String(args.mode || '').trim();
+      let payload: unknown;
+      if (mode === 'decision_matrix') {
+        payload = evaluateDecisionMatrix({
+          title: String(args.title || 'Döntési Mátrix'),
+          criteria: Array.isArray(args.criteria) ? (args.criteria as Array<{ name: string; weight: number }>) : [{ name: 'Érték', weight: 1 }],
+          options: Array.isArray(args.options) ? (args.options as Array<{ name: string; scores: number[] }>) : [{ name: 'A', scores: [7] }, { name: 'B', scores: [5] }],
+        });
+      } else if (mode === 'scenario') {
+        payload = runScenarioSimulation(String(args.topic || args.text || 'Projekt bevezetés'));
+      } else if (mode === 'redteam') {
+        payload = runRedTeamCritique(String(args.proposal || args.text || ''));
+      } else if (mode === 'meeting_extract') {
+        payload = processMeetingNotes(String(args.title || 'Megbeszélés'), String(args.notes || args.text || ''));
+      } else if (mode === 'sql_audit') {
+        payload = auditSqlQuery(String(args.sql || args.text || ''));
+      } else if (mode === 'infra_lint') {
+        payload = lintInfraManifest(String(args.manifest || args.text || ''));
+      } else if (mode === 'stats') {
+        payload = analyzeNumericSeries(String(args.numbers || args.text || ''));
+      } else if (mode === 'finance') {
+        payload = calculateFinancialModel({
+          mode: (args.financeMode as 'compound' | 'loan' | 'vat_hu') || 'compound',
+          principal: Number(args.principal || 100000),
+          annualRatePct: args.annualRatePct !== undefined ? Number(args.annualRatePct) : undefined,
+          years: args.years !== undefined ? Number(args.years) : undefined,
+          monthlyContribution: args.monthlyContribution !== undefined ? Number(args.monthlyContribution) : undefined,
+          vatRatePct: args.vatRatePct !== undefined ? Number(args.vatRatePct) : undefined,
+        });
+      } else if (mode === 'unit_convert') {
+        payload = convertUnitsAndTimezones(Number(args.value || 1), String(args.from || 'km'), String(args.to || 'm'));
+      } else if (mode === 'tone_rewrite') {
+        payload = transformTextTone(
+          String(args.text || ''),
+          (args.targetTone as 'formal' | 'casual' | 'assertive' | 'empathetic' | 'bullet_executive') || 'formal'
+        );
+      } else if (mode === 'blueprint') {
+        payload = generateArchitectureBlueprint(
+          String(args.name || 'Architektúra'),
+          (args.pattern as 'microservices' | 'iot_edge' | 'rag_pipeline' | 'event_driven' | 'monolith_sqlite') || 'monolith_sqlite'
+        );
+      } else if (mode === 'fact_save') {
+        payload = upsertFactVault({
+          category: args.category ? String(args.category) : undefined,
+          factKey: String(args.key || ''),
+          factValue: String(args.value || ''),
+        });
+      } else if (mode === 'fact_query') {
+        payload = queryFactVault(String(args.query || ''));
+      } else if (mode === 'sanitize') {
+        payload = sanitizeSensitiveText(String(args.text || ''));
+      } else {
+        throw new Error(`Ismeretlen omni_toolkit mód: ${mode}`);
+      }
+      const rendered = JSON.stringify(payload, null, 2);
+      return {
+        step: { tool: 'omni_toolkit', args: { mode }, ok: true, sandboxed: isSandboxed, outputPreview: `${mode}: ${rendered.slice(0, 120)}` },
+        observation: rendered.slice(0, 3500),
       };
     }
 

@@ -182,6 +182,17 @@ A **Rendszer & Doksik → Univerzális OS & Élet (B7)** nézetben, a **Beállí
 
 ---
 
+## 12. Omni-Ágens & Szingularitás Stúdió (Batch 8 — `Ú361–Ú560`)
+
+A **Rendszer & Doksik → Omni-Ágens Stúdió (B8)** nézetben, a **36. `omni_toolkit` ágens-eszközben** és Telegramon elérhető **200 új asszisztens-képesség**:
+- **Személyiség, Kontextus & Stílus Motor (`Ú361–Ú385`)**: 12 beépített szakértő Persona + egyedi persona készítő, 5 Élethelyzet Kontextus Profil, Írásstílus Ujjlenyomat elemző, Személyes Ténybank (`Fact Vault`) automatikus prompt-injektálással, 5-féle Hangnem-átalakító, Próza olvashatóság-elemző és 8 Strukturált Sablon (`ADR`, `RFC`, `SWOT`, `5 Miért`, `STAR`, `Post-Mortem`, `Eisenhower`, `BLUF`).
+- **Kognitív Tervező & Döntés-stúdió (`Ú386–Ú415`)**: Többszintű súlyozott Célfák, 4-fázisú Ágens-to-Ágens Átadási Lánc (`planner -> builder -> reviewer -> verifier`), Súlyozott Döntési Mátrix, 3-ágú Szcenárió Szimulátor, Red-Team Vakfolt Kritika, valamint PERT 3-pontos és RICE projektbecslés.
+- **Meeting, Tanulás & Tudás-stúdió (`Ú416–Ú445`)**: Megbeszélés-jegyzet feldolgozó (`@felelős`, határidő, nyitott kérdések) idempotens 1-kattintásos Kanban importtal, 3-szintű Olvasmány Kivonatoló, Interaktív Tanulási Terv Feynman-kérdésekkel, Szakterületi Fogalomtár, Mermaid Tudásgráf és Vezetői Markdown Riport export.
+- **Fejlesztői, Architektúra & Infra Copilot (`Ú446–Ú480`)**: Paraméterezhető (`{{változó}}`) Kódrészlet Tár, 5-féle Architektúra Mermaid Tervrajz, 6 Interaktív Incidens Playbook, SQL Biztonsági Auditor (`WHERE` nélküli `DELETE`/`UPDATE`, `SELECT *`, SQL injection), Docker/Compose Linter és Fejlesztői Konverterek (`JSON->TS`, `CSV->Markdown`, `JWT` dekóder, `.env.example` maszk).
+- **Matematika, Statisztika, Élet-OS & Biztonság (`Ú481–Ú560`)**: Statisztikai számsor-elemző (átlag, medián, szórás, P95, lineáris trend, Z-score anomáliák), Kamatos kamat / Hitel / Magyar ÁFA (27/18/5%) kalkulátor, Mértékegység & 5-zónás Világóra átváltó, Napi Idősáv Tervező ütközésfigyelővel, Jóllét napló, Kommunikációs Levélvázlat Stúdió, Adatvédelmi PII/API-kulcs anonimizáló, kereshető **200+ Képesség Katalógus** és 10 új Telegram parancs (`/omni`, `/persona`, `/kontextus`, `/matrix`, `/redteam`, `/szamol`, `/atalakit`, `/anonimizal`, `/teendok`, `/v8riport`).
+
+---
+
 ## Követelmények (Linux / Raspberry Pi ARM64)
 
 - Debian 12/13 (Trixie), Ubuntu 22.04+, Fedora vagy Arch Linux (`x86_64` vagy `aarch64` / Raspberry Pi)

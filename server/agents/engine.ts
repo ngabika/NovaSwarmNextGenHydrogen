@@ -99,9 +99,47 @@ export function buildDynamicAgentSystemPrompt(
 
   const dynamicToolsIdx = buildDynamicToolsInstruction();
 
+  // Batch 8 Personalization Injection: Persona, Context, Style Fingerprint & Fact Vault
+  const activePersona = (state.agentPersonas || []).find((p) => p.id === state.settings.activePersonaId);
+  const activeContext = (state.userContextProfiles || []).find((c) => c.id === state.settings.activeUserContextId);
+  const latestStyle = (state.writingStyleSamples || [])[0];
+  const factBlock =
+    state.settings.autoInjectFactVault !== false && (state.factVault || []).length > 0
+      ? `Személyes Ténybank (hiteles kontextus-adatok):\n${(state.factVault || [])
+          .slice(0, 12)
+          .map((f) => `- [${f.category}] ${f.factKey}: ${f.factValue}`)
+          .join('\n')}`
+      : '';
+  const personaBlock = activePersona
+    ? `Aktív Asszisztens Szerep / Persona: ${activePersona.name} (${activePersona.roleTitle})\nElvárt hangnem: ${activePersona.tone}\nIrányelv: ${activePersona.systemGuidance}`
+    : '';
+  const contextBlock = activeContext
+    ? `Aktív Élethelyzet / Kontextus Profil: ${activeContext.name} (${activeContext.focusArea})\nSzabályok: ${activeContext.rules} (Részletesség: ${activeContext.preferredVerbosity})`
+    : '';
+  const styleBlock = latestStyle
+    ? `Felhasználói Írásstílus Ujjlenyomat (${latestStyle.label}): átlagos mondathossz ${latestStyle.avgSentenceWords} szó, formalitás ${latestStyle.formalityScore}%.`
+    : '';
+  const omniGuidance = [
+    state.settings.defaultResponseTone ? `Alapértelmezett válaszstílus: ${state.settings.defaultResponseTone}.` : '',
+    state.settings.adaptiveVerbosity === 'concise'
+      ? 'Válasz mélység: legyél kifejezetten tömör, bullet-pontos és lényegre törő.'
+      : state.settings.adaptiveVerbosity === 'exhaustive'
+      ? 'Válasz mélység: adj mély, átfogó elemzést, példákat és él-eseteket.'
+      : 'Alkalmazkodj a kérés komplexitásához: rövid kérdésre tömör válasz, összetett feladatra strukturált terv.',
+    state.settings.agentSelfCritiquePass !== false ? 'Önellenőrzés: mielőtt válaszolsz, ellenőrizd röviden a feltételezéseket, biztonsági határokat és ténybeli pontosságot.' : '',
+    state.settings.proactiveFollowUpSuggestions !== false ? 'Ha hasznos, záráskor adj 1-2 tömör, logikus következő lépési javaslatot.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return [
     `Te vagy ${agent.name}, szerepköröd: ${agent.role}.`,
     agent.systemPrompt,
+    personaBlock,
+    contextBlock,
+    omniGuidance,
+    styleBlock,
+    factBlock,
     `Aktuális session biztonsági mód: ${isolationMode} (${
       isolationMode === 'sandboxed'
         ? 'elszigetelt másodlagos szál — parancsok csak sandboxban futhatnak'

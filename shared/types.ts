@@ -868,6 +868,15 @@ export interface Settings {
   telegramStreamEdit?: boolean;
   telegramMessageDebounceMs?: number;
   currencyAlertThresholdHuf?: number;
+  /** Batch 8 (Ú361–Ú560): Omni-Agent Persona, Context, Self-Critique & Communication Tone */
+  activePersonaId?: string;
+  activeUserContextId?: string;
+  adaptiveVerbosity?: 'concise' | 'balanced' | 'exhaustive';
+  proactiveFollowUpSuggestions?: boolean;
+  autoInjectFactVault?: boolean;
+  autoExtractActionItems?: boolean;
+  agentSelfCritiquePass?: boolean;
+  defaultResponseTone?: 'professional' | 'friendly' | 'direct' | 'socratic';
 }
 
 /** Ú31: Deep Research Report */
@@ -1144,6 +1153,27 @@ export interface NovaSwarmState {
   webhookHistory?: WebhookReplayRecord[];
   dropShareTokens?: DropShareToken[];
   sharedScratchpad?: string;
+  /** Batch 8 (Ú361–Ú560): Omni-Agent Persona, Cognitive Studio, Study/Meeting, Dev Copilot & Life-OS */
+  agentPersonas?: AgentPersonaProfile[];
+  userContextProfiles?: UserContextProfile[];
+  writingStyleSamples?: WritingStyleSample[];
+  factVault?: VerifiedFactItem[];
+  goalTrees?: HierarchicalGoalNode[];
+  agentHandoffs?: AgentHandoffTask[];
+  decisionMatrixRuns?: DecisionMatrixRun[];
+  scenarioSimulations?: ScenarioSimulation[];
+  redTeamCritiques?: RedTeamCritique[];
+  studyPlans?: StudyPlanItem[];
+  meetingBriefs?: MeetingBriefRecord[];
+  glossaryTerms?: GlossaryTermItem[];
+  readingDigests?: ReadingDigestItem[];
+  codeSnippets?: CodeSnippetVaultItem[];
+  architectureBlueprints?: ArchitectureBlueprint[];
+  incidentPlaybooks?: IncidentPlaybook[];
+  communicationDrafts?: CommunicationDraft[];
+  wellnessLogs?: WellnessCheckinItem[];
+  smartChecklists?: SmartChecklistTemplate[];
+  timeBlocks?: TimeBlockSlot[];
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
@@ -1769,5 +1799,199 @@ export interface SavingsGoalItem {
 export interface DailyTop3State {
   date: string;
   items: Array<{ id: string; text: string; done: boolean }>;
+}
+
+/** Batch 8 (Ú361–Ú560): Omni-Agent Persona, Context, Cognitive, Study, Dev Copilot & Wellness */
+export interface AgentPersonaProfile {
+  id: string;
+  name: string;
+  roleTitle: string;
+  tone: string;
+  systemGuidance: string;
+  strengths: string[];
+  builtIn?: boolean;
+}
+
+export interface UserContextProfile {
+  id: string;
+  name: string;
+  focusArea: string;
+  rules: string;
+  preferredVerbosity: 'concise' | 'balanced' | 'exhaustive';
+}
+
+export interface WritingStyleSample {
+  id: string;
+  label: string;
+  avgSentenceWords: number;
+  lexicalDiversity: number;
+  formalityScore: number;
+  signaturePhrases: string[];
+  createdAt: string;
+}
+
+export interface VerifiedFactItem {
+  id: string;
+  category: string;
+  factKey: string;
+  factValue: string;
+  confidence: number;
+  updatedAt: string;
+}
+
+export interface HierarchicalGoalNode {
+  id: string;
+  title: string;
+  horizon: 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  milestones: Array<{ id: string; title: string; weight: number; done: boolean }>;
+  progressPercent: number;
+  createdAt: string;
+}
+
+export interface AgentHandoffTask {
+  id: string;
+  title: string;
+  stage: 'planner' | 'builder' | 'reviewer' | 'verifier' | 'completed';
+  notes: Array<{ stage: string; author: string; summary: string; at: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DecisionMatrixRun {
+  id: string;
+  title: string;
+  criteria: Array<{ name: string; weight: number }>;
+  options: Array<{ name: string; scores: number[]; weightedTotal: number }>;
+  winnerName: string;
+  marginPercent: number;
+  createdAt: string;
+}
+
+export interface ScenarioSimulation {
+  id: string;
+  topic: string;
+  optimistic: { summary: string; probabilityPct: number; triggers: string[] };
+  realistic: { summary: string; probabilityPct: number; triggers: string[] };
+  pessimistic: { summary: string; probabilityPct: number; mitigations: string[] };
+  createdAt: string;
+}
+
+export interface RedTeamCritique {
+  id: string;
+  proposal: string;
+  riskScore: number;
+  blindSpots: string[];
+  failureModes: string[];
+  recommendations: string[];
+  createdAt: string;
+}
+
+export interface StudyPlanItem {
+  id: string;
+  topic: string;
+  level: 'beginner' | 'intermediate' | 'advanced';
+  modules: Array<{ id: string; title: string; keyQuestion: string; completed: boolean }>;
+  createdAt: string;
+}
+
+export interface MeetingBriefRecord {
+  id: string;
+  title: string;
+  summary: string;
+  actionItems: Array<{ id: string; text: string; owner?: string; dueHint?: string; exportedToKanban: boolean }>;
+  openQuestions: string[];
+  createdAt: string;
+}
+
+export interface GlossaryTermItem {
+  id: string;
+  term: string;
+  domain: string;
+  definition: string;
+  example?: string;
+  createdAt: string;
+}
+
+export interface ReadingDigestItem {
+  id: string;
+  title: string;
+  tldrOneLine: string;
+  bulletPoints: string[];
+  wordCount: number;
+  estimatedMinutes: number;
+  readabilityScore: number;
+  createdAt: string;
+}
+
+export interface CodeSnippetVaultItem {
+  id: string;
+  title: string;
+  language: string;
+  code: string;
+  tags: string[];
+  useCount: number;
+  createdAt: string;
+}
+
+export interface ArchitectureBlueprint {
+  id: string;
+  name: string;
+  pattern: 'microservices' | 'iot_edge' | 'rag_pipeline' | 'event_driven' | 'monolith_sqlite';
+  mermaidDiagram: string;
+  components: string[];
+  capacityNotes: string[];
+  createdAt: string;
+}
+
+export interface IncidentPlaybook {
+  id: string;
+  slug: string;
+  title: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  symptoms: string[];
+  steps: Array<{ id: string; commandOrCheck: string; done: boolean }>;
+}
+
+export interface CommunicationDraft {
+  id: string;
+  purpose: string;
+  tone: 'formal' | 'direct' | 'empathetic' | 'assertive';
+  subject: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface WellnessCheckinItem {
+  id: string;
+  date: string;
+  sleepHours: number;
+  waterMl: number;
+  energyScore: number;
+  movementMinutes: number;
+  note?: string;
+}
+
+export interface SmartChecklistTemplate {
+  id: string;
+  title: string;
+  category: string;
+  items: Array<{ id: string; label: string; checked: boolean }>;
+}
+
+export interface TimeBlockSlot {
+  id: string;
+  date: string;
+  startHour: string;
+  endHour: string;
+  title: string;
+  kind: 'deep_work' | 'admin' | 'meeting' | 'recovery';
+}
+
+export interface OmniCapabilityEntry {
+  code: string;
+  category: string;
+  title: string;
+  summary: string;
+  endpointOrTool: string;
 }
 
