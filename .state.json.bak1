@@ -1,0 +1,763 @@
+{
+  "settings": {
+    "schemaVersion": 12,
+    "onboardingCompleted": true,
+    "language": "hu",
+    "hostPermissionsGranted": true,
+    "killSwitchActive": false,
+    "userProfile": "Rendszermérnök felhasználó, tömör technikai válaszokat preferál.",
+    "primaryProvider": "gemini",
+    "secondaryProvider": "openrouter",
+    "ollamaOnlyMode": false,
+    "ollamaUrl": "http://127.0.0.1:11434",
+    "ollamaModel": "qwen2.5:3b",
+    "ollamaNumCtx": 4096,
+    "ollamaKeepAlive": "5m",
+    "providerKeys": {
+      "gemini": [
+        {
+          "id": "env-gemini-default",
+          "label": "Server Environment Key",
+          "maskedKey": "AQ.A...rMYQ",
+          "enabled": true,
+          "failureCount": 0,
+          "createdAt": "2026-11-23T19:41:33.429Z"
+        }
+      ],
+      "openai": [
+        {
+          "id": "k1",
+          "label": "Cooled Key",
+          "maskedKey": "sk-...9",
+          "enabled": true,
+          "failureCount": 2
+        }
+      ],
+      "anthropic": [],
+      "openrouter": [],
+      "ollama": []
+    },
+    "manualModelPriority": {
+      "gemini": [],
+      "openai": [],
+      "anthropic": [],
+      "openrouter": [],
+      "ollama": []
+    },
+    "lastModelDiscoveryAt": null,
+    "dailyCostLimitEnabled": true,
+    "dailyCostLimitUsd": 1,
+    "dailySpendUsd": 0,
+    "dailySpendDate": "2026-11-23",
+    "monthlyBudgetAlertUsd": 25,
+    "dreamingIdleMinutes": 8,
+    "thermalThrottleCelsius": 80,
+    "batteryThrottlePercent": 20,
+    "auditLogMaxEntries": 2000,
+    "telegramEnabled": false,
+    "telegramChatId": "",
+    "telegramHasToken": false,
+    "backupSchedule": "daily",
+    "cloudBackupGoogleDriveConnected": false,
+    "lastBackupAt": "2026-11-23T19:42:35.637Z",
+    "lastBackupLocation": "local",
+    "backupRsyncTarget": "",
+    "ttsEnabled": false,
+    "ttsHostSpeakerEnabled": false,
+    "continuousVoiceMode": false,
+    "autoTaskRouting": true,
+    "maxToolSteps": 12,
+    "defaultPreset": "fast",
+    "responseCacheEnabled": true,
+    "responseCacheTtlSec": 600,
+    "guardrailsEnabled": false,
+    "guardrailBlockPii": false,
+    "guardrailBlockSecrets": false,
+    "guardrailBlockPromptInjection": false,
+    "heartbeatEnabled": true,
+    "heartbeatIntervalMinutes": 45,
+    "channelPairingRequired": false,
+    "lastHeartbeatAt": "2026-11-23T19:42:33.454Z",
+    "lastHeartbeatSummary": "Heartbeat rendben (0 uptime cél, 0 aktív feladat)",
+    "kanbanWipLimit": 3,
+    "kanbanAgingHours": 48,
+    "federationEnabled": false,
+    "instanceName": "localhost",
+    "webAuthEnabled": false,
+    "webAuthHasPassword": true,
+    "autonomousKanbanWorkerEnabled": true,
+    "embeddingMode": "local_ngram",
+    "ollamaEmbeddingModel": "nomic-embed-text",
+    "otaRepoSlug": "ngabika/NovaSwarmNextGenHydrogen",
+    "autoUpdateEnabled": false,
+    "autoUpdateCheckHours": 6,
+    "searchProvider": "duckduckgo",
+    "searxngUrl": "",
+    "braveHasKey": true,
+    "caldavUrl": "",
+    "homeAssistantUrl": "",
+    "homeAssistantHasToken": true,
+    "mqttBrokerHost": "",
+    "mqttBrokerPort": 1883,
+    "ollamaAutoUnloadMinutes": 15,
+    "weatherLocation": "Budapest",
+    "piperTtsBinary": "piper",
+    "wakeWordEnabled": false,
+    "wakeWordPhrase": "nova",
+    "dashboardWidgets": [
+      {
+        "id": "vitals",
+        "title": "Hardver & Rendszer Állapot",
+        "visible": true
+      },
+      {
+        "id": "budget",
+        "title": "Költség & Havi Előrejelzés",
+        "visible": true
+      },
+      {
+        "id": "kanban",
+        "title": "Aktív Kanban & Munkafolyamatok",
+        "visible": true
+      },
+      {
+        "id": "uptime",
+        "title": "Uptime & SSL Figyelő",
+        "visible": true
+      },
+      {
+        "id": "briefing",
+        "title": "Napi Briefing, Hírek & Naptár",
+        "visible": true
+      }
+    ],
+    "fullAutonomousMode": true,
+    "themeMode": "light",
+    "privacyMaskEnabled": false,
+    "nightShiftEnabled": true,
+    "nightShiftIntervalMinutes": 25,
+    "redTeamEnabled": false,
+    "supervisorStrictness": "permissive",
+    "retentionDays": 90,
+    "softDowngradeOnBudget": true,
+    "defaultCurrency": "HUF",
+    "telegramInlineButtons": true,
+    "lastNightShiftAt": null,
+    "lanSubnetAllowlist": [],
+    "totpEnabled": false,
+    "telegramAllowedChatIds": [],
+    "telegramDigestTime": "07:30",
+    "telegramSilentNight": true,
+    "cpuLoadThrottleThreshold": 5,
+    "digitalDetoxMode": false,
+    "deadManSwitchDays": 0,
+    "agentTemperatureBias": 0,
+    "hardwareAutoOptimize": true,
+    "detectedHardwareTier": "standard_desktop",
+    "ramWatchdogThresholdPercent": 88,
+    "sdCardSparingMode": false,
+    "hybridLocalFirst": true,
+    "telegramVoiceReplyEnabled": true,
+    "morningBriefTime": "07:30",
+    "eveningBriefTime": "21:00",
+    "inboxTriageEnabled": true,
+    "selfHealingDaemonEnabled": true,
+    "gpioFanTempThresholdC": 65,
+    "lastMigrationRecord": null,
+    "lanSentinelAutoAlert": true,
+    "dockerAutoHealEnabled": true,
+    "meshOffloadEnabled": true,
+    "speedtestIntervalMinutes": 60,
+    "operatingMode": "focus",
+    "compactUiMode": false,
+    "compactLocalPrompt": false,
+    "timezone": "Europe/Budapest",
+    "telegramStreamEdit": true,
+    "telegramMessageDebounceMs": 1200,
+    "currencyAlertThresholdHuf": 410
+  },
+  "agents": [
+    {
+      "id": "supervisor-auditor",
+      "name": "Felügyelő Auditor",
+      "avatar": "shield",
+      "role": "Supervisor & Sandbox Auditor",
+      "parentAgentId": null,
+      "systemPrompt": "Te vagy a rendszer állandó technikai Felügyelő/Auditor ágense. Feladatod minden autonóm kör után ellenőrizni a naplókat és memória-írásokat, kiszűrni a nem végrehajtott, fiktív sikereket, és előzetes dry-run sandbox teszteket futtatni új skillek, MCP kapcsolatok és önmódosítások előtt.",
+      "modelId": "gemini-4-hydrogen",
+      "providerId": "gemini",
+      "webSearchEnabled": false,
+      "hostExecutionEnabled": true,
+      "active": true,
+      "isSupervisor": true,
+      "createdAt": "2026-11-23T19:41:23.327Z",
+      "updatedAt": "2026-11-23T19:41:23.327Z",
+      "dailySpendUsd": 0,
+      "voiceReplyMode": "off",
+      "runTimestamps": []
+    },
+    {
+      "id": "agent-ae64a063",
+      "name": "Központi Asszisztens",
+      "avatar": "cpu",
+      "role": "Általános Asszisztens",
+      "parentAgentId": null,
+      "systemPrompt": "Teljesen autonóm, kezdeményező és precíz személyi AI ágens.",
+      "modelId": "gemini-4-hydrogen",
+      "providerId": "gemini",
+      "webSearchEnabled": true,
+      "hostExecutionEnabled": true,
+      "active": true,
+      "telegramBotEnabled": false,
+      "telegramHasToken": false,
+      "dailyBudgetUsd": 0,
+      "dailySpendUsd": 0,
+      "voiceReplyMode": "off",
+      "runTimestamps": [],
+      "createdAt": "2026-11-23T19:41:52.652Z",
+      "updatedAt": "2026-11-23T19:41:52.652Z"
+    }
+  ],
+  "kanban": [],
+  "ideas": [],
+  "auditLogs": [
+    {
+      "type": "system",
+      "sourceAgentId": "tool-builder",
+      "sourceAgentName": "Eszközépítő",
+      "message": "Új dinamikus eszköz regisztrálva: sum_args (sandbox_js)",
+      "verifiedExecution": true,
+      "id": "5191e635-5c6a-43a1-9462-840d63e2d785",
+      "timestamp": "2026-11-23T19:41:23.328Z",
+      "prevHash": "GENESIS",
+      "hash": "5b1f7235a1c06b2d450a48642849ca7982349597ef7ba9465b0d348dc66f7736"
+    },
+    {
+      "type": "supervisor",
+      "sourceAgentId": "supervisor-auditor",
+      "sourceAgentName": "Felügyelő Auditor",
+      "message": "Sandbox dry-run (unshare_net_sandbox): exit=0, valós fájlrendszer érintetlen=true",
+      "verifiedExecution": true,
+      "id": "fbd6151f-4553-4a94-981c-e749d074c826",
+      "timestamp": "2026-11-23T19:41:23.398Z",
+      "prevHash": "5b1f7235a1c06b2d450a48642849ca7982349597ef7ba9465b0d348dc66f7736",
+      "hash": "5e61f5022f67492616e5e93fe9be9ed63c45c6b29400a9ab2d65b7fcb2b88909"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "auto-doctor",
+      "sourceAgentName": "Öngyógyító Doktor",
+      "message": "Diagnosztika kész: 1 javítás, 1 figyelmeztetés.",
+      "verifiedExecution": true,
+      "id": "abd39e93-9e20-44bd-9cd7-7ed4450b3830",
+      "timestamp": "2026-11-23T19:41:23.402Z",
+      "prevHash": "5e61f5022f67492616e5e93fe9be9ed63c45c6b29400a9ab2d65b7fcb2b88909",
+      "hash": "1c8f63e30f447aa34d439573fa850b7d15572c381606e1eaa215775a9817fc65"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "hardware-optimizer",
+      "sourceAgentName": "Hardver-Adaptív Optimalizáló",
+      "message": "Auto-profil alkalmazva [Normál Asztali / VPS (8 GB kategória)]: modell=qwen2.5:3b, heap=1280MB, RAM őrszem=88%",
+      "verifiedExecution": true,
+      "id": "086f9cac-dd05-44ce-985e-57f00de3965b",
+      "timestamp": "2026-11-23T19:41:33.441Z",
+      "prevHash": "1c8f63e30f447aa34d439573fa850b7d15572c381606e1eaa215775a9817fc65",
+      "hash": "d987964d9fda59878cb2c03be681f47957d68db4e99bada4f1331e54f28aebf2"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "agent-ae64a063",
+      "sourceAgentName": "Központi Asszisztens",
+      "message": "Új ágens létrehozva: Központi Asszisztens (Általános Asszisztens)",
+      "verifiedExecution": true,
+      "id": "d092dcbb-acbc-4ae5-9598-6e8d6c88a059",
+      "timestamp": "2026-11-23T19:41:52.653Z",
+      "prevHash": "d987964d9fda59878cb2c03be681f47957d68db4e99bada4f1331e54f28aebf2",
+      "hash": "50fb3fb88065218bb2c16d813b8de13b4635d5c4044e348fff749ce44f6a4556"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "mode-switch",
+      "sourceAgentName": "Üzemmód Váltó",
+      "message": "Üzemmód átállítva: Mély Fókusz (focus)",
+      "verifiedExecution": true,
+      "id": "dc26ebbf-b1ea-4030-a572-e914ee36718a",
+      "timestamp": "2026-11-23T19:41:56.221Z",
+      "prevHash": "50fb3fb88065218bb2c16d813b8de13b4635d5c4044e348fff749ce44f6a4556",
+      "hash": "8b0cdafefb77b4f5d51738cb86f58ceddb394032941044fb4fc129a345390259"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "mode-switch",
+      "sourceAgentName": "Üzemmód Váltó",
+      "message": "Üzemmód átállítva: Mély Fókusz (focus)",
+      "verifiedExecution": true,
+      "id": "37069022-9ed6-4d59-a3f6-8d16b58dfcbc",
+      "timestamp": "2026-11-23T19:42:32.224Z",
+      "prevHash": "8b0cdafefb77b4f5d51738cb86f58ceddb394032941044fb4fc129a345390259",
+      "hash": "7b4d31160a596e6cb4e17704904addebf2a8809a0af590029a2a01e99df3fe72"
+    },
+    {
+      "type": "system",
+      "sourceAgentId": "backup-engine",
+      "sourceAgentName": "Mentés Rendszer",
+      "message": "Biztonsági mentés elkészült KIZÁRÓLAG lokálisan (novaswarm-backup-2026-11-23T19-42-35-636Z.json) — felhő nincs bekötve.",
+      "verifiedExecution": true,
+      "id": "6467f34d-42e2-4c64-89f1-83132287f801",
+      "timestamp": "2026-11-23T19:42:35.638Z",
+      "prevHash": "7b4d31160a596e6cb4e17704904addebf2a8809a0af590029a2a01e99df3fe72",
+      "hash": "8b698d1e61330571aaacae1f8ca102f803ffb764fa2171762bef888882c59ff7"
+    }
+  ],
+  "mcpServers": [
+    {
+      "id": "mcp-google-workspace",
+      "name": "Google Workspace (Gmail, Calendar, Drive, Photos)",
+      "description": "Valódi OAuth2 alapú személyes és munkahelyi Google fiók integráció.",
+      "endpointUrl": "https://www.googleapis.com/discovery/v1/apis",
+      "transport": "http",
+      "authType": "oauth2",
+      "hasCredentials": false,
+      "oauthConfigured": false,
+      "isGoogleWorkspace": true,
+      "googleServices": [
+        "gmail",
+        "calendar",
+        "drive",
+        "photos"
+      ],
+      "status": "not_configured",
+      "lastCheckedAt": null,
+      "lastCheckMessage": "Nincs bekötve — OAuth2 hitelesítés szükséges"
+    }
+  ],
+  "skills": [],
+  "memories": [],
+  "shortTermSignals": [],
+  "dreamJournal": [],
+  "dreamSkillDrafts": [],
+  "reflexionSuggestions": [],
+  "threads": [
+    {
+      "id": "thread-main",
+      "title": "Fő koordinációs szál",
+      "folder": "Általános",
+      "isolationMode": "main_host",
+      "channelSource": "web",
+      "createdAt": "2026-11-23T19:41:23.327Z",
+      "updatedAt": "2026-11-23T19:41:23.327Z"
+    }
+  ],
+  "messages": [],
+  "cronTasks": [],
+  "approvals": [],
+  "supervisor": {
+    "lastAuditAt": "2026-11-23T19:41:23.397Z",
+    "status": "nominal",
+    "lastSummary": "Rendszer készenlétben — várakozás az első ágens körre.",
+    "discrepanciesFound": 0,
+    "sandboxTestsPassed": 1,
+    "lastDestructiveProofAt": null
+  },
+  "discoveredModels": [],
+  "quotas": {
+    "gemini": {
+      "provider": "gemini",
+      "remainingRequests": null,
+      "limitRequests": null,
+      "remainingTokens": null,
+      "resetAt": null,
+      "isEstimated": true,
+      "lastCheckedAt": null,
+      "sourceNote": "Nincs még élő API válasz-fejléc (becsült érték)"
+    },
+    "openai": {
+      "provider": "openai",
+      "remainingRequests": null,
+      "limitRequests": null,
+      "remainingTokens": null,
+      "resetAt": null,
+      "isEstimated": true,
+      "lastCheckedAt": null,
+      "sourceNote": "Nincs még élő API válasz-fejléc (becsült érték)"
+    },
+    "anthropic": {
+      "provider": "anthropic",
+      "remainingRequests": null,
+      "limitRequests": null,
+      "remainingTokens": null,
+      "resetAt": null,
+      "isEstimated": true,
+      "lastCheckedAt": null,
+      "sourceNote": "Nincs még élő API válasz-fejléc (becsült érték)"
+    },
+    "openrouter": {
+      "provider": "openrouter",
+      "remainingRequests": null,
+      "limitRequests": null,
+      "remainingTokens": null,
+      "resetAt": null,
+      "isEstimated": true,
+      "lastCheckedAt": null,
+      "sourceNote": "Nincs még élő API válasz-fejléc (becsült érték)"
+    },
+    "ollama": {
+      "provider": "ollama",
+      "remainingRequests": null,
+      "limitRequests": null,
+      "remainingTokens": null,
+      "resetAt": null,
+      "isEstimated": false,
+      "lastCheckedAt": null,
+      "sourceNote": "Lokális hardver-kapacitás (nincs felhős kvóta-korlát)"
+    }
+  },
+  "backups": [
+    {
+      "id": "bkp-df14ed57",
+      "createdAt": "2026-11-23T19:42:35.637Z",
+      "fileName": "novaswarm-backup-2026-11-23T19-42-35-636Z.json",
+      "sizeBytes": 23008,
+      "destination": "local"
+    }
+  ],
+  "virtualKeys": [],
+  "gatewayAnalytics": {
+    "totalProxyRequests": 0,
+    "cacheHits": 0,
+    "cacheMisses": 0,
+    "savedUsd": 0,
+    "guardrailsBlocked": 0,
+    "spendByProvider": {
+      "gemini": 0,
+      "openai": 0,
+      "anthropic": 0,
+      "openrouter": 0,
+      "ollama": 0
+    },
+    "spendByModel": {},
+    "providerHealth": {
+      "gemini": {
+        "provider": "gemini",
+        "totalCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": 0,
+        "lastLatencyMs": null
+      },
+      "openai": {
+        "provider": "openai",
+        "totalCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": 0,
+        "lastLatencyMs": null
+      },
+      "anthropic": {
+        "provider": "anthropic",
+        "totalCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": 0,
+        "lastLatencyMs": null
+      },
+      "openrouter": {
+        "provider": "openrouter",
+        "totalCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": 0,
+        "lastLatencyMs": null
+      },
+      "ollama": {
+        "provider": "ollama",
+        "totalCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": 0,
+        "lastLatencyMs": null
+      }
+    }
+  },
+  "channelConnectors": [],
+  "pairingRequests": [],
+  "federationPeers": [],
+  "uptimeTargets": [],
+  "promptTemplates": [
+    {
+      "id": "tpl-daily-brief",
+      "title": "Reggeli Briefing",
+      "command": "/briefing",
+      "body": "Készíts napi áttekintést a nyitott Kanban kártyákból, mai naptárból, uptime állapotból és friss RSS hírekből.",
+      "category": "Rendszer",
+      "createdAt": "2026-11-23T19:41:23.327Z"
+    },
+    {
+      "id": "tpl-host-health",
+      "title": "Gazdagép Diagnosztika",
+      "command": "/diagnosztika",
+      "body": "Ellenőrizd a CPU, RAM, lemez, systemd szolgáltatások és SSL tanúsítványok állapotát, és jelezd ha beavatkozás kell.",
+      "category": "Üzemeltetés",
+      "createdAt": "2026-11-23T19:41:23.327Z"
+    }
+  ],
+  "artifacts": [],
+  "rssFeeds": [],
+  "rssFeedItems": [],
+  "emailConfig": {
+    "enabled": false,
+    "imapHost": "",
+    "imapPort": 993,
+    "smtpHost": "",
+    "smtpPort": 465,
+    "username": "",
+    "tls": true,
+    "hasPassword": false,
+    "lastCheckedAt": null,
+    "recentEmails": []
+  },
+  "calendarEvents": [],
+  "smartHomeDevices": [],
+  "sshProfiles": [],
+  "watchedRepos": [],
+  "workflows": [],
+  "customWebhooks": [],
+  "habits": [],
+  "focusSessions": [],
+  "expenses": [],
+  "sslTargets": [],
+  "researchReports": [],
+  "savedApiRequests": [],
+  "databaseConnections": [],
+  "watchedPages": [],
+  "flashcards": [],
+  "dailyJournals": [],
+  "sharedLists": [
+    {
+      "id": "list-default",
+      "name": "Bevásárlólista",
+      "items": []
+    }
+  ],
+  "subscriptions": [],
+  "agentBenchmarks": [],
+  "dynamicTools": [
+    {
+      "id": "dyn-07117f",
+      "name": "sum_args",
+      "description": "Összeadja az a és b paramétert",
+      "kind": "sandbox_js",
+      "targetOrCode": "console.log(Number(ARGS.a) + Number(ARGS.b));",
+      "enabled": true,
+      "createdAt": "2026-11-23T19:41:23.328Z"
+    }
+  ],
+  "missions": [],
+  "crmContacts": [],
+  "packages": [],
+  "vehicleMaintenance": [],
+  "homeInventory": [],
+  "sharedLinks": [],
+  "bookmarks": [],
+  "mealPlan": [],
+  "wolDevices": [],
+  "clusterNodes": [],
+  "notaryRecords": [],
+  "nightShiftRuns": [],
+  "timeCapsules": [],
+  "budgetEnvelopes": [],
+  "clipboardHistory": [],
+  "priceWatches": [],
+  "documentSafe": [],
+  "hostedMiniApps": [],
+  "apiMocks": [],
+  "ephemeralNotes": [],
+  "lifeGoals": [],
+  "customWidgets": [],
+  "debateRuns": [],
+  "missionCheckpoints": [],
+  "userXp": {
+    "xp": 0,
+    "level": 1,
+    "streakDays": 0,
+    "lastAwardDate": null,
+    "badges": [
+      "Raj Kezdő"
+    ],
+    "recentEvents": []
+  },
+  "backgroundJobs": [],
+  "telegramOutbox": [],
+  "knownLanMacs": [],
+  "postMortems": [],
+  "hardwareProfile": {
+    "tier": "standard_desktop",
+    "tierLabel": "Normál Asztali / VPS (8 GB kategória)",
+    "arch": "linux/x64",
+    "cpuCores": 4,
+    "ramTotalMb": 12288,
+    "ramAvailableMb": 11513,
+    "swapTotalMb": 0,
+    "storageKind": "unknown",
+    "hasGpu": false,
+    "gpuName": "none",
+    "recommendedOllamaModel": "qwen2.5:3b",
+    "recommendedNumCtx": 4096,
+    "recommendedHeapMb": 1280,
+    "recommendedConcurrency": 4,
+    "recommendedHeartbeatMinutes": 4,
+    "recommendedNightShiftMinutes": 25,
+    "recommendedDreamIdleMinutes": 8,
+    "recommendedOllamaIdleUnloadMinutes": 15,
+    "recommendedCpuThreshold": 5,
+    "recommendedRamWatchdogPercent": 88,
+    "sdCardSparingRecommended": false,
+    "hybridLocalFirstRecommended": true,
+    "detectedAt": "2026-11-23T19:41:33.440Z",
+    "appliedNotes": [
+      "Profil: Normál Asztali / VPS (8 GB kategória) (4 mag, 12288 MB RAM, Arch: linux/x64)",
+      "Ajánlott lokális modell: qwen2.5:3b (NumCtx=4096, IdleUnload=15p)",
+      "Node.js heap korlát: 1280 MB · Párhuzamosság: 4",
+      "Ütemezések: Heartbeat=4p · NightShift=25p · Álmodás=8p",
+      "RAM Őrszem küszöb: 88% · SD-kártya kímélő mód: KI"
+    ]
+  },
+  "visualWatchItems": [],
+  "proactiveEvents": [],
+  "autonomyRules": [
+    {
+      "id": "rule-default-ram-guard",
+      "name": "Automatikus RAM & Cache Felszabadítás (88% felett)",
+      "enabled": true,
+      "triggerKind": "ram_above",
+      "thresholdValue": 88,
+      "actionKind": "ram_cleanup",
+      "actionTarget": "auto",
+      "cooldownMinutes": 10,
+      "triggerCount": 0,
+      "createdAt": "2026-11-23T19:41:23.327Z"
+    }
+  ],
+  "smartReminders": [],
+  "quickMacros": [
+    {
+      "id": "macro-night-cleanup",
+      "slug": "takaritas",
+      "name": "Éjszakai Rendszertakarítás",
+      "description": "RAM őrszem tisztítás, SD puffer kiírás és tétlen Ollama modell ürítés egy kattintással.",
+      "steps": [
+        "ram_watchdog",
+        "sd_flush",
+        "ollama_unload"
+      ],
+      "runCount": 0
+    },
+    {
+      "id": "macro-full-health",
+      "slug": "korkep",
+      "name": "Teljes Állapot & Hálózat Kórkép",
+      "description": "Öngyógyító démon, Docker konténer javítás, LAN őrszem és forenzikus folyamatkép.",
+      "steps": [
+        "self_heal",
+        "docker_heal",
+        "lan_sentinel",
+        "forensic_snapshot"
+      ],
+      "runCount": 0
+    }
+  ],
+  "networkSpeeds": [],
+  "meshDispatches": [],
+  "lastForensicReport": null,
+  "decisionLogs": [],
+  "quoteDeck": [
+    {
+      "id": "quote-init-1",
+      "quote": "A legegyszerűbb autonóm rendszer az, amely csendben elvégzi a munkát és csak akkor szól, ha számít.",
+      "author": "NovaSwarm Alapelv",
+      "source": "Rendszerfilozófia",
+      "pinned": true,
+      "createdAt": "2026-11-23T19:41:23.327Z"
+    }
+  ],
+  "countdownTimers": [
+    {
+      "id": "tmr-58752183",
+      "label": "teszt",
+      "durationSec": 600,
+      "endsAt": "2026-11-23T19:52:32.302Z",
+      "completed": false,
+      "createdAt": "2026-11-23T19:42:32.302Z"
+    },
+    {
+      "id": "tmr-27eb6493",
+      "label": "teszt",
+      "durationSec": 600,
+      "endsAt": "2026-11-23T19:51:56.574Z",
+      "completed": false,
+      "createdAt": "2026-11-23T19:41:56.574Z"
+    }
+  ],
+  "medicationReminders": [],
+  "lentItems": [],
+  "fuelLogs": [
+    {
+      "id": "fuel-ffc249eb",
+      "date": "2026-11-23",
+      "distanceKm": 520,
+      "liters": 34.5,
+      "totalCost": 21500,
+      "consumptionPer100Km": 6.63,
+      "costPerKm": 41.35
+    }
+  ],
+  "savingsGoals": [],
+  "dailyTop3": {
+    "date": "2026-11-23",
+    "items": []
+  },
+  "tripPlans": [],
+  "mediaBacklog": [],
+  "fixedExpenses": [
+    {
+      "id": "fix-78662a8b",
+      "name": "Rezsi",
+      "amount": 25000,
+      "currency": "HUF",
+      "dueDay": 10,
+      "paidThisMonth": false
+    }
+  ],
+  "currencyRates": {
+    "base": "EUR",
+    "date": "2026-11-23",
+    "rates": {
+      "CHF": 0.9186,
+      "GBP": 0.83673,
+      "HUF": 372.28,
+      "USD": 1.0939
+    },
+    "fetchedAt": "2026-11-23T19:43:23.522Z",
+    "source": "frankfurter.app (ECB)"
+  },
+  "lanPortScans": [
+    {
+      "id": "pscan-687f07ea",
+      "host": "127.0.0.1",
+      "openPorts": [
+        {
+          "port": 3000,
+          "service": "NovaSwarm UI",
+          "latencyMs": 2
+        },
+        {
+          "port": 8080,
+          "service": "HTTP-Alt",
+          "latencyMs": 2
+        }
+      ],
+      "scannedAt": "2026-11-23T19:42:35.375Z"
+    }
+  ],
+  "webhookHistory": [],
+  "dropShareTokens": [],
+  "sharedScratchpad": "",
+  "lastActivityAt": "2026-11-23T19:41:23.327Z",
+  "activeExplicitTaskAgentId": null
+}

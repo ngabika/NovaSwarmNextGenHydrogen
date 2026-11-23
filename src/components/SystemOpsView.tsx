@@ -57,6 +57,9 @@ const Batch5MigrationAndAutoPanel = lazy(() =>
 const Batch6ApexLabPanel = lazy(() =>
   import('./Batch6ApexLabPanel').then((m) => ({ default: m.Batch6ApexLabPanel }))
 );
+const Batch7UniverseLabPanel = lazy(() =>
+  import('./Batch7UniverseLabPanel').then((m) => ({ default: m.Batch7UniverseLabPanel }))
+);
 
 interface Props {
   language: LanguageCode;
@@ -91,7 +94,7 @@ export const SystemOpsView: React.FC<Props> = ({
   sandboxBackend,
   onRefreshState,
 }) => {
-  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'diagnostics'>('ops');
+  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'diagnostics'>('ops');
 
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
@@ -452,6 +455,7 @@ export const SystemOpsView: React.FC<Props> = ({
               { id: 'pi_hw_b4', label: 'Pi Hardver & Fájlok (B4)' },
               { id: 'b5_migrate', label: 'Költöztető & Auto-Opt (B5)' },
               { id: 'b6_apex', label: 'Apex Labor & Hálózat (B6)' },
+              { id: 'b7_universe', label: 'Univerzális OS & Élet (B7)' },
               { id: 'diagnostics', label: 'Diagnosztika · .env · Cron · Audit Export' },
             ] as const
           ).map((t) => (
@@ -1858,6 +1862,11 @@ export const SystemOpsView: React.FC<Props> = ({
       {subTab === 'b6_apex' && (
         <Suspense fallback={<div className="p-6 text-xs text-slate-500">Apex Labor & Hálózat (B6) betöltése...</div>}>
           <Batch6ApexLabPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+      {subTab === 'b7_universe' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Univerzális OS & Élet-központ (B7) betöltése...</div>}>
+          <Batch7UniverseLabPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>

@@ -228,6 +228,7 @@ export default function App() {
           w: 'workbench',
           a: 'agents',
           m: 'memory',
+          r: 'system',
           s: 'settings',
         };
         const target = map[e.key.toLowerCase()];
@@ -248,6 +249,12 @@ export default function App() {
       // ignore storage quota errors
     }
   }, [scratchpadText]);
+
+  useEffect(() => {
+    if (typeof state?.sharedScratchpad === 'string' && state.sharedScratchpad.length > 0 && !scratchpadText) {
+      setScratchpadText(state.sharedScratchpad);
+    }
+  }, [state?.sharedScratchpad]);
 
   useEffect(() => {
     if (authLocked) return;
@@ -314,13 +321,19 @@ export default function App() {
       ws = new WebSocket(`${proto}//${window.location.host}/ws/events`);
       ws.onmessage = (ev) => {
         try {
-          const parsed = JSON.parse(String(ev.data)) as { type?: string; payload?: { title?: string; startAt?: string } };
+          const parsed = JSON.parse(String(ev.data)) as {
+            type?: string;
+            payload?: { title?: string; startAt?: string; text?: string };
+          };
           if (parsed.type === 'reminder:alert' && parsed.payload?.title) {
             const msg = `Emlékeztető: ${parsed.payload.title}`;
             setReminderBanner(msg);
             if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
               new Notification('NovaSwarm Emlékeztető', { body: parsed.payload.title });
             }
+          }
+          if (parsed.type === 'scratchpad:sync' && typeof parsed.payload?.text === 'string') {
+            setScratchpadText(parsed.payload.text);
           }
         } catch {
           // ignore
@@ -796,7 +809,11 @@ export default function App() {
           </div>
         )}
 
-        <main className="flex-1 p-6 pb-20 lg:pb-6 overflow-y-auto">
+        <main
+          className={`flex-1 overflow-y-auto ${
+            state.settings.compactUiMode ? 'p-3 sm:p-4 pb-16 lg:pb-4' : 'p-6 pb-20 lg:pb-6'
+          }`}
+        >
           <Suspense fallback={<div className="p-8 text-xs text-slate-500 font-mono">Nézet betöltése...</div>}>
             {activeTab === 'overview' && (
               <OverviewDashboard
@@ -987,19 +1004,35 @@ export default function App() {
             >
               Törlés
             </button>
-            <button
-              type="button"
-              disabled={!scratchpadText.trim()}
-              onClick={() => {
-                setExternalDraft({ text: scratchpadText.trim(), nonce: Date.now() });
-                setActiveTab('swarm');
-                setScratchpadOpen(false);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50"
-            >
-              <Send className="h-3 w-3" />
-              Küldés Raj Chatbe
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch('/api/v7/scratchpad', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: scratchpadText }),
+                  });
+                  await fetchState();
+                }}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
+              >
+                LAN Szinkron
+              </button>
+              <button
+                type="button"
+                disabled={!scratchpadText.trim()}
+                onClick={() => {
+                  setExternalDraft({ text: scratchpadText.trim(), nonce: Date.now() });
+                  setActiveTab('swarm');
+                  setScratchpadOpen(false);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50 whitespace-nowrap"
+              >
+                <Send className="h-3 w-3" />
+                Küldés Raj Chatbe
+              </button>
+            </div>
           </div>
         </aside>
       )}
@@ -1024,10 +1057,11 @@ export default function App() {
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Alt+N</span><span>Gyors Jegyzetfiók</span></div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>?</span><span>Súgóablak</span></div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>Áttekintő (Overview)</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Raj Chat & Kanban</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Raj Chat &amp; Kanban</span></div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>Univerzális Stúdió</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Szervezet & Ágensek</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória & Álmodás</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Szervezet &amp; Ágensek</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória &amp; Álmodás</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → r</span><span>Rendszer &amp; Diagnosztika</span></div>
               <div className="flex justify-between py-1"><span>g → s</span><span>Beállítások</span></div>
             </div>
           </div>

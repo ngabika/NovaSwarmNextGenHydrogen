@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types';
 import { handleUserTurn } from '../agents/engine';
 import { queryHomeAssistantStates } from '../integrations/ecosystem';
+import { recordWebhookDelivery } from '../power/batch7UniverseEngine';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
 import { appendAuditLog, getState, setNamedSecret, getNamedSecret, updateState } from '../state/store';
 import { sendTelegramMessage } from '../telegram/bot';
@@ -348,6 +349,7 @@ export async function triggerCustomWebhook(
 
   if (hook.workflowId) {
     const wfOut = await executeWorkflow(hook.workflowId, payloadStr);
+    recordWebhookDelivery({ slug, bodyPayload, statusOk: wfOut.ok });
     return { ok: wfOut.ok, reply: wfOut.output || wfOut.status };
   }
 
@@ -361,6 +363,7 @@ export async function triggerCustomWebhook(
     channel: 'webhook',
     targetAgentId: hook.targetAgentId ?? null,
   });
+  recordWebhookDelivery({ slug, bodyPayload, statusOk: true });
   return { ok: true, reply: turn.coordinatorReply.content };
 }
 

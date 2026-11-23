@@ -18,6 +18,8 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(settings);
@@ -1017,6 +1019,144 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               />
               <span>Swarm Mesh automatikus GPU / workstation node feladat-kiosztás engedélyezve</span>
             </label>
+          </div>
+        </div>
+
+        {/* Batch 7: Univerzális OS, Helyi LLM Tuning & UI Sűrűség */}
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Univerzális OS, Helyi LLM Tuning & UI Sűrűség (Batch 7)
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label htmlFor="set-op-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Üzemmód Profil
+              </label>
+              <select
+                id="set-op-mode"
+                value={form.operatingMode || 'normal'}
+                onChange={(e) => setForm({ ...form, operatingMode: e.target.value as Settings['operatingMode'] })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+              >
+                <option value="normal">Normál</option>
+                <option value="focus">Mély Fókusz</option>
+                <option value="travel">Utazás / Távoli</option>
+                <option value="emergency">Vészhelyzeti</option>
+                <option value="chill">Pihenő / Hétvége</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="set-timezone" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Időzóna (IANA)
+              </label>
+              <input
+                id="set-timezone"
+                type="text"
+                value={form.timezone || 'Europe/Budapest'}
+                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-fx-alert" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                EUR/HUF Riasztási Küszöb
+              </label>
+              <input
+                id="set-fx-alert"
+                type="number"
+                step="0.5"
+                min="0"
+                value={form.currencyAlertThresholdHuf ?? 410}
+                onChange={(e) => setForm({ ...form, currencyAlertThresholdHuf: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+            <div>
+              <label htmlFor="set-tg-debounce" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Telegram Debounce (ms)
+              </label>
+              <input
+                id="set-tg-debounce"
+                type="number"
+                min="0"
+                max="10000"
+                step="100"
+                value={form.telegramMessageDebounceMs ?? 1200}
+                onChange={(e) => setForm({ ...form, telegramMessageDebounceMs: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(form.compactUiMode)}
+                onChange={(e) => setForm({ ...form, compactUiMode: e.target.checked })}
+              />
+              <span>Kompakt UI sűrűség (kisebb margók laptopon és mobilon)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(form.compactLocalPrompt)}
+                onChange={(e) => setForm({ ...form, compactLocalPrompt: e.target.checked })}
+              />
+              <span>Tömör helyi 1.5B–3B Ollama rendszerprompt (gyorsabb válasz kisebb kontextusban)</span>
+            </label>
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.telegramStreamEdit !== false}
+                onChange={(e) => setForm({ ...form, telegramStreamEdit: e.target.checked })}
+              />
+              <span>Telegram élő szerkesztett streaming (válasz fokozatos frissítése)</span>
+            </label>
+          </div>
+
+          <div className="pt-2 flex flex-wrap items-center gap-3">
+            {!confirmReset ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmReset(true);
+                  setResetMsg(null);
+                }}
+                className="px-3.5 py-2 text-xs font-medium border border-amber-300 text-amber-800 bg-amber-50 rounded-lg hover:bg-amber-100"
+              >
+                Adatok Törlése (Beállítások &amp; Titkok Megtartásával)
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await fetch('/api/v7/system/reset-data', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ keepSecretsAndSettings: true }),
+                    });
+                    setConfirmReset(false);
+                    if (r.ok) {
+                      setResetMsg('Futásidejű adatok törölve; az API kulcsok, Telegram token és beállítások megmaradtak.');
+                      await onRefreshState();
+                    }
+                  }}
+                  className="px-3.5 py-2 text-xs font-medium bg-red-700 text-white rounded-lg hover:bg-red-800"
+                >
+                  Megerősítem: Adatok Visszaállítása
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(false)}
+                  className="px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
+                >
+                  Mégse
+                </button>
+              </div>
+            )}
+            {resetMsg && <span className="text-xs font-mono text-emerald-700">{resetMsg}</span>}
           </div>
         </div>
       </form>

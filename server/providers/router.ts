@@ -583,6 +583,55 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
 }
 
 let lastOllamaActivityMs = 0;
+let ollamaMutexTail: Promise<void> = Promise.resolve();
+
+/** M263: Sequential queue mutex for local Ollama calls to prevent OOM when 2GB Pi hosts get concurrent requests */
+export async function withOllamaMutex<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = ollamaMutexTail;
+  let release!: () => void;
+  ollamaMutexTail = new Promise<void>((res) => {
+    release = res;
+  });
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+/** M276: Compact verbose system instruction when targeting tiny 1.5B-3B local Ollama models */
+export function buildCompactLocalSystemPrompt(systemInstruction?: string, compact = false): string | undefined {
+  if (!systemInstruction || !compact) return systemInstruction;
+  const cleaned = systemInstruction.replace(/\s+/g, ' ').trim();
+  return cleaned.length > 650 ? `${cleaned.slice(0, 620)} ... [kompakt mód]` : cleaned;
+}
+
+/** M278: Self-healing JSON parser for noisy small local LLM outputs */
+export function parseSelfHealingJson<T = unknown>(rawText: string): T {
+  const cleaned = (rawText || '').trim();
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    // Strip markdown fences or leading/trailing prose
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    let candidate = (fenceMatch ? fenceMatch[1] : cleaned).trim();
+    const firstObj = candidate.indexOf('{');
+    const firstArr = candidate.indexOf('[');
+    const startIdx =
+      firstObj === -1 ? firstArr : firstArr === -1 ? firstObj : Math.min(firstObj, firstArr);
+    if (startIdx >= 0) {
+      const endChar = candidate[startIdx] === '[' ? ']' : '}';
+      const endIdx = candidate.lastIndexOf(endChar);
+      if (endIdx > startIdx) {
+        candidate = candidate.slice(startIdx, endIdx + 1);
+      }
+    }
+    // Remove trailing commas before } or ]
+    const noTrailingCommas = candidate.replace(/,\s*([}\]])/g, '$1');
+    return JSON.parse(noTrailingCommas) as T;
+  }
+}
 
 /** M41: Unload Ollama model from RAM immediately (keep_alive: 0) */
 export async function unloadOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
@@ -1546,23 +1595,29 @@ async function invokeWithFailoverInternal(
 
     if (provider === 'ollama') {
       const t0 = Date.now();
+      const compactSys = buildCompactLocalSystemPrompt(
+        req.systemInstruction,
+        Boolean(state.settings.compactLocalPrompt)
+      );
       try {
-        const res = await callProvider({
-          provider: 'ollama',
-          model,
-          apiKey: '',
-          prompt: diet.trimmedPrompt,
-          systemInstruction: req.systemInstruction,
-          ollamaUrl: resolveEffectiveOllamaUrl(state),
-          ollamaNumCtx: state.settings.ollamaNumCtx,
-          ollamaKeepAlive: state.settings.ollamaKeepAlive,
-          preset: effectivePreset,
-          images: req.images,
-          audio: req.audio,
-          tools: req.tools,
-          toolChoice: req.toolChoice,
-          onChunk,
-        });
+        const res = await withOllamaMutex(() =>
+          callProvider({
+            provider: 'ollama',
+            model,
+            apiKey: '',
+            prompt: diet.trimmedPrompt,
+            systemInstruction: compactSys,
+            ollamaUrl: resolveEffectiveOllamaUrl(state),
+            ollamaNumCtx: state.settings.ollamaNumCtx,
+            ollamaKeepAlive: state.settings.ollamaKeepAlive,
+            preset: effectivePreset,
+            images: req.images,
+            audio: req.audio,
+            tools: req.tools,
+            toolChoice: req.toolChoice,
+            onChunk,
+          })
+        );
         lastOllamaActivityMs = Date.now();
         const elapsed = Date.now() - t0;
         recordProviderHealth('ollama', true, elapsed, res.outputTokens ?? estimateTokens(res.text), elapsed);

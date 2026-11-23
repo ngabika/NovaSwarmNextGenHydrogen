@@ -860,6 +860,14 @@ export interface Settings {
   dockerAutoHealEnabled?: boolean;
   meshOffloadEnabled?: boolean;
   speedtestIntervalMinutes?: number;
+  /** Batch 7 (M261–M360 & Ú261–Ú360): Operating Modes, UI Density, Local LLM Tuning & Telegram Stream */
+  operatingMode?: OperatingModeId;
+  compactUiMode?: boolean;
+  compactLocalPrompt?: boolean;
+  timezone?: string;
+  telegramStreamEdit?: boolean;
+  telegramMessageDebounceMs?: number;
+  currencyAlertThresholdHuf?: number;
 }
 
 /** Ú31: Deep Research Report */
@@ -1119,6 +1127,23 @@ export interface NovaSwarmState {
   networkSpeeds?: NetworkSpeedRecord[];
   meshDispatches?: MeshDispatchRecord[];
   lastForensicReport?: ForensicReportSnapshot | null;
+  /** Batch 7: Knowledge, Smart Home Timers, Homelab Replay/Scan/Drop, Personal OS & Shared Scratchpad */
+  decisionLogs?: DecisionLogEntry[];
+  quoteDeck?: QuoteDeckItem[];
+  countdownTimers?: CountdownTimerItem[];
+  medicationReminders?: MedicationReminder[];
+  lentItems?: LentItemRecord[];
+  fuelLogs?: FuelLogRecord[];
+  savingsGoals?: SavingsGoalItem[];
+  dailyTop3?: DailyTop3State | null;
+  tripPlans?: TripPlanItem[];
+  mediaBacklog?: MediaBacklogItem[];
+  fixedExpenses?: FixedExpenseItem[];
+  currencyRates?: CurrencyRatesSnapshot | null;
+  lanPortScans?: LanPortScanResult[];
+  webhookHistory?: WebhookReplayRecord[];
+  dropShareTokens?: DropShareToken[];
+  sharedScratchpad?: string;
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }
@@ -1599,3 +1624,150 @@ export interface ForensicReportSnapshot {
   diagnosisSummary: string;
   recommendations: string[];
 }
+
+/** Batch 7: Operating Modes (Ú346) */
+export type OperatingModeId = 'normal' | 'focus' | 'travel' | 'emergency' | 'chill';
+
+/** Batch 7: Knowledge & Decision Studio (Ú265, Ú270) */
+export interface DecisionLogEntry {
+  id: string;
+  title: string;
+  choiceMade: string;
+  alternatives: string;
+  expectedOutcome: string;
+  reviewDate: string;
+  status: 'active' | 'reviewed_success' | 'reviewed_revised';
+  createdAt: string;
+}
+
+export interface QuoteDeckItem {
+  id: string;
+  quote: string;
+  author: string;
+  source?: string;
+  pinned?: boolean;
+  createdAt: string;
+}
+
+/** Batch 7: Smart Home & Personal Care (Ú282, Ú292) */
+export interface CountdownTimerItem {
+  id: string;
+  label: string;
+  durationSec: number;
+  endsAt: string;
+  completed: boolean;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface MedicationReminder {
+  id: string;
+  name: string;
+  dosage: string;
+  timeOfDay: string;
+  takenDates: string[];
+  createdAt: string;
+}
+
+/** Batch 7: Homelab, Network, Webhook Replay & LAN Drop (Ú301, Ú307, Ú314) */
+export interface LanPortScanResult {
+  id: string;
+  host: string;
+  openPorts: Array<{ port: number; service: string; latencyMs: number }>;
+  scannedAt: string;
+}
+
+export interface WebhookReplayRecord {
+  id: string;
+  slug: string;
+  headers: Record<string, string>;
+  bodyJson: string;
+  statusOk: boolean;
+  replayCount: number;
+  receivedAt: string;
+  lastReplayedAt?: string;
+}
+
+export interface DropShareToken {
+  token: string;
+  fileName: string;
+  expiresAt: string;
+  downloads: number;
+  maxDownloads: number;
+  createdAt: string;
+}
+
+/** Batch 7: Finance, Life-OS & Daily Planner (Ú326–Ú343) */
+export interface CurrencyRatesSnapshot {
+  base: string;
+  date: string;
+  rates: Record<string, number>;
+  fetchedAt: string;
+  source: string;
+}
+
+export interface FixedExpenseItem {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  dueDay: number;
+  paidThisMonth: boolean;
+}
+
+export interface TripPlanItem {
+  id: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  notes: string;
+  packingList: Array<{ id: string; text: string; packed: boolean }>;
+  createdAt: string;
+}
+
+export interface LentItemRecord {
+  id: string;
+  itemName: string;
+  personName: string;
+  lentAt: string;
+  dueReturnAt?: string;
+  returned: boolean;
+  returnedAt?: string;
+}
+
+export interface FuelLogRecord {
+  id: string;
+  date: string;
+  distanceKm: number;
+  liters: number;
+  totalCost: number;
+  consumptionPer100Km: number;
+  costPerKm: number;
+  note?: string;
+}
+
+export interface MediaBacklogItem {
+  id: string;
+  title: string;
+  kind: 'book' | 'movie' | 'series' | 'course' | 'game';
+  status: 'queued' | 'in_progress' | 'done';
+  rating?: number;
+  note?: string;
+  createdAt: string;
+}
+
+export interface SavingsGoalItem {
+  id: string;
+  title: string;
+  targetAmount: number;
+  currentAmount: number;
+  currency: string;
+  deadline?: string;
+  createdAt: string;
+}
+
+export interface DailyTop3State {
+  date: string;
+  items: Array<{ id: string; text: string; done: boolean }>;
+}
+

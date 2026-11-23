@@ -476,3 +476,40 @@ export function routeTaskModelHybrid(
     reason: `Nehéz / hosszú / kódolási feladat (${tier}) -> felhős modell (${s.settings.primaryProvider})`,
   };
 }
+
+/** M268 & M346: Node.js Heap/RSS + Linux ZRAM & vm.swappiness telemetry */
+export function collectExtendedMemoryDiagnostics() {
+  const mu = process.memoryUsage();
+  const proc = readProcMeminfo();
+  let swappiness: number | null = null;
+  let zramSummary = 'nem aktív';
+  try {
+    if (fs.existsSync('/proc/sys/vm/swappiness')) {
+      swappiness = Number(fs.readFileSync('/proc/sys/vm/swappiness', 'utf8').trim());
+    }
+    if (fs.existsSync('/proc/swaps')) {
+      const swaps = fs.readFileSync('/proc/swaps', 'utf8');
+      if (swaps.includes('zram')) {
+        zramSummary = swaps
+          .split('\n')
+          .filter((l) => l.includes('zram'))
+          .join(' | ');
+      }
+    }
+  } catch {
+    // ignore in restricted environments
+  }
+
+  return {
+    nodeRssMb: Number((mu.rss / 1048576).toFixed(1)),
+    nodeHeapUsedMb: Number((mu.heapUsed / 1048576).toFixed(1)),
+    nodeHeapTotalMb: Number((mu.heapTotal / 1048576).toFixed(1)),
+    hostRamTotalMb: proc.ramTotalMb,
+    hostRamAvailableMb: proc.ramAvailableMb,
+    hostSwapTotalMb: proc.swapTotalMb,
+    swappiness,
+    zramSummary,
+    checkedAt: new Date().toISOString(),
+  };
+}
+

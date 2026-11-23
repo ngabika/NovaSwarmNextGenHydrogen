@@ -264,6 +264,7 @@ import { createUniversalV3Router } from './universalV3Router';
 import { createUniversalV4Router } from './universalV4Router';
 import { createUniversalV5Router } from './universalV5Router';
 import { createUniversalV6Router } from './universalV6Router';
+import { createUniversalV7Router } from './universalV7Router';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -737,6 +738,33 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         }
         if (typeof patch.speedtestIntervalMinutes === 'number' && patch.speedtestIntervalMinutes >= 5) {
           s.settings.speedtestIntervalMinutes = Math.min(1440, Math.round(patch.speedtestIntervalMinutes));
+        }
+        if (
+          patch.operatingMode === 'normal' ||
+          patch.operatingMode === 'focus' ||
+          patch.operatingMode === 'travel' ||
+          patch.operatingMode === 'emergency' ||
+          patch.operatingMode === 'chill'
+        ) {
+          s.settings.operatingMode = patch.operatingMode;
+        }
+        if (typeof patch.compactUiMode === 'boolean') {
+          s.settings.compactUiMode = patch.compactUiMode;
+        }
+        if (typeof patch.compactLocalPrompt === 'boolean') {
+          s.settings.compactLocalPrompt = patch.compactLocalPrompt;
+        }
+        if (typeof patch.timezone === 'string' && patch.timezone.trim()) {
+          s.settings.timezone = patch.timezone.trim();
+        }
+        if (typeof patch.telegramStreamEdit === 'boolean') {
+          s.settings.telegramStreamEdit = patch.telegramStreamEdit;
+        }
+        if (typeof patch.telegramMessageDebounceMs === 'number' && patch.telegramMessageDebounceMs >= 0) {
+          s.settings.telegramMessageDebounceMs = Math.min(5000, Math.round(patch.telegramMessageDebounceMs));
+        }
+        if (typeof patch.currencyAlertThresholdHuf === 'number' && patch.currencyAlertThresholdHuf >= 0) {
+          s.settings.currencyAlertThresholdHuf = Math.round(patch.currencyAlertThresholdHuf);
         }
       });
 
@@ -3442,6 +3470,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.use('/v4', createUniversalV4Router(broadcastEvent));
   router.use('/v5', createUniversalV5Router(broadcastEvent));
   router.use('/v6', createUniversalV6Router(broadcastEvent));
+  router.use('/v7', createUniversalV7Router(broadcastEvent));
 
   return router;
 }

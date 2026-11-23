@@ -21,7 +21,7 @@ import type {
 import { novaBus } from './eventBus';
 import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
@@ -540,6 +540,13 @@ export function createDefaultSettings(): Settings {
     dockerAutoHealEnabled: true,
     meshOffloadEnabled: true,
     speedtestIntervalMinutes: 60,
+    operatingMode: 'normal',
+    compactUiMode: false,
+    compactLocalPrompt: ramMb <= 2200,
+    timezone: 'Europe/Budapest',
+    telegramStreamEdit: true,
+    telegramMessageDebounceMs: 1200,
+    currencyAlertThresholdHuf: 410,
   };
 }
 
@@ -745,6 +752,31 @@ export function createInitialState(): NovaSwarmState {
     networkSpeeds: [],
     meshDispatches: [],
     lastForensicReport: null,
+    decisionLogs: [],
+    quoteDeck: [
+      {
+        id: 'quote-init-1',
+        quote: 'A legegyszerűbb autonóm rendszer az, amely csendben elvégzi a munkát és csak akkor szól, ha számít.',
+        author: 'NovaSwarm Alapelv',
+        source: 'Rendszerfilozófia',
+        pinned: true,
+        createdAt: now,
+      },
+    ],
+    countdownTimers: [],
+    medicationReminders: [],
+    lentItems: [],
+    fuelLogs: [],
+    savingsGoals: [],
+    dailyTop3: { date: todayIsoDate(), items: [] },
+    tripPlans: [],
+    mediaBacklog: [],
+    fixedExpenses: [],
+    currencyRates: null,
+    lanPortScans: [],
+    webhookHistory: [],
+    dropShareTokens: [],
+    sharedScratchpad: '',
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -963,6 +995,23 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
     networkSpeeds: Array.isArray(source.networkSpeeds) ? source.networkSpeeds : [],
     meshDispatches: Array.isArray(source.meshDispatches) ? source.meshDispatches : [],
     lastForensicReport: source.lastForensicReport ?? null,
+    decisionLogs: Array.isArray(source.decisionLogs) ? source.decisionLogs : [],
+    quoteDeck:
+      Array.isArray(source.quoteDeck) && source.quoteDeck.length > 0 ? source.quoteDeck : base.quoteDeck,
+    countdownTimers: Array.isArray(source.countdownTimers) ? source.countdownTimers : [],
+    medicationReminders: Array.isArray(source.medicationReminders) ? source.medicationReminders : [],
+    lentItems: Array.isArray(source.lentItems) ? source.lentItems : [],
+    fuelLogs: Array.isArray(source.fuelLogs) ? source.fuelLogs : [],
+    savingsGoals: Array.isArray(source.savingsGoals) ? source.savingsGoals : [],
+    dailyTop3: source.dailyTop3 ?? base.dailyTop3,
+    tripPlans: Array.isArray(source.tripPlans) ? source.tripPlans : [],
+    mediaBacklog: Array.isArray(source.mediaBacklog) ? source.mediaBacklog : [],
+    fixedExpenses: Array.isArray(source.fixedExpenses) ? source.fixedExpenses : [],
+    currencyRates: source.currencyRates ?? null,
+    lanPortScans: Array.isArray(source.lanPortScans) ? source.lanPortScans : [],
+    webhookHistory: Array.isArray(source.webhookHistory) ? source.webhookHistory : [],
+    dropShareTokens: Array.isArray(source.dropShareTokens) ? source.dropShareTokens : [],
+    sharedScratchpad: typeof source.sharedScratchpad === 'string' ? source.sharedScratchpad : '',
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),
@@ -1005,15 +1054,14 @@ export function getState(): NovaSwarmState {
     return cachedState;
   }
 
-  if (fs.existsSync(STATE_PATH)) {
+  for (const candidate of [STATE_PATH, `${STATE_PATH}.bak1`, `${STATE_PATH}.bak2`, `${STATE_PATH}.bak3`]) {
+    if (!fs.existsSync(candidate)) continue;
     try {
-      const parsed = JSON.parse(fs.readFileSync(STATE_PATH, 'utf8')) as Partial<NovaSwarmState>;
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as Partial<NovaSwarmState>;
       cachedState = migrateStateNonDestructive(parsed);
       return cachedState;
     } catch {
-      cachedState = createInitialState();
-      saveState(cachedState);
-      return cachedState;
+      // try older generation backup
     }
   }
 
@@ -1022,8 +1070,24 @@ export function getState(): NovaSwarmState {
   return cachedState;
 }
 
+/** M264: 3-generation atomic rotating state backup (.bak1 -> .bak2 -> .bak3) */
+export function rotateStateBackupGenerations(targetPath = STATE_PATH): void {
+  try {
+    if (!fs.existsSync(targetPath)) return;
+    const bak1 = `${targetPath}.bak1`;
+    const bak2 = `${targetPath}.bak2`;
+    const bak3 = `${targetPath}.bak3`;
+    if (fs.existsSync(bak2)) fs.copyFileSync(bak2, bak3);
+    if (fs.existsSync(bak1)) fs.copyFileSync(bak1, bak2);
+    fs.copyFileSync(targetPath, bak1);
+  } catch {
+    // non-fatal best-effort rotation
+  }
+}
+
 export function saveState(state: NovaSwarmState): void {
   cachedState = state;
+  rotateStateBackupGenerations(STATE_PATH);
   atomicWriteFileSync(STATE_PATH, JSON.stringify(state, null, 2));
 
   const nonSecretConfig = {
@@ -1208,6 +1272,22 @@ export function createApprovalRequest(
     s.approvals.unshift(full);
   });
   return full;
+}
+
+/** M345: Reset non-secret runtime data (optionally preserving API keys, Telegram & settings) */
+export function clearOrResetAppData(opts?: { keepSecretsAndSettings?: boolean }): NovaSwarmState {
+  const prev = getState();
+  const fresh = createInitialState();
+  if (opts?.keepSecretsAndSettings !== false) {
+    fresh.settings = {
+      ...prev.settings,
+      dailySpendUsd: 0,
+      lastHeartbeatAt: null,
+      lastHeartbeatSummary: null,
+    };
+  }
+  saveState(fresh);
+  return fresh;
 }
 
 export function resetInMemoryStateForTests(customState?: NovaSwarmState): void {

@@ -280,6 +280,63 @@ export function createMigrationBundleArchive(destDir: string): string {
   return archivePath;
 }
 
+/** M336: Dry-run migration bundle file & size estimator without mutating or opening SSH */
+export function estimateMigrationDryRun(rootDir = process.cwd()): {
+  fileCount: number;
+  totalBytes: number;
+  totalMb: number;
+  includedItems: string[];
+} {
+  const candidates = [
+    '.state.json',
+    '.config.json',
+    '.secrets.vault.json',
+    '.env',
+    'novaswarm.sqlite',
+    'memory-vault',
+    'skills',
+    'rag-docs',
+    'backups',
+    'package.json',
+    'server.ts',
+    'shared',
+    'server',
+    'src',
+  ];
+  let fileCount = 0;
+  let totalBytes = 0;
+  const includedItems: string[] = [];
+
+  const walk = (p: string) => {
+    if (!fs.existsSync(p)) return;
+    const st = fs.statSync(p);
+    if (st.isDirectory()) {
+      for (const entry of fs.readdirSync(p, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.playwright-cli') continue;
+        walk(path.join(p, entry.name));
+      }
+    } else {
+      fileCount += 1;
+      totalBytes += st.size;
+    }
+  };
+
+  for (const rel of candidates) {
+    const full = path.join(rootDir, rel);
+    if (fs.existsSync(full)) {
+      includedItems.push(rel);
+      walk(full);
+    }
+  }
+
+  return {
+    fileCount,
+    totalBytes,
+    totalMb: Number((totalBytes / 1048576).toFixed(2)),
+    includedItems,
+  };
+}
+
 /**
  * Generates remote installation + target hardware auto-optimization bash script.
  * Note: Sudo password is NOT hardcoded into this script; when sudo needs password,
@@ -389,6 +446,32 @@ NODE_BIN_DIR=$(dirname "$NODE_BIN")
 TSX_BIN="\${TARGET_DIR}/node_modules/.bin/tsx"
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
+  # M340: Check if target port is already held by another process
+  if command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ":\${APP_PORT} "; then
+    echo "WARN: Port \${APP_PORT} használatban van a cél gépen, újraindítás/átvétel folyamatban..."
+  fi
+  # M338: Ensure background user services survive logout
+  if command -v loginctl >/dev/null 2>&1; then
+    $SUDO loginctl enable-linger "\${RUN_USER}" >/dev/null 2>&1 || true
+  fi
+  # M343: Advertise novaswarm.local via Avahi mDNS if available
+  if command -v avahi-daemon >/dev/null 2>&1 && [ -d /etc/avahi/services ]; then
+    AVAHI_TMP=$(mktemp)
+    cat > "$AVAHI_TMP" <<AVAHI_EOF
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name>NovaSwarm Control Plane</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>\${APP_PORT}</port>
+  </service>
+</service-group>
+AVAHI_EOF
+    $SUDO mv "$AVAHI_TMP" /etc/avahi/services/novaswarm.service || true
+    $SUDO systemctl restart avahi-daemon >/dev/null 2>&1 || true
+  fi
+
   TMP_UNIT=$(mktemp)
   cat > "$TMP_UNIT" <<EOF
 [Unit]

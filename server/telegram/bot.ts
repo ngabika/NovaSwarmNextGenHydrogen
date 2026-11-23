@@ -70,10 +70,46 @@ import {
   runLanSentinelAndSpeedtest,
   trustLanMacAddress,
 } from '../power/batch6ApexEngine';
+import {
+  detectJournalAnomalies,
+  fetchExchangeRates,
+  OPERATING_MODE_META,
+  parseHungarianNaturalAutomation,
+  scanLanOpenPorts,
+  setOperatingMode,
+} from '../power/batch7UniverseEngine';
+import type { OperatingModeId } from '../../shared/types';
+import { addPersistentMemory } from '../memory/vectorStore';
 
 let pollingActive = false;
 const botOffsets = new Map<string, number>();
 let commandsSyncedToken: string | null = null;
+
+/** M304: Safe HTML escaping for Telegram HTML parse_mode */
+export function escapeTelegramHtml(raw: string): string {
+  return String(raw ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** M309: Send transient emoji reaction to acknowledge incoming Telegram messages */
+async function setTelegramReaction(token: string, chatId: string | number, messageId: number, emoji = '👀'): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reaction: [{ type: 'emoji', emoji }],
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {
+    // non-fatal on older Telegram clients
+  }
+}
 
 /** M183: Split long Telegram replies safely without breaking triple-backtick code fences */
 export function splitTelegramMessageSafe(text: string, maxLen = 3900): string[] {
@@ -137,6 +173,11 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'mesh', description: 'Swarm Mesh GPU/node feladatkiadás' },
           { command: 'dockerfix', description: 'Docker konténer Watchtower önjavítás' },
           { command: 'sebesseg', description: 'LAN őrszem & internet sebességmérés' },
+          { command: 'arfolyam', description: 'Élő EUR/USD/HUF árfolyamok' },
+          { command: 'mod', description: 'Üzemmód váltás (normal/focus/travel/emergency/chill)' },
+          { command: 'lanmap', description: 'Hálózati nyitott portok vizsgálata' },
+          { command: 'varlog', description: 'Rendszernapló anomália & OOM kiugrás' },
+          { command: 'ha', description: 'Természetes magyar szabály vagy időzítő' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -327,9 +368,17 @@ export async function sendTelegramVoice(
  */
 export async function processTelegramInput(
   rawText: string,
-  forcedAgentId?: string | null
+  forcedAgentId?: string | null,
+  replyQuote?: string
 ): Promise<string> {
-  const text = rawText.trim();
+  // Batch 7 Short Command Aliases (/s -> /statusz, /k -> /korkep, /m -> /makro, /e -> /emlekezteto)
+  const aliased = rawText
+    .trim()
+    .replace(/^\/s\b/i, '/statusz')
+    .replace(/^\/k\b/i, '/korkep')
+    .replace(/^\/m(?=\s|$)/i, '/makro')
+    .replace(/^\/e(?=\s|$)/i, '/emlekezteto');
+  const text = aliased.trim();
   const state = getState();
 
   appendAuditLog({
@@ -539,7 +588,8 @@ export async function processTelegramInput(
       '/screenshot <url> · /cam · /gpio read|set <pin> [0|1]',
       '/print <szöveg> · /getfile <útvonal> · /hang <szöveg>',
       '/bash <magyar kérés> · /hiba · /frissites',
-      '/lan · /behatolo · /wol <MAC> · /cluster',
+      '/lan · /behatolo · /lanmap · /varlog · /wol <MAC>',
+      '/arfolyam · /mod <mód> · /ha <magyar szabály/idő>',
       '/okmany · /arfigyelo · /recept · /xp · /stop',
     ].join('\n');
   }
@@ -783,6 +833,72 @@ export async function processTelegramInput(
     return `⚙️ Szabálymotor (${activeCount} aktív szabály): ${ev.triggered.length} aktiválódott most.${ev.triggered.length ? `\n${ev.triggered.map((t) => `• ${t.ruleName}: ${t.actionResult}`).join('\n')}` : ''}`;
   }
 
+  /** Batch 7 Telegram Commands: /arfolyam, /mod, /lanmap, /varlog, /ha & Quick Callbacks */
+  if (text === '/arfolyam') {
+    const r = await fetchExchangeRates();
+    return `💱 Élő Árfolyam (${r.snapshot.date} · ${r.snapshot.source}):\n• 1 EUR = ${r.eurToHuf} HUF\n• 1 USD = ${r.usdToHuf} HUF\n• EUR/GBP: ${r.snapshot.rates.GBP ?? '-'} · EUR/CHF: ${r.snapshot.rates.CHF ?? '-'}${r.alertTriggered ? '\n⚠️ Elérte a HUF riasztási küszöböt!' : ''}`;
+  }
+
+  if (text === '/mod' || text.startsWith('/mod ')) {
+    const arg = text.replace(/^\/mod\s*/i, '').trim().toLowerCase() as OperatingModeId;
+    if (!arg) {
+      const cur = state.settings.operatingMode || 'normal';
+      return `Aktív üzemmód: ${cur} (${OPERATING_MODE_META[cur]?.label})\nElérhető: normal, focus, travel, emergency, chill\nHasználat: /mod focus`;
+    }
+    if (!OPERATING_MODE_META[arg]) {
+      return 'Ismeretlen üzemmód. Használd: /mod normal | focus | travel | emergency | chill';
+    }
+    const res = setOperatingMode(arg);
+    return `🎛️ Üzemmód váltva: ${res.meta.label}\n${res.meta.description} (Heartbeat: ${res.meta.heartbeatMinutes} perc)`;
+  }
+
+  if (text === '/lanmap' || text.startsWith('/lanmap ')) {
+    const host = text.replace(/^\/lanmap\s*/i, '').trim() || '127.0.0.1';
+    try {
+      const scan = await scanLanOpenPorts(host);
+      if (scan.openPorts.length === 0) return `🔍 Portvizsgálat (${scan.host}): nincs nyitott vizsgált szolgáltatás.`;
+      return `🔍 Nyitott portok (${scan.host}):\n${scan.openPorts.map((p) => `• ${p.port} (${p.service}) — ${p.latencyMs}ms`).join('\n')}`;
+    } catch (err) {
+      return `Portvizsgálat hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/varlog') {
+    const diag = detectJournalAnomalies(120);
+    return `📜 Rendszernapló elemzés (${diag.source}, ${diag.linesInspected} sor):\n• OOM: ${diag.counts.oom} | Error: ${diag.counts.error} | Failed: ${diag.counts.failed} | Thermal/Kernel: ${diag.counts.kernelOrThermal}${diag.samples.length ? `\nMinták:\n${diag.samples.slice(0, 4).join('\n')}` : '\nTiszta napló.'}`;
+  }
+
+  if (text.startsWith('/ha ')) {
+    const expr = text.replace(/^\/ha\s+/i, '').trim();
+    try {
+      const out = parseHungarianNaturalAutomation(expr);
+      return `🤖 ${out.summary}`;
+    } catch (err) {
+      return `Természetes automatizálás hiba: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  if (text === '/tts_last') {
+    const lastReply = [...state.messages].reverse().find((m) => m.senderType === 'agent');
+    if (!lastReply) return 'Nincs felolvasható korábbi válasz.';
+    const sp = speakHostSpeakerAnnouncement(lastReply.content.slice(0, 320));
+    return `🔊 Hangszóró: ${sp.detail}`;
+  }
+
+  if (text === '/pin_last') {
+    const lastReply = [...state.messages].reverse().find((m) => m.senderType === 'agent');
+    if (!lastReply) return 'Nincs rögzíthető korábbi válasz.';
+    addPersistentMemory({
+      content: lastReply.content.slice(0, 600),
+      entity: 'Telegram Gyorsrögzítés',
+      tags: ['telegram', 'pinned'],
+      links: ['Telegram'],
+      importanceScore: 0.9,
+      tier: 'hot',
+    });
+    return '📌 Az utolsó válasz elmentve a tartós memóriába.';
+  }
+
   if (text.startsWith('/keres ') || text.startsWith('/ask ')) {
     const query = text.replace(/^\/(keres|ask)\s+/i, '').trim();
     const memMatches = searchMemories(query, 4, { reinforce: true });
@@ -798,9 +914,12 @@ export async function processTelegramInput(
   const addressedAgent = forcedAgentId
     ? state.agents.find((a) => a.id === forcedAgentId) ?? null
     : resolveTargetAgent(text);
+  const fullContent = replyQuote
+    ? `[Válasz erre az előzményre: "${replyQuote.slice(0, 260)}"]\n${text}`
+    : text;
   const turn = await handleUserTurn({
     threadId: state.threads[0]?.id || 'thread-main',
-    content: text,
+    content: fullContent,
     channel: 'telegram',
     targetAgentId: addressedAgent?.id ?? null,
   });
@@ -905,9 +1024,11 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
       result?: Array<{
         update_id: number;
         message?: {
+          message_id?: number;
           chat: { id: number };
           text?: string;
           caption?: string;
+          reply_to_message?: { text?: string; caption?: string };
           photo?: Array<{ file_id: string; width?: number; height?: number }>;
           voice?: { file_id: string; mime_type?: string };
           audio?: { file_id: string; mime_type?: string };
@@ -1018,12 +1139,23 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
         if (upd.callback_query?.id) {
           void answerTelegramCallbackQuery(token, upd.callback_query.id, 'Parancs feldolgozva');
         }
-        const reply = await processTelegramInput(incoming, forcedAgentId);
+        if (upd.message?.message_id && chatStr) {
+          void setTelegramReaction(token, chatStr, upd.message.message_id, '👀');
+        }
+        const replyQuote = upd.message?.reply_to_message?.text || upd.message?.reply_to_message?.caption;
+        const reply = await processTelegramInput(incoming, forcedAgentId, replyQuote);
         const trimmedCmd = incoming.trim();
         const useInline = getState().settings.telegramInlineButtons !== false;
         const inlineButtons =
           useInline && (trimmedCmd === '/statusz' || trimmedCmd === '/status' || trimmedCmd === '/kanban' || trimmedCmd === '/nightshift')
             ? buildTelegramStatusInlineKeyboard()
+            : useInline && !trimmedCmd.startsWith('/')
+            ? [
+                [
+                  { text: '🔊 Felolvasás', callback_data: '/tts_last' },
+                  { text: '📌 Memóriába', callback_data: '/pin_last' },
+                ],
+              ]
             : undefined;
         await sendTelegramMessage(reply, {
           tokenOverride: token,

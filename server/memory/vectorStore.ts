@@ -7,9 +7,14 @@ import { appendAuditLog, getState, updateState } from '../state/store';
 
 const VAULT_DIR = path.join(process.cwd(), 'memory-vault');
 
+/** M262: Hungarian & Latin diacritic folding for accent-insensitive search & embeddings */
+export function stripAccents(text: string): string {
+  return (text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 export function computeLocalEmbedding(text: string, dims = 64): number[] {
   const vec = new Array<number>(dims).fill(0);
-  const normalized = text
+  const normalized = stripAccents(text)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .trim();
@@ -230,7 +235,7 @@ export function searchMemories(
 ): Array<MemoryEntry & { score: number }> {
   const state = getState();
   const qVec = computeLocalEmbedding(query);
-  const qLower = query.toLowerCase().trim();
+  const qLower = stripAccents(query.toLowerCase().trim());
   const qTokens = qLower
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
@@ -248,7 +253,7 @@ export function searchMemories(
 
   const scored = pool.map((m) => {
     const vecSim = cosineSimilarity(qVec, m.embedding || []);
-    const hay = `${m.entity} ${m.content} ${m.tags.join(' ')}`.toLowerCase();
+    const hay = stripAccents(`${m.entity} ${m.content} ${m.tags.join(' ')}`.toLowerCase());
     let lexHits = 0;
     for (const tok of qTokens) {
       if (hay.includes(tok)) lexHits += 1;
@@ -270,7 +275,7 @@ export function searchMemories(
     cold: 0.78,
   };
 
-  const results = scored
+  const ranked = scored
     .map(({ entry, vecSim, lexScore }) => {
       const rVec = vecRank.get(entry.id) ?? pool.length;
       const rLex = lexRank.get(entry.id) ?? pool.length;
@@ -284,8 +289,9 @@ export function searchMemories(
         score: Number(hybridScore.toFixed(4)),
       };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+
+  const results = mmrFilterMemories(ranked, limit);
 
   if (opts?.reinforce && results.length > 0 && qLower.length > 0) {
     const recalledIds = new Set(results.slice(0, 3).map((r) => r.id));
@@ -688,3 +694,43 @@ export function ensureDailyObsidianNote(
   fs.writeFileSync(abs, content, 'utf8');
   return { path: path.relative(vaultBaseDir, abs), content };
 }
+
+/** M283: Maximal Marginal Relevance (MMR) diversity filtering to prevent near-duplicate memory injection */
+export function mmrFilterMemories<T extends MemoryEntry & { score: number }>(
+  ranked: T[],
+  limit = 8,
+  lambda = 0.72
+): T[] {
+  if (ranked.length <= 1) return ranked.slice(0, limit);
+  const selected: T[] = [];
+  const candidates = [...ranked];
+  const maxRel = Math.max(0.0001, candidates[0].score);
+
+  while (selected.length < limit && candidates.length > 0) {
+    let bestIdx = 0;
+    let bestMmr = -Infinity;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      const rel = cand.score / maxRel;
+      let maxSim = 0;
+      for (const sel of selected) {
+        const sim =
+          cand.embedding?.length && sel.embedding?.length
+            ? cosineSimilarity(cand.embedding, sel.embedding)
+            : cand.content.toLowerCase() === sel.content.toLowerCase()
+            ? 1
+            : 0;
+        if (sim > maxSim) maxSim = sim;
+      }
+      const mmrScore = lambda * rel - (1 - lambda) * maxSim;
+      if (mmrScore > bestMmr) {
+        bestMmr = mmrScore;
+        bestIdx = i;
+      }
+    }
+    selected.push(candidates.splice(bestIdx, 1)[0]);
+  }
+  return selected;
+}
+

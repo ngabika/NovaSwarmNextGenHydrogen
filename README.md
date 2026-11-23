@@ -147,6 +147,14 @@ A Telegram botban közvetlenül használható parancsok (kódblokk-biztos darabo
 - `/sebesseg` — LAN eszközellenőrzés és internet sebességmérés
 - `/trustmac <mac>` — Új LAN eszköz MAC-cím felvétele a megbízható listára
 - `/szabaly` — Eseményvezérelt autonóm szabálymotor azonnali kiértékelése
+- `/arfolyam` — Élő EKB EUR/USD/HUF devizaárfolyamok azonnali lekérése (és riasztási küszöb ellenőrzése)
+- `/mod [normal|focus|travel|emergency|chill]` — Üzemmód profil váltása vagy lekérdezése
+- `/lanmap [ip]` — Helyi hálózati TCP port-térképezés (22, 80, 443, 1883, 3000, 8123, 11434)
+- `/varlog` — Rendszernapló (`journalctl` / `syslog`) OOM, Error és Thermal anomália-elemző
+- `/ha <magyar utasítás>` — Természetes nyelvű magyar szabály, időzítő vagy emlékeztető (`/ha 15p öntözés`)
+- `/tts_last` — Legutóbbi raj-válasz hangos felolvasása a gazdagép hangszóróján
+- `/pin_last` — Legutóbbi válasz azonnali rögzítése a tartós memóriába
+- `/s`, `/k`, `/m`, `/e` — Gyors rövidítések (`/statusz`, `/kanban`, `/mission`, `/emlekezteto`)
 - `/help` / `/parancsok` — Összes elérhető Telegram parancs listája
 - `/stop` — Vészleállító (Kill-Switch) azonnali aktiválása
 
@@ -159,6 +167,18 @@ A **Rendszer & Doksik → Apex Labor & Hálózat (B6)** nézetben elérhető cs�
 - **1-Kattintásos Kompozit Makrók & Okos Emlékeztetők**: Beépített és egyedi makrók (`takaritas`, `korkep`), valamint pontos (`08:30`) vagy relatív (`15m`, `2óra`) időzített emlékeztetők.
 - **Swarm Mesh GPU / Node Offload**: Automatikusan kiválasztja a leggyorsabb online GPU-s vagy asztali fürtcsomópontot a feladatokhoz, helyi failoverrel.
 - **LAN Őrszem, Sebességmérés, Docker Watchtower & Forenzikus Kórkép**: Ismeretlen MAC-eszközök azonnali jelzése, internet sávszélesség-naplózás, hibás Docker konténerek önjavítása és élő `ps`/kernel OOM kórkép.
+
+---
+
+## 11. Univerzális OS, Tudás Labor & Személyes Élet-központ (Batch 7 — `M261–M360` & `Ú261–Ú360`)
+
+A **Rendszer & Doksik → Univerzális OS & Élet (B7)** nézetben, a **Beállításokban** és Telegramon elérhető új képességek:
+- **Pi & Helyi LLM Stabilitás**: Magyar ékezet-független memória-keresés (`stripAccents`), MMR diverzitás-szűrő, szekvenciális Ollama mutex a 2 GB RAM OOM elkerülésére, tömör lokális rendszerprompt, önjavító JSON parser és 3 generációs atomi `.state.json.bak1–3` védelem + beállításokat/titkokat megőrző adat-visszaállítás.
+- **Teljes Telegram & LAN Élmény**: HTML parse_mode escaping, emoji reakciók, `reply_to_message` idézett kontextus, BotFather parancsszinkron, inline gyorsgombok (`🔊 Felolvasás`, `📌 Memóriába`), `Alt+N` / `g → r` gyorsnavigáció, Kompakt UI mód és valós idejű LAN eszközközi Jegyzetfiók (`Shared Scratchpad`) szinkron.
+- **Intelligens Módok & Magyar Természetes Automatizálás (`/ha`)**: 5 üzemmód (`Normál`, `Mély Fókusz`, `Utazás`, `Vészhelyzeti`, `Pihenő`), párhuzamos visszaszámlálók (`10p tészta`), Napi Top 3 Fókusz és természetes magyar szabály/emlékeztető értelmező.
+- **Tudás & AI Labor**: Valódi pure-TS ISO Reed-Solomon QR SVG generátor (Wi-Fi és LAN URL), soronkénti Diff összehasonlító, Regex/Cron magyar magyarázó, CSV/JSON adat-játszótér, Slide Deck generáló Mini-App publikálással, Döntési Napló, Idézetgyűjtő, Árnyék-Minta Bányász, Heti Retrospektív, Projekt Sablon Váz (`node-ts`, `react-vite`, `python-fastapi`, `esp32`) és Git Changelog.
+- **Homelab, Hálózat & Költöztető Diagnosztika**: LAN TCP port-térképező, UDP LAN Peer Discovery, `journalctl` anomália-számláló, RAM/Heap/ZRAM/Swappiness monitor, SQLite `PRAGMA quick_check`, `npm audit`, Webhook Replay napló, lejáró `/drop/:token` fájlmegosztás, Költöztető Dry-Run becslés + `loginctl linger` és Avahi mDNS (`novaswarm.local`).
+- **Pénzügy & Személyes Élet-OS**: Élő EKB (`frankfurter.app`) árfolyamfigyelő HUF riasztási küszöbbel, Havi Fix Kiadások hátralék-számító, Megtakarítási célok, Üzemanyag fogyasztás kalkulátor (`l/100km`, `Ft/km`), Vitamin/gyógyszer check-in, Kölcsönadott tárgyak nyilvántartása, Utazás csomaglisták, Könyv/film backlog és Magyar Hivatalos Levél Generátor.
 
 ---
 

@@ -55,6 +55,11 @@ import {
   runDockerWatchtowerHeal,
   runLanSentinelAndSpeedtest,
 } from './server/power/batch6ApexEngine';
+import {
+  consumeDropShareToken,
+  processDueCountdownTimers,
+} from './server/power/batch7UniverseEngine';
+import { speakOnHostSpeaker } from './server/system/ops';
 
 dotenv.config();
 
@@ -77,13 +82,26 @@ async function bootstrap() {
   const wssTerminal = new WebSocketServer({ noServer: true });
   const eventClients = new Set<WebSocket>();
 
-  const broadcastEvent = (type: string, payload?: unknown) => {
+  let stateUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
+  const emitWsPacket = (type: string, payload?: unknown) => {
     const packet = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
     for (const client of eventClients) {
       if (client.readyState === 1) {
         client.send(packet);
       }
     }
+  };
+  const broadcastEvent = (type: string, payload?: unknown) => {
+    // M265: Coalesce rapid state:updated events into a single frame (150ms debounce)
+    if (type === 'state:updated' && payload === undefined) {
+      if (stateUpdatedTimer) return;
+      stateUpdatedTimer = setTimeout(() => {
+        stateUpdatedTimer = null;
+        emitWsPacket('state:updated');
+      }, 150);
+      return;
+    }
+    emitWsPacket(type, payload);
   };
 
   wssEvents.on('connection', (ws) => {
@@ -212,6 +230,15 @@ async function bootstrap() {
     }
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return res.send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:640px;margin:48px auto;padding:24px;background:#f8fafc"><h2>${esc(out.title || 'Titkos Üzenet')}</h2><p style="color:#b45309;font-size:13px">${out.burnedNow ? 'Ez az üzenet a megnyitással megsemmisült.' : 'Ideiglenes széf tartalom.'}</p><pre style="background:#fff;border:1px solid #cbd5e1;padding:16px;border-radius:8px;white-space:pre-wrap">${esc(out.content || '')}</pre></body></html>`);
+  });
+
+  // Ú314: Expiring LAN Drop File Share Token endpoint (/drop/:token)
+  app.get('/drop/:token', (req, res) => {
+    const out = consumeDropShareToken(req.params.token);
+    if (!out.ok || !out.filePath || !out.fileName) {
+      return res.status(404).send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:560px;margin:48px auto;padding:16px"><h2>LAN Drop Megosztás</h2><p>${out.reason || 'A link érvénytelen.'}</p></body></html>`);
+    }
+    return res.download(out.filePath, out.fileName);
   });
 
   // Mount NovaSwarm Control Plane API routes
@@ -434,13 +461,24 @@ async function bootstrap() {
     if (changed) broadcastEvent('state:updated');
   }, 60_000);
 
-  // M18 Bidirectional Discord/Slack Polling & Batch 6 Smart Reminders (every 25s)
+  // M18 Bidirectional Discord/Slack Polling, Batch 6 Smart Reminders & Batch 7 Countdown Timers (every 25s)
   setInterval(() => {
     const s = getState();
     if (!s.settings.killSwitchActive) {
       void processDueSmartReminders().then((rem) => {
         if (rem.firedCount > 0) broadcastEvent('state:updated');
       });
+      const doneTimers = processDueCountdownTimers();
+      if (doneTimers.completedCount > 0) {
+        for (const tm of doneTimers.completedTimers) {
+          broadcastEvent('timer:done', tm);
+          void sendTelegramMessage(`⏱️ Időzítő lejárt: ${tm.label}`).catch(() => {});
+          if (s.settings.ttsHostSpeakerEnabled) {
+            speakOnHostSpeaker(`Lejárt az időzítő: ${tm.label}`);
+          }
+        }
+        broadcastEvent('state:updated');
+      }
     }
     if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
     if (!s.channelConnectors.some((c) => c.enabled && c.pollingEnabled)) return;

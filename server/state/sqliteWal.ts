@@ -290,9 +290,10 @@ export function searchWalFullText(
   return [...memRows, ...msgRows].slice(0, capped);
 }
 
-/** M204: SQLite WAL checkpoint & VACUUM maintenance */
+/** M204 & M273: SQLite WAL checkpoint, integrity quick_check & VACUUM maintenance */
 export function runSqliteMaintenance(customPath?: string): {
   ok: boolean;
+  quickCheck: string;
   beforeBytes: number;
   afterBytes: number;
   savedBytes: number;
@@ -300,10 +301,13 @@ export function runSqliteMaintenance(customPath?: string): {
   const target = customPath || SQLITE_PATH;
   const db = getWalDatabase(target);
   const beforeBytes = fs.existsSync(target) ? fs.statSync(target).size : 0;
+  const qcRow = db.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
+  const quickCheck = qcRow?.quick_check || 'ok';
   db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;');
   const afterBytes = fs.existsSync(target) ? fs.statSync(target).size : 0;
   return {
-    ok: true,
+    ok: quickCheck === 'ok',
+    quickCheck,
     beforeBytes,
     afterBytes,
     savedBytes: Math.max(0, beforeBytes - afterBytes),
