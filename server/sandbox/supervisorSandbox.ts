@@ -2,13 +2,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { SandboxCapabilities, SandboxIsolationMode } from '../../shared/types';
 import { appendAuditLog, updateState } from '../state/store';
 
-export type SandboxIsolationMode =
-  | 'docker_no_network'
-  | 'bwrap_sandbox'
-  | 'unshare_net_sandbox'
-  | 'isolated_tmpfs_subprocess';
+export type { SandboxIsolationMode };
+export type StrongSandboxBackend = 'docker_no_network' | 'bwrap_sandbox';
+
+export const MAX_SANDBOX_STDOUT_BYTES = 64 * 1024;
+export const MAX_SANDBOX_STDERR_BYTES = 16 * 1024;
+export const MAX_SANDBOX_OUTPUT_CHARS = 4000;
 
 export interface SandboxExecutionResult {
   passed: boolean;
@@ -21,7 +23,87 @@ export interface SandboxExecutionResult {
   realWorkspaceIntact: boolean;
 }
 
-function isDockerAvailable(): boolean {
+export interface NodePermissionSupportInfo {
+  supported: boolean;
+  flag: '--permission' | '--experimental-permission' | null;
+  nodeVersion: string;
+  warning: string | null;
+}
+
+export interface StrictJsSandboxExecutionResult {
+  ok: boolean;
+  isolationMode: StrongSandboxBackend | 'unavailable';
+  code?: 'NO_SANDBOX_BACKEND' | 'SANDBOX_EXECUTION_ERROR' | 'SANDBOX_INVALID_OUTPUT';
+  value?: unknown;
+  wasUndefined?: boolean;
+  logs: string[];
+  stderr: string;
+  warning: string | null;
+  error?: string;
+}
+
+export type StrictJsSandboxMockExecutor = (ctx: {
+  backend: StrongSandboxBackend;
+  sandboxDir: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  runnerPath: string;
+  inputPath: string;
+  userFnPath: string;
+}) => {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+};
+
+let cachedNodePermissionInfo: NodePermissionSupportInfo | null = null;
+
+export function detectNodePermissionSupport(): NodePermissionSupportInfo {
+  if (cachedNodePermissionInfo) return cachedNodePermissionInfo;
+  const nodeVersion = process.versions.node || '0.0.0';
+  const [majorStr, minorStr] = nodeVersion.split('.');
+  const major = Number(majorStr || 0);
+  const minor = Number(minorStr || 0);
+
+  const candidates: Array<'--permission' | '--experimental-permission'> =
+    major > 22 || (major === 22 && minor >= 13)
+      ? ['--permission', '--experimental-permission']
+      : major >= 20
+        ? ['--experimental-permission', '--permission']
+        : [];
+
+  for (const flag of candidates) {
+    try {
+      const probe = spawnSync(process.execPath, [flag, '-e', '0'], {
+        stdio: 'ignore',
+        timeout: 1500,
+      });
+      if (probe.status === 0) {
+        cachedNodePermissionInfo = {
+          supported: true,
+          flag,
+          nodeVersion,
+          warning: null,
+        };
+        return cachedNodePermissionInfo;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  cachedNodePermissionInfo = {
+    supported: false,
+    flag: null,
+    nodeVersion,
+    warning: `Figyelem: a futó Node.js (${nodeVersion}) nem támogatja a --permission izolációs modellt (Node 20+ szükséges).`,
+  };
+  return cachedNodePermissionInfo;
+}
+
+export function isDockerAvailable(): boolean {
   try {
     execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 1500 });
     return true;
@@ -30,16 +112,163 @@ function isDockerAvailable(): boolean {
   }
 }
 
-export function isBwrapAvailable(): boolean {
+export function buildMinimalSandboxEnv(): Record<string, string> {
+  return {
+    PATH: '/sandbox-bin:/usr/local/bin:/usr/bin:/bin',
+    HOME: '/sandbox',
+    PWD: '/sandbox',
+    TMPDIR: '/tmp',
+    NOVASWARM_SANDBOX: '1',
+  };
+}
+
+/**
+ * Builds isolated Bubblewrap arguments with an empty tmpfs root (--tmpfs /),
+ * ONLY minimal read-only runtime mounts (/usr, /lib, /lib64, /bin, node binary),
+ * full namespace isolation (--unshare-all --new-session --die-with-parent),
+ * cleared environment, and ONLY sandboxDir mounted writable at /sandbox.
+ * Never binds project root, /home, /root, /etc, or credential/state files.
+ */
+export function buildBwrapBaseArgs(sandboxDir: string): {
+  args: string[];
+  nodeBinInSandbox: string;
+} {
+  const args: string[] = ['--tmpfs', '/'];
+
+  if (fs.existsSync('/usr')) {
+    args.push('--ro-bind', '/usr', '/usr');
+  }
+
+  for (const sysPath of ['/bin', '/lib', '/lib64', '/lib32']) {
+    try {
+      const st = fs.lstatSync(sysPath);
+      if (st.isSymbolicLink()) {
+        const target = fs.readlinkSync(sysPath);
+        args.push('--symlink', target, sysPath);
+      } else if (st.isDirectory()) {
+        args.push('--ro-bind', sysPath, sysPath);
+      }
+    } catch {
+      // path absent on host
+    }
+  }
+
+  let nodeBinInSandbox = '/usr/local/bin/node';
   try {
-    const res = spawnSync(
-      'bwrap',
-      ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--', 'true'],
-      { stdio: 'ignore', timeout: 1500 }
-    );
+    const realNode = fs.realpathSync(process.execPath);
+    if (realNode.startsWith('/usr/') || realNode.startsWith('/bin/')) {
+      nodeBinInSandbox = realNode;
+    } else {
+      args.push('--dir', '/sandbox-bin', '--ro-bind', realNode, '/sandbox-bin/node');
+      nodeBinInSandbox = '/sandbox-bin/node';
+    }
+  } catch {
+    nodeBinInSandbox = process.execPath;
+  }
+
+  args.push(
+    '--dev',
+    '/dev',
+    '--proc',
+    '/proc',
+    '--tmpfs',
+    '/tmp',
+    '--bind',
+    sandboxDir,
+    '/sandbox',
+    '--chdir',
+    '/sandbox',
+    '--unshare-all',
+    '--die-with-parent',
+    '--new-session',
+    '--clearenv',
+    '--setenv',
+    'PATH',
+    '/sandbox-bin:/usr/local/bin:/usr/bin:/bin',
+    '--setenv',
+    'HOME',
+    '/sandbox',
+    '--setenv',
+    'PWD',
+    '/sandbox',
+    '--setenv',
+    'TMPDIR',
+    '/tmp',
+    '--setenv',
+    'NOVASWARM_SANDBOX',
+    '1'
+  );
+
+  return { args, nodeBinInSandbox };
+}
+
+export function buildBwrapSandboxJsArgs(params: {
+  sandboxDir: string;
+  nodeArgs: string[];
+}): { command: string; args: string[]; nodeBinInSandbox: string } {
+  const { args: baseArgs, nodeBinInSandbox } = buildBwrapBaseArgs(params.sandboxDir);
+  return {
+    command: 'bwrap',
+    nodeBinInSandbox,
+    args: [...baseArgs, '--', nodeBinInSandbox, ...params.nodeArgs, '/sandbox/runner.mjs'],
+  };
+}
+
+export function buildDockerSandboxJsArgs(params: {
+  sandboxDir: string;
+  nodeArgs: string[];
+}): { command: string; args: string[] } {
+  return {
+    command: 'docker',
+    args: [
+      'run',
+      '--rm',
+      '--network=none',
+      '--read-only',
+      '--cap-drop=ALL',
+      '--pids-limit=32',
+      '--memory=128m',
+      '--cpus=0.5',
+      '--security-opt=no-new-privileges',
+      '--user',
+      'nobody',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,size=16m',
+      '-e',
+      'PATH=/usr/local/bin:/usr/bin:/bin',
+      '-e',
+      'HOME=/sandbox',
+      '-e',
+      'PWD=/sandbox',
+      '-e',
+      'TMPDIR=/tmp',
+      '-e',
+      'NOVASWARM_SANDBOX=1',
+      '-v',
+      `${params.sandboxDir}:/sandbox:ro`,
+      '-w',
+      '/sandbox',
+      'node:22-alpine',
+      'node',
+      ...params.nodeArgs,
+      '/sandbox/runner.mjs',
+    ],
+  };
+}
+
+export function isBwrapAvailable(): boolean {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novaswarm-bwrap-probe-'));
+  try {
+    const { args } = buildBwrapBaseArgs(probeDir);
+    const res = spawnSync('bwrap', [...args, '--', 'true'], {
+      stdio: 'ignore',
+      timeout: 1500,
+    });
     return res.status === 0;
   } catch {
     return false;
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
   }
 }
 
@@ -52,18 +281,292 @@ export function isUnshareNetAvailable(): boolean {
   }
 }
 
-export function detectActiveSandboxBackend(): SandboxIsolationMode {
+/**
+ * Strong isolation check strictly for untrusted dynamic JS execution (`sandbox_js`).
+ * NEVER falls back to unshare or plain subprocess.
+ */
+export function detectStrongJsSandboxBackend(): StrongSandboxBackend | null {
   if (isDockerAvailable()) return 'docker_no_network';
   if (isBwrapAvailable()) return 'bwrap_sandbox';
+  return null;
+}
+
+/**
+ * Supervisor dry-run isolation check (may use unshare or stripped tmpfs subprocess for trusted dry-runs).
+ */
+export function detectActiveSandboxBackend(): SandboxIsolationMode {
+  const strong = detectStrongJsSandboxBackend();
+  if (strong) return strong;
   if (isUnshareNetAvailable()) return 'unshare_net_sandbox';
   return 'isolated_tmpfs_subprocess';
 }
 
+export function getSandboxCapabilities(): SandboxCapabilities {
+  const supervisorBackend = detectActiveSandboxBackend();
+  const strong = detectStrongJsSandboxBackend();
+  const perm = detectNodePermissionSupport();
+  let warning: string | null = null;
+  if (!strong) {
+    warning =
+      'Nincs elérhető valódi izolációs backend (Docker vagy Bubblewrap / bwrap) — a sandbox_js futtatás biztonsági okból letiltva.';
+  } else if (perm.warning) {
+    warning = perm.warning;
+  }
+  return {
+    supervisorBackend,
+    jsSandboxBackend: strong ?? 'unavailable',
+    jsSandboxAvailable: strong !== null,
+    nodeVersion: perm.nodeVersion,
+    nodePermissionFlag: perm.flag,
+    nodePermissionSupported: perm.supported,
+    warning,
+  };
+}
+
+export function buildSandboxJsNodeArgs(opts?: {
+  sandboxMountRoot?: string;
+  permissionOverride?: NodePermissionSupportInfo;
+}): { args: string[]; permissionWarning: string | null } {
+  const mountRoot = opts?.sandboxMountRoot || '/sandbox';
+  const perm = opts?.permissionOverride ?? detectNodePermissionSupport();
+  const args = ['--disallow-code-generation-from-strings', '--max-old-space-size=64'];
+  if (perm.supported && perm.flag) {
+    args.push(
+      perm.flag,
+      `--allow-fs-read=${mountRoot}/runner.mjs`,
+      `--allow-fs-read=${mountRoot}/input.json`,
+      `--allow-fs-read=${mountRoot}/user-fn.mjs`
+    );
+  }
+  return { args, permissionWarning: perm.warning };
+}
+
+export function parseStrictSandboxJsonOutput(rawStdout: string): {
+  ok: boolean;
+  value: unknown;
+  wasUndefined: boolean;
+  logs: string[];
+} {
+  const bounded = String(rawStdout || '').slice(0, MAX_SANDBOX_STDOUT_BYTES).trim();
+  if (!bounded) {
+    throw new Error('Sandbox nem adott vissza JSON kimenetet.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bounded);
+  } catch {
+    throw new Error('Sandbox érvénytelen (nem JSON) kimenetet adott vissza.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Sandbox kimenet formátuma hibás (JSON objektum szükséges).');
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (obj.ok !== true) {
+    throw new Error(typeof obj.error === 'string' ? obj.error : 'Sandbox végrehajtási hiba.');
+  }
+  const logs = Array.isArray(obj.logs)
+    ? obj.logs.map((entry) => String(entry).slice(0, MAX_SANDBOX_OUTPUT_CHARS)).slice(0, 50)
+    : [];
+  return {
+    ok: true,
+    value: obj.value,
+    wasUndefined: obj.wasUndefined === true,
+    logs,
+  };
+}
+
+/**
+ * Hardened `sandbox_js` execution engine.
+ * - Requires real isolation (`docker_no_network` or `bwrap_sandbox`). Refuses execution otherwise.
+ * - Uses 2-file ESM harness (`runner.mjs` + `user-fn.mjs`) with `node:module` `registerHooks` blocking ALL module imports (comments or dynamic strings cannot bypass it).
+ * - Adds `--disallow-code-generation-from-strings`, `--max-old-space-size=64`, and Node `--permission` (when supported).
+ * - Parses stdout exclusively as bounded JSON.
+ */
+export function runStrictJsSandbox(params: {
+  userCode: string;
+  inputData?: Record<string, unknown>;
+  timeoutMs?: number;
+  _testBackendOverride?: StrongSandboxBackend | null;
+  _testMockExecutor?: StrictJsSandboxMockExecutor;
+}): StrictJsSandboxExecutionResult {
+  const backend =
+    params._testBackendOverride !== undefined
+      ? params._testBackendOverride
+      : detectStrongJsSandboxBackend();
+
+  if (!backend) {
+    const errMsg =
+      'A sandbox_js futtatás megtagadva: nincs elérhető valódi izolációs backend (Docker vagy Bubblewrap / bwrap szükséges; unshare vagy sima alfolyamat nem engedélyezett).';
+    appendAuditLog({
+      type: 'security',
+      sourceAgentId: 'sandbox-js',
+      sourceAgentName: 'JS Sandbox Őr',
+      message: errMsg,
+      verifiedExecution: false,
+    });
+    return {
+      ok: false,
+      isolationMode: 'unavailable',
+      code: 'NO_SANDBOX_BACKEND',
+      logs: [],
+      stderr: errMsg,
+      warning: null,
+      error: errMsg,
+    };
+  }
+
+  const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novaswarm-jsbox-'));
+  try {
+    fs.chmodSync(sandboxDir, 0o755);
+    const clonedInput = structuredClone(params.inputData ?? { sample: 42 });
+    const inputPath = path.join(sandboxDir, 'input.json');
+    const userFnPath = path.join(sandboxDir, 'user-fn.mjs');
+    const runnerPath = path.join(sandboxDir, 'runner.mjs');
+
+    fs.writeFileSync(inputPath, JSON.stringify(clonedInput), { encoding: 'utf8', mode: 0o644 });
+    fs.writeFileSync(
+      userFnPath,
+      [
+        'export default function runUntrustedSandboxUserFn(input, ARGS, console) {',
+        '  "use strict";',
+        '  const process = undefined, require = undefined, module = undefined, exports = undefined;',
+        '  const global = undefined, globalThis = undefined, Buffer = undefined, Function = undefined;',
+        params.userCode,
+        '}',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o644 }
+    );
+
+    const runnerScript = [
+      "import fs from 'node:fs';",
+      "import { registerHooks } from 'node:module';",
+      'const __realStdoutWrite = process.stdout.write.bind(process.stdout);',
+      'const __rawInput = JSON.parse(fs.readFileSync(\'./input.json\', \'utf8\'));',
+      'let __userFnLoaded = false;',
+      'registerHooks({',
+      '  resolve(specifier, context, nextResolve) {',
+      "    if (!__userFnLoaded && (specifier === './user-fn.mjs' || specifier.endsWith('/user-fn.mjs'))) {",
+      '      __userFnLoaded = true;',
+      '      return nextResolve(specifier, context);',
+      '    }',
+      "    throw new Error('Modulbetöltés (import) tiltott a sandboxban: ' + specifier);",
+      '  },',
+      '});',
+      "for (const k of ['process', 'global', 'Buffer', 'setTimeout', 'setInterval', 'setImmediate', 'fetch', 'eval', 'Function']) {",
+      '  try {',
+      '    Object.defineProperty(globalThis, k, { value: undefined, writable: false, configurable: false });',
+      '  } catch {}',
+      '}',
+      'const __logs = [];',
+      'let __logsLen = 0;',
+      'const __appendLog = (...parts) => {',
+      "  const line = parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ');",
+      '  if (__logsLen < 4000) {',
+      '    const chunk = line.slice(0, Math.max(0, 4000 - __logsLen));',
+      '    __logs.push(chunk);',
+      '    __logsLen += chunk.length;',
+      '  }',
+      '};',
+      'const __safeConsole = Object.freeze({ log: __appendLog, info: __appendLog, warn: __appendLog, error: __appendLog });',
+      'try {',
+      "  Object.defineProperty(globalThis, 'console', { value: __safeConsole, writable: false, configurable: false });",
+      '} catch {}',
+      "const __mod = await import('./user-fn.mjs');",
+      'const __val = __mod.default(__rawInput, __rawInput, __safeConsole);',
+      "if (__val && typeof __val.then === 'function') {",
+      "  throw new Error('Aszinkron Promise visszatérés nem támogatott a sandboxban.');",
+      '}',
+      '__realStdoutWrite(JSON.stringify({ ok: true, value: __val ?? null, wasUndefined: __val === undefined, logs: __logs }).slice(0, 65000) + \'\\n\');',
+    ].join('\n');
+
+    fs.writeFileSync(runnerPath, runnerScript, { encoding: 'utf8', mode: 0o644 });
+
+    const { args: nodeArgs, permissionWarning } = buildSandboxJsNodeArgs({
+      sandboxMountRoot: '/sandbox',
+    });
+    if (permissionWarning) {
+      console.warn(`[NovaSwarm BIZTONSÁG] ${permissionWarning}`);
+    }
+
+    const minimalEnv = buildMinimalSandboxEnv();
+    const spec =
+      backend === 'docker_no_network'
+        ? buildDockerSandboxJsArgs({ sandboxDir, nodeArgs })
+        : buildBwrapSandboxJsArgs({ sandboxDir, nodeArgs });
+
+    const timeoutMs = params.timeoutMs ?? 2000;
+    const rawRes = params._testMockExecutor
+      ? params._testMockExecutor({
+          backend,
+          sandboxDir,
+          command: spec.command,
+          args: spec.args,
+          env: minimalEnv,
+          runnerPath,
+          inputPath,
+          userFnPath,
+        })
+      : spawnSync(spec.command, spec.args, {
+          cwd: sandboxDir,
+          encoding: 'utf8',
+          timeout: timeoutMs,
+          killSignal: 'SIGKILL',
+          env: minimalEnv,
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
+        });
+
+    const cappedStderr = String(rawRes.stderr || rawRes.error?.message || '')
+      .slice(0, MAX_SANDBOX_STDERR_BYTES)
+      .slice(0, MAX_SANDBOX_OUTPUT_CHARS)
+      .trim();
+
+    if (rawRes.error || rawRes.status !== 0) {
+      const errDetail = cappedStderr || `Sandbox kilépési kód: ${rawRes.status ?? 1}`;
+      return {
+        ok: false,
+        isolationMode: backend,
+        code: 'SANDBOX_EXECUTION_ERROR',
+        logs: [],
+        stderr: errDetail,
+        warning: permissionWarning,
+        error: errDetail,
+      };
+    }
+
+    try {
+      const parsed = parseStrictSandboxJsonOutput(rawRes.stdout || '');
+      return {
+        ok: true,
+        isolationMode: backend,
+        value: parsed.value,
+        wasUndefined: parsed.wasUndefined,
+        logs: parsed.logs,
+        stderr: cappedStderr,
+        warning: permissionWarning,
+      };
+    } catch (parseErr) {
+      const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      return {
+        ok: false,
+        isolationMode: backend,
+        code: 'SANDBOX_INVALID_OUTPUT',
+        logs: [],
+        stderr: cappedStderr || errMsg,
+        warning: permissionWarning,
+        error: errMsg,
+      };
+    }
+  } finally {
+    fs.rmSync(sandboxDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Supervisor Dry-Run / Sandbox Environment (Section 10.3 & 13.3).
- * Creates an isolated ephemeral copy in OS tmpdir/tmpfs and executes candidate
- * commands/scripts using Docker (`--network=none`), Linux Bubblewrap (`bwrap --unshare-net`),
- * Linux `unshare -rn`, or a stripped-env subprocess strictly confined to the ephemeral temp copy.
+ * Creates an isolated ephemeral copy in OS tmpdir/tmpfs and executes trusted dry-run
+ * commands/scripts using Docker (`--network=none`), hardened Bubblewrap (`--tmpfs /`),
+ * Linux `unshare -rn`, or a stripped-env subprocess confined to the ephemeral temp copy.
+ * NOTE: Untrusted `sandbox_js` MUST NEVER use this function — use `runStrictJsSandbox` instead.
  */
 export function runInSupervisorSandbox(params: {
   scriptOrCommand: string;
@@ -77,7 +580,7 @@ export function runInSupervisorSandbox(params: {
   const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novaswarm-sandbox-'));
 
   try {
-    // Seed ephemeral copy with test fixtures
+    fs.chmodSync(sandboxDir, 0o755);
     const seed = params.seedFiles ?? {
       'sample.txt': 'sandbox-fixture-data',
       'config.json': '{"env":"sandbox"}',
@@ -85,10 +588,9 @@ export function runInSupervisorSandbox(params: {
     for (const [relPath, content] of Object.entries(seed)) {
       const target = path.join(sandboxDir, relPath);
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, content, 'utf8');
+      fs.writeFileSync(target, content, { encoding: 'utf8', mode: 0o644 });
     }
 
-    // Snapshot real protected files before execution to verify zero mutation
     const protectedChecksums = new Map<string, boolean>();
     for (const p of params.realProtectedPaths ?? []) {
       protectedChecksums.set(p, fs.existsSync(p));
@@ -109,11 +611,13 @@ export function runInSupervisorSandbox(params: {
       NOVASWARM_SANDBOX: '1',
     };
 
-    const safeNodeArgs = (params.nodeArgs || []).filter((a) => /^--[a-z0-9-]+(=[a-z0-9_.-]+)?$/i.test(a));
+    const safeNodeArgs = (params.nodeArgs || []).filter((a) =>
+      /^--[a-z0-9-]+(=[a-z0-9_./=-]+)?$/i.test(a)
+    );
 
     if (params.isNodeScript) {
       const candidateFile = path.join(sandboxDir, 'candidate.mjs');
-      fs.writeFileSync(candidateFile, params.scriptOrCommand, 'utf8');
+      fs.writeFileSync(candidateFile, params.scriptOrCommand, { encoding: 'utf8', mode: 0o644 });
       if (backend === 'docker_no_network') {
         const res = spawnSync(
           'docker',
@@ -121,8 +625,15 @@ export function runInSupervisorSandbox(params: {
             'run',
             '--rm',
             '--network=none',
+            '--read-only',
+            '--cap-drop=ALL',
+            '--pids-limit=32',
             '--memory=128m',
             '--cpus=0.5',
+            '--user',
+            'nobody',
+            '--tmpfs',
+            '/tmp:rw,noexec,nosuid,size=16m',
             '-v',
             `${sandboxDir}:/sandbox:rw`,
             '-w',
@@ -132,36 +643,23 @@ export function runInSupervisorSandbox(params: {
             ...safeNodeArgs,
             '/sandbox/candidate.mjs',
           ],
-          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 512 * 1024 }
+          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: MAX_SANDBOX_STDOUT_BYTES }
         );
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
       } else if (backend === 'bwrap_sandbox') {
+        const { args: bwrapBase, nodeBinInSandbox } = buildBwrapBaseArgs(sandboxDir);
         const res = spawnSync(
           'bwrap',
-          [
-            '--ro-bind',
-            '/',
-            '/',
-            '--dev',
-            '/dev',
-            '--proc',
-            '/proc',
-            '--tmpfs',
-            '/tmp',
-            '--bind',
-            sandboxDir,
-            sandboxDir,
-            '--chdir',
-            sandboxDir,
-            '--unshare-net',
-            '--die-with-parent',
-            process.execPath,
-            ...safeNodeArgs,
-            candidateFile,
-          ],
-          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', env: strippedEnv, maxBuffer: 512 * 1024 }
+          [...bwrapBase, '--', nodeBinInSandbox, ...safeNodeArgs, '/sandbox/candidate.mjs'],
+          {
+            encoding: 'utf8',
+            timeout: timeoutMs,
+            killSignal: 'SIGKILL',
+            env: buildMinimalSandboxEnv(),
+            maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
+          }
         );
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -173,7 +671,7 @@ export function runInSupervisorSandbox(params: {
           timeout: timeoutMs,
           killSignal: 'SIGKILL',
           env: strippedEnv,
-          maxBuffer: 512 * 1024,
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -186,7 +684,7 @@ export function runInSupervisorSandbox(params: {
           timeout: timeoutMs,
           killSignal: 'SIGKILL',
           env: strippedEnv,
-          maxBuffer: 512 * 1024,
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -200,6 +698,9 @@ export function runInSupervisorSandbox(params: {
             'run',
             '--rm',
             '--network=none',
+            '--read-only',
+            '--cap-drop=ALL',
+            '--pids-limit=32',
             '--memory=128m',
             '--cpus=0.5',
             '-v',
@@ -211,37 +712,20 @@ export function runInSupervisorSandbox(params: {
             '-c',
             params.scriptOrCommand,
           ],
-          { encoding: 'utf8', timeout: timeoutMs }
+          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: MAX_SANDBOX_STDOUT_BYTES }
         );
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
       } else if (backend === 'bwrap_sandbox') {
-        const res = spawnSync(
-          'bwrap',
-          [
-            '--ro-bind',
-            '/',
-            '/',
-            '--dev',
-            '/dev',
-            '--proc',
-            '/proc',
-            '--tmpfs',
-            '/tmp',
-            '--bind',
-            sandboxDir,
-            sandboxDir,
-            '--chdir',
-            sandboxDir,
-            '--unshare-net',
-            '--die-with-parent',
-            'sh',
-            '-c',
-            params.scriptOrCommand,
-          ],
-          { encoding: 'utf8', timeout: timeoutMs, env: strippedEnv }
-        );
+        const { args: bwrapBase } = buildBwrapBaseArgs(sandboxDir);
+        const res = spawnSync('bwrap', [...bwrapBase, '--', 'sh', '-c', params.scriptOrCommand], {
+          encoding: 'utf8',
+          timeout: timeoutMs,
+          killSignal: 'SIGKILL',
+          env: buildMinimalSandboxEnv(),
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
+        });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
@@ -250,7 +734,9 @@ export function runInSupervisorSandbox(params: {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
+          killSignal: 'SIGKILL',
           env: strippedEnv,
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -261,7 +747,9 @@ export function runInSupervisorSandbox(params: {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
+          killSignal: 'SIGKILL',
           env: { ...strippedEnv, PATH: '/usr/bin:/bin' },
+          maxBuffer: MAX_SANDBOX_STDOUT_BYTES,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -280,8 +768,8 @@ export function runInSupervisorSandbox(params: {
       passed: exitCode === 0 && realWorkspaceIntact,
       isolationMode,
       exitCode,
-      stdout: stdout.slice(0, 4000),
-      stderr: stderr.slice(0, 4000),
+      stdout: stdout.slice(0, MAX_SANDBOX_OUTPUT_CHARS),
+      stderr: stderr.slice(0, MAX_SANDBOX_OUTPUT_CHARS),
       sandboxDir,
       durationMs: Date.now() - startedAt,
       realWorkspaceIntact,

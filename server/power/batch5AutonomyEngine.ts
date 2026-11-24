@@ -8,7 +8,11 @@ import { sendWakeOnLanPacket } from '../infra/networkAndCluster';
 import { addPersistentMemory } from '../memory/vectorStore';
 import { fetchOpenMeteoWeather } from '../power/universalSuite';
 import { invokeWithFailover } from '../providers/router';
-import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
+import {
+  runStrictJsSandbox,
+  type StrictJsSandboxMockExecutor,
+  type StrongSandboxBackend,
+} from '../sandbox/supervisorSandbox';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { assertHostPermission } from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -718,71 +722,47 @@ export async function runSelfHealingDaemonTick(): Promise<{
   };
 }
 
-/**
- * Biztonságos JS sandbox futtatás külön child processben (Docker/bwrap/unshare előnyben,
- * --disallow-code-generation-from-strings, memóriakorlát, timeout+SIGKILL).
- * Semmilyen host-realm objektum nem kerül át; csak structuredClone-kompatibilis adat és primitívek.
- */
+export class SandboxBackendUnavailableError extends Error {
+  public readonly code = 'NO_SANDBOX_BACKEND';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SandboxBackendUnavailableError';
+  }
+}
+
+// Biztonságos JS sandbox futtatás kizárólag valódi izolációs backendben (Docker vagy Bubblewrap).
+// - Soha nem esik vissza unshare vagy sima alfolyamat módra.
+// - A node:module `registerHooks` + Node `--permission` réteg megakadályozza a dinamikus és kommentes `import(...)` betöltést is.
+// - A regex ellenőrzés kizárólag extra védelmi rétegként marad meg.
 export function executeIsolatedJsInSubprocess(
   code: string,
-  testInput?: Record<string, unknown>
+  testInput?: Record<string, unknown>,
+  options?: {
+    _testBackendOverride?: StrongSandboxBackend | null;
+    _testMockExecutor?: StrictJsSandboxMockExecutor;
+  }
 ): unknown {
-  if (/\bimport\s*\(|\bimport\.meta\b/.test(code)) {
+  if (/\bimport\s*(?:\/\*[\s\S]*?\*\/|\s)*\(|\bimport\.meta\b/.test(code)) {
     throw new Error('Dinamikus import() vagy import.meta használata tiltott a sandboxban.');
   }
-  const clonedInput = structuredClone(testInput ?? { sample: 42 });
-  const inputJsonLiteral = JSON.stringify(clonedInput);
 
-  const runnerScript = `
-import fs from 'node:fs';
-const __stdoutWrite = process.stdout.write.bind(process.stdout);
-const __rawInput = JSON.parse(fs.readFileSync('./input.json', 'utf8'));
-for (const k of ['process', 'global', 'Buffer', 'setTimeout', 'setInterval', 'setImmediate', 'fetch', 'eval', 'Function']) {
-  try {
-    Object.defineProperty(globalThis, k, { value: undefined, writable: false, configurable: false });
-  } catch {}
-}
-let __value;
-{
-  const process = undefined;
-  const require = undefined;
-  const module = undefined;
-  const exports = undefined;
-  const global = undefined;
-  const globalThis = undefined;
-  const Buffer = undefined;
-  const Function = undefined;
-  __value = (function(input) {
-    "use strict";
-    ${code}
-  })(__rawInput);
-}
-__stdoutWrite('__SANDBOX_RESULT__' + JSON.stringify({ ok: true, value: __value ?? null, wasUndefined: __value === undefined }) + '\\n');
-`;
-
-  const sb = runInSupervisorSandbox({
-    scriptOrCommand: runnerScript,
-    isNodeScript: true,
-    nodeArgs: ['--disallow-code-generation-from-strings', '--max-old-space-size=64'],
-    seedFiles: { 'input.json': inputJsonLiteral },
-    timeoutMs: 1800,
+  const sb = runStrictJsSandbox({
+    userCode: code,
+    inputData: testInput ?? { sample: 42 },
+    timeoutMs: 2000,
+    _testBackendOverride: options?._testBackendOverride,
+    _testMockExecutor: options?._testMockExecutor,
   });
 
-  if (!sb.passed) {
-    throw new Error((sb.stderr || sb.stdout || `Sandbox kilépési kód: ${sb.exitCode}`).trim());
+  if (!sb.ok) {
+    const msg = (sb.error || sb.stderr || 'Sandbox futtatási hiba').trim();
+    if (sb.code === 'NO_SANDBOX_BACKEND') {
+      throw new SandboxBackendUnavailableError(msg);
+    }
+    throw new Error(msg);
   }
 
-  const markerLine = sb.stdout
-    .split('\n')
-    .find((line) => line.startsWith('__SANDBOX_RESULT__'));
-  if (!markerLine) {
-    throw new Error('Sandbox nem adott vissza érvényes eredményt.');
-  }
-  const parsed = JSON.parse(markerLine.slice('__SANDBOX_RESULT__'.length)) as {
-    value: unknown;
-    wasUndefined?: boolean;
-  };
-  return parsed.wasUndefined ? undefined : parsed.value;
+  return sb.wasUndefined ? undefined : sb.value;
 }
 
 export async function createAndSelfTestDynamicTool(input: {
@@ -791,6 +771,8 @@ export async function createAndSelfTestDynamicTool(input: {
   kind: DynamicToolDef['kind'];
   targetOrCode: string;
   testInput?: Record<string, unknown>;
+  _testBackendOverride?: StrongSandboxBackend | null;
+  _testMockExecutor?: StrictJsSandboxMockExecutor;
 }): Promise<{
   ok: boolean;
   repaired: boolean;
@@ -809,7 +791,11 @@ export async function createAndSelfTestDynamicTool(input: {
   let passed = false;
 
   if (input.kind === 'sandbox_js') {
-    const tryExecuteJs = (code: string) => executeIsolatedJsInSubprocess(code, input.testInput);
+    const tryExecuteJs = (code: string) =>
+      executeIsolatedJsInSubprocess(code, input.testInput, {
+        _testBackendOverride: input._testBackendOverride,
+        _testMockExecutor: input._testMockExecutor,
+      });
 
     try {
       const res = tryExecuteJs(codeOrTarget);
@@ -819,6 +805,9 @@ export async function createAndSelfTestDynamicTool(input: {
       passed = true;
       testOutput = typeof res === 'string' ? res : JSON.stringify(res ?? 'OK');
     } catch (err) {
+      if (err instanceof SandboxBackendUnavailableError) {
+        throw new Error(`Az eszköz önellenőrző füsttesztje elbukott: ${err.message}`);
+      }
       const firstErr = err instanceof Error ? err.message : String(err);
       attempts = 2;
       // Deterministic repair pass (e.g. implicit return or trailing syntax fix)

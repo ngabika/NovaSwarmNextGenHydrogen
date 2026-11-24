@@ -28,7 +28,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import type { HardwareMetrics, NovaSwarmState } from '../shared/types';
+import type { HardwareMetrics, NovaSwarmState, SandboxCapabilities } from '../shared/types';
 import { CommandPalette } from './components/CommandPalette';
 import { InfoHint } from './components/InfoHint';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -85,6 +85,7 @@ export default function App() {
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionSummary[]>([]);
   const [cacheSize, setCacheSize] = useState(0);
   const [sandboxBackend, setSandboxBackend] = useState<string>('isolated_tmpfs_subprocess');
+  const [sandboxCapabilities, setSandboxCapabilities] = useState<SandboxCapabilities | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -134,6 +135,7 @@ export default function App() {
         terminalSessions: TerminalSessionSummary[];
         cacheSize?: number;
         sandboxBackend?: string;
+        sandboxCapabilities?: SandboxCapabilities;
       };
       setAuthLocked(false);
       setAuthSetupRequired(false);
@@ -142,6 +144,7 @@ export default function App() {
       setTerminalSessions(data.terminalSessions || []);
       setCacheSize(data.cacheSize ?? 0);
       if (data.sandboxBackend) setSandboxBackend(data.sandboxBackend);
+      if (data.sandboxCapabilities) setSandboxCapabilities(data.sandboxCapabilities);
       setLoadError(null);
       return true;
     } catch (err) {
@@ -955,11 +958,17 @@ export default function App() {
                 settings={state.settings}
                 state={state}
                 sandboxBackend={sandboxBackend}
+                sandboxCapabilities={sandboxCapabilities}
                 onRefreshState={fetchState}
               />
             )}
             {activeTab === 'settings' && (
-              <SettingsView language={lang} settings={state.settings} onRefreshState={fetchState} />
+              <SettingsView
+                language={lang}
+                settings={state.settings}
+                sandboxCapabilities={sandboxCapabilities}
+                onRefreshState={fetchState}
+              />
             )}
           </Suspense>
         </main>

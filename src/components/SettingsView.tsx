@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, OctagonAlert, Save } from 'lucide-react';
-import type { ExecutionPreset, LanguageCode, Settings } from '../../shared/types';
+import type { ExecutionPreset, LanguageCode, SandboxCapabilities, Settings } from '../../shared/types';
 import { InfoHint } from './InfoHint';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
 interface Props {
   language: LanguageCode;
   settings: Settings;
+  sandboxCapabilities?: SandboxCapabilities | null;
   onRefreshState: () => Promise<void>;
 }
 
-export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshState }) => {
+export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapabilities, onRefreshState }) => {
   const [form, setForm] = useState<Settings>(settings);
   const [telegramToken, setTelegramToken] = useState('');
   const [braveSearchKey, setBraveSearchKey] = useState('');
@@ -885,6 +886,53 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
                   text="Figyelem: ha bekapcsolod, az engedélylistán (ls, cat, df, uptime) kívüli rendszerparancsok is Telegram/UI jóváhagyás nélkül futhatnak, teljes biztonsági naplózás mellett. Éles gépen hagyd kikapcsolva!"
                 />
               </div>
+            </div>
+
+            <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    Sandbox Izolációs Állapot (<code>sandbox_js</code> &amp; Supervisor)
+                  </span>
+                  <InfoHint
+                    label="JS Sandbox izoláció"
+                    text="A megbízhatatlan dinamikus JS eszközök (sandbox_js) kizárólag Docker (--network=none) vagy Bubblewrap (bwrap --tmpfs / --unshare-all) konténerben futhatnak. Ha egyik sincs telepítve, a sandbox_js biztonsági okból letiltva marad (nem esik vissza unshare-re)."
+                  />
+                </div>
+                <span
+                  className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                    sandboxCapabilities?.jsSandboxAvailable
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+                      : 'bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+                  }`}
+                >
+                  {sandboxCapabilities
+                    ? sandboxCapabilities.jsSandboxAvailable
+                      ? `sandbox_js: ${sandboxCapabilities.jsSandboxBackend}`
+                      : 'sandbox_js: letiltva (nincs Docker/bwrap)'
+                    : 'sandbox_js: ellenőrzés...'}
+                </span>
+              </div>
+              <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-4 gap-y-1">
+                <span>
+                  Supervisor dry-run: <strong>{sandboxCapabilities?.supervisorBackend || '—'}</strong>
+                </span>
+                <span>
+                  Node --permission:{' '}
+                  <strong>
+                    {sandboxCapabilities
+                      ? sandboxCapabilities.nodePermissionSupported
+                        ? `${sandboxCapabilities.nodePermissionFlag} (Node ${sandboxCapabilities.nodeVersion})`
+                        : `nem támogatott (${sandboxCapabilities.nodeVersion})`
+                      : '—'}
+                  </strong>
+                </span>
+              </div>
+              {sandboxCapabilities && !sandboxCapabilities.jsSandboxAvailable && (
+                <div className="text-[11px] text-amber-900 dark:text-amber-200">
+                  Telepítés Raspberry Pi / Debian rendszeren: <code>sudo apt update &amp;&amp; sudo apt install -y bubblewrap</code>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2.5 text-sm cursor-pointer">

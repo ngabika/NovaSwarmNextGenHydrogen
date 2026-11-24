@@ -42,6 +42,7 @@ import {
   resetKeyCursorsForTests,
 } from '../server/providers/router';
 import { chunkSourceCode } from '../server/rag/documents';
+import { detectStrongJsSandboxBackend } from '../server/sandbox/supervisorSandbox';
 import { createInitialState, resetInMemoryStateForTests } from '../server/state/store';
 
 test('M38 & M39: Normalized prompt cache key & providerHealth latency/error tracking', async () => {
@@ -348,17 +349,27 @@ test('Ú60 & B2 & B3: GitHub Skill security scanner, Dynamic Sandbox Tool, and S
   ];
   resetInMemoryStateForTests(state);
 
+  const doc = await runSwarmAutoDoctor();
+  assert.ok(doc.healedActions.some((a) => a.includes('cooldown')));
+  assert.equal(state.settings.providerKeys.openai[0].cooldownUntil, undefined);
+});
+
+test('B2: Dynamic sandbox_js tool executes in Docker/bwrap or refuses cleanly when absent', async (t) => {
+  resetInMemoryStateForTests(createInitialState());
   const dyn = registerDynamicTool({
     name: 'sum_args',
     description: 'Összeadja az a és b paramétert',
     kind: 'sandbox_js',
     targetOrCode: 'console.log(Number(ARGS.a) + Number(ARGS.b));',
   });
+  if (!detectStrongJsSandboxBackend()) {
+    const refused = await executeDynamicTool(dyn, { a: 17, b: 25 });
+    assert.equal(refused.ok, false);
+    assert.match(refused.output, /Docker vagy Bubblewrap/);
+    t.skip('SKIPPED: Docker vagy bwrap nincs telepítve — a valós sandbox_js konténerfuttatás átugorva.');
+    return;
+  }
   const dynOut = await executeDynamicTool(dyn, { a: 17, b: 25 });
   assert.equal(dynOut.ok, true);
   assert.match(dynOut.output, /42/);
-
-  const doc = await runSwarmAutoDoctor();
-  assert.ok(doc.healedActions.some((a) => a.includes('cooldown')));
-  assert.equal(state.settings.providerKeys.openai[0].cooldownUntil, undefined);
 });

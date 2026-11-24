@@ -23,6 +23,7 @@ import {
   runEmailInboxTriage,
   createAndSelfTestDynamicTool,
 } from '../server/power/batch5AutonomyEngine';
+import { detectStrongJsSandboxBackend } from '../server/sandbox/supervisorSandbox';
 import { createInitialState, getState, resetInMemoryStateForTests, updateState } from '../server/state/store';
 
 test('Hardware profiler adapts settings for ultra-light 2 GB Pi vs GPU Workstation', () => {
@@ -232,13 +233,30 @@ test('Batch 5 Autonomy: Telegram photo router, GPIO pin bounds, Inbox Triage, Br
   // Brief
   const brief = await buildProactiveBrief('morning');
   assert.ok(brief.text.includes('Reggeli Főnöki Összefoglaló'));
+});
 
-  // Self-testing & auto-repairing dynamic tool
+test('Batch 5 Autonomy: Self-testing & auto-repairing dynamic sandbox_js tool (Docker/bwrap)', async (t) => {
+  resetInMemoryStateForTests(createInitialState());
+  if (!detectStrongJsSandboxBackend()) {
+    await assert.rejects(
+      () =>
+        createAndSelfTestDynamicTool({
+          name: 'double_num_refused',
+          description: 'Duplázó segédeszköz',
+          kind: 'sandbox_js',
+          targetOrCode: 'return Number(input.sample || 5) * 2;',
+        }),
+      /Docker vagy Bubblewrap/
+    );
+    t.skip('SKIPPED: Docker vagy bwrap nincs telepítve — a valós sandbox_js konténerfuttatás nem hajtható végre.');
+    return;
+  }
+
   const built = await createAndSelfTestDynamicTool({
     name: 'double_num',
     description: 'Duplázó segédeszköz',
     kind: 'sandbox_js',
-    targetOrCode: 'Number(input.sample || 5) * 2', // missing 'return' -> deterministic self-repair fixes it!
+    targetOrCode: 'Number(input.sample || 5) * 2',
   });
   assert.equal(built.ok, true);
   assert.equal(built.repaired, true);

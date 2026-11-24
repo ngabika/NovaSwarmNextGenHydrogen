@@ -2004,3 +2004,18 @@ export interface OmniCapabilityEntry {
   endpointOrTool: string;
 }
 
+export type SandboxIsolationMode =
+  | 'docker_no_network'
+  | 'bwrap_sandbox'
+  | 'unshare_net_sandbox'
+  | 'isolated_tmpfs_subprocess';
+
+export interface SandboxCapabilities {
+  supervisorBackend: SandboxIsolationMode;
+  jsSandboxBackend: 'docker_no_network' | 'bwrap_sandbox' | 'unavailable';
+  jsSandboxAvailable: boolean;
+  nodeVersion: string;
+  nodePermissionFlag: '--permission' | '--experimental-permission' | null;
+  nodePermissionSupported: boolean;
+  warning: string | null;
+}

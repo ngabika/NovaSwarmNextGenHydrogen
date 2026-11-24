@@ -14,6 +14,7 @@ import {
   executeIsolatedJsInSubprocess,
 } from '../server/power/batch5AutonomyEngine';
 import { executeDynamicTool } from '../server/power/universalSuite';
+import { detectStrongJsSandboxBackend } from '../server/sandbox/supervisorSandbox';
 import { createApiRouter } from '../server/routes/api';
 import {
   ensureOneTimeSetupCode,
@@ -151,7 +152,28 @@ test('Pass 2 Fix 1 (MAGAS): sandbox_js blocks prototype/constructor breakout, Fu
     assert.equal(/\/root|\/home|PATH=|UID=/.test(execRes.output), false);
   }
 
-  // Legitimate deterministic computation using cloned input still works cleanly
+  // Without Docker/bwrap, even legitimate sandbox_js MUST refuse execution (never fall back to unshare)
+  if (!detectStrongJsSandboxBackend()) {
+    await assert.rejects(
+      () =>
+        createAndSelfTestDynamicTool({
+          name: 'safe_calc_refused',
+          description: 'Safe pure arithmetic',
+          kind: 'sandbox_js',
+          targetOrCode: 'return Number(input.sample || 5) * 2;',
+          testInput: { sample: 42 },
+        }),
+      /Docker vagy Bubblewrap/
+    );
+  }
+});
+
+test('Pass 2 Fix 1 (positive real backend): safe_calc succeeds inside Docker/bwrap', async (t) => {
+  resetInMemoryStateForTests(createInitialState());
+  if (!detectStrongJsSandboxBackend()) {
+    t.skip('SKIPPED: Docker vagy bwrap nincs telepítve ebben a környezetben.');
+    return;
+  }
   const validDyn = await createAndSelfTestDynamicTool({
     name: 'safe_calc',
     description: 'Safe pure arithmetic',

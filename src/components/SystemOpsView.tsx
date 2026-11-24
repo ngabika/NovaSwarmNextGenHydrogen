@@ -38,6 +38,7 @@ import type {
   LanguageCode,
   NovaSwarmState,
   OtaVersionStatus,
+  SandboxCapabilities,
   Settings,
   SshHostProfile,
   SslWatchTarget,
@@ -79,6 +80,7 @@ interface Props {
   settings: Settings;
   state?: NovaSwarmState;
   sandboxBackend?: string;
+  sandboxCapabilities?: SandboxCapabilities | null;
   onRefreshState: () => Promise<void>;
 }
 
@@ -96,6 +98,7 @@ export const SystemOpsView: React.FC<Props> = ({
   settings,
   state,
   sandboxBackend,
+  sandboxCapabilities,
   onRefreshState,
 }) => {
   const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
@@ -810,8 +813,45 @@ export const SystemOpsView: React.FC<Props> = ({
                 <ShieldCheck className="h-4 w-4 text-slate-700" />
                 Önfejlesztés, Sandbox Bizonyíték, Git Diff & 1-Kattintásos Rollback
               </h3>
-              <div className="text-[11px] font-mono text-slate-500 mt-0.5">
-                Aktív Linux Sandbox: <span className="font-semibold text-slate-800">{sandboxBackend || 'isolated_tmpfs_subprocess'}</span>
+              <div className="text-[11px] font-mono text-slate-600 mt-1 space-y-0.5">
+                <div>
+                  Supervisor dry-run mód:{' '}
+                  <span className="font-semibold text-slate-900">
+                    {sandboxCapabilities?.supervisorBackend || sandboxBackend || 'isolated_tmpfs_subprocess'}
+                  </span>
+                </div>
+                <div>
+                  Szigorú JS Sandbox (<code>sandbox_js</code>):{' '}
+                  <span
+                    className={`font-semibold ${
+                      sandboxCapabilities?.jsSandboxAvailable ? 'text-emerald-700' : 'text-red-700'
+                    }`}
+                  >
+                    {sandboxCapabilities
+                      ? sandboxCapabilities.jsSandboxAvailable
+                        ? `${sandboxCapabilities.jsSandboxBackend} (aktív)`
+                        : 'unavailable — letiltva (Docker vagy bwrap szükséges)'
+                      : 'ellenőrzés...'}
+                  </span>
+                  {' · '}
+                  Node <code>--permission</code>:{' '}
+                  <span
+                    className={`font-semibold ${
+                      sandboxCapabilities?.nodePermissionSupported ? 'text-emerald-700' : 'text-amber-700'
+                    }`}
+                  >
+                    {sandboxCapabilities
+                      ? sandboxCapabilities.nodePermissionSupported
+                        ? `${sandboxCapabilities.nodePermissionFlag} (Node ${sandboxCapabilities.nodeVersion})`
+                        : `nem támogatott (Node ${sandboxCapabilities.nodeVersion})`
+                      : '—'}
+                  </span>
+                </div>
+                {sandboxCapabilities?.warning && (
+                  <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1 font-sans">
+                    {sandboxCapabilities.warning}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">

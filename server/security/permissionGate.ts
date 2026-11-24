@@ -119,7 +119,7 @@ const SAFE_EXEC_BINARIES = new Set(['ls', 'cat', 'df', 'uptime', 'uname', 'pwd',
 const PROTECTED_WORKSPACE_PATH_RE =
   /(^|\/)(\.env(\..*)?|\.secrets(\.[^/]+)?|\.state\.json.*|\.config\.json|novaswarm\.sqlite.*|\.novaswarm-setup\.log|\.git(\/|$)|backups(\/|$))/i;
 
-function resolveWorkspacePathForAllowlist(rawPath: string): { ok: true; rel: string } | { ok: false; reason: string } {
+export function resolveWorkspacePathForAllowlist(rawPath: string): { ok: true; rel: string } | { ok: false; reason: string } {
   const trimmed = rawPath.trim();
   if (!trimmed || trimmed.includes('..') || path.isAbsolute(trimmed)) {
     return { ok: false, reason: `Tiltott vagy relatív munkakönyvtáron kívüli útvonal: ${rawPath}` };
@@ -133,10 +133,29 @@ function resolveWorkspacePathForAllowlist(rawPath: string): { ok: true; rel: str
   if (rel && PROTECTED_WORKSPACE_PATH_RE.test(rel)) {
     return { ok: false, reason: `Védett rendszer- vagy titokfájl nem olvasható parancssorból: ${rel}` };
   }
-  if (fs.existsSync(abs)) {
-    const realTarget = fs.realpathSync(abs);
+  let entryExists = false;
+  try {
+    fs.lstatSync(abs);
+    entryExists = true;
+  } catch {
+    entryExists = false;
+  }
+  if (entryExists) {
+    let realTarget: string;
+    try {
+      realTarget = fs.realpathSync(abs);
+    } catch {
+      return { ok: false, reason: `Érvénytelen vagy hibás symlink blokkolva: ${rawPath}` };
+    }
     if (realTarget !== rootReal && !realTarget.startsWith(rootReal + path.sep)) {
       return { ok: false, reason: `Symlink kilépés blokkolva: ${rawPath}` };
+    }
+    const realRel = path.relative(rootReal, realTarget).replace(/\\/g, '/');
+    if (realRel && PROTECTED_WORKSPACE_PATH_RE.test(realRel)) {
+      return {
+        ok: false,
+        reason: `Védett rendszer- vagy titokfájlra mutató symlink blokkolva: ${rawPath} -> ${realRel}`,
+      };
     }
   }
   return { ok: true, rel: rel || '.' };

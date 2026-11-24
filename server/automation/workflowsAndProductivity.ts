@@ -10,7 +10,7 @@ import type {
 import { handleUserTurn } from '../agents/engine';
 import { queryHomeAssistantStates } from '../integrations/ecosystem';
 import { recordWebhookDelivery } from '../power/batch7UniverseEngine';
-import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
+import { runInSupervisorSandbox, runStrictJsSandbox } from '../sandbox/supervisorSandbox';
 import { constantTimeEqual } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, setNamedSecret, getNamedSecret, updateState } from '../state/store';
 import { sendTelegramMessage } from '../telegram/bot';
@@ -249,17 +249,22 @@ export function runSandboxedCodeInterpreter(params: {
   code: string;
 }): { passed: boolean; isolationMode: string; stdout: string; stderr: string; durationMs: number } {
   if (params.language === 'javascript') {
-    const res = runInSupervisorSandbox({
-      scriptOrCommand: params.code,
-      isNodeScript: true,
+    const startedAt = Date.now();
+    const res = runStrictJsSandbox({
+      userCode: params.code,
       timeoutMs: 6000,
     });
+    const outParts: string[] = [];
+    if (res.logs.length > 0) outParts.push(res.logs.join('\n'));
+    if (!res.wasUndefined && res.value !== undefined) {
+      outParts.push(typeof res.value === 'string' ? res.value : JSON.stringify(res.value));
+    }
     return {
-      passed: res.passed,
+      passed: res.ok,
       isolationMode: res.isolationMode,
-      stdout: res.stdout,
-      stderr: res.stderr,
-      durationMs: res.durationMs,
+      stdout: outParts.join('\n').slice(0, 4000),
+      stderr: (res.error || res.stderr || '').slice(0, 4000),
+      durationMs: Date.now() - startedAt,
     };
   }
 

@@ -196,7 +196,11 @@ import {
   listRagDocuments,
   searchOfflineKnowledgePack,
 } from '../rag/documents';
-import { detectActiveSandboxBackend, runDestructiveSandboxProof } from '../sandbox/supervisorSandbox';
+import {
+  detectActiveSandboxBackend,
+  getSandboxCapabilities,
+  runDestructiveSandboxProof,
+} from '../sandbox/supervisorSandbox';
 import {
   authenticateOperatorPassword,
   checkLoginRateLimit,
@@ -447,6 +451,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       terminalSessions,
       cacheSize: getResponseCacheSize(),
       sandboxBackend: detectActiveSandboxBackend(),
+      sandboxCapabilities: getSandboxCapabilities(),
     });
   });
 

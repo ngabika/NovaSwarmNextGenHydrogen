@@ -22,7 +22,11 @@ import {
   transcribeAudioBuffer,
   type RouterDependencies,
 } from '../providers/router';
-import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
+import {
+  runStrictJsSandbox,
+  type StrictJsSandboxMockExecutor,
+  type StrongSandboxBackend,
+} from '../sandbox/supervisorSandbox';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { createAndValidateSkill } from '../skills/loader';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -1155,7 +1159,11 @@ export function registerDynamicTool(input: {
 export async function executeDynamicTool(
   toolDef: DynamicToolDef,
   args: Record<string, unknown>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  testOptions?: {
+    _testBackendOverride?: StrongSandboxBackend | null;
+    _testMockExecutor?: StrictJsSandboxMockExecutor;
+  }
 ): Promise<{ ok: boolean; output: string }> {
   if (!toolDef.enabled) return { ok: false, output: `Az eszköz ki van kapcsolva: ${toolDef.name}` };
 
@@ -1178,30 +1186,28 @@ export async function executeDynamicTool(
     return { ok: res.ok, output: `HTTP ${res.status}:\n${text}` };
   }
 
-  // sandbox_js
-  if (/\bimport\s*\(|\bimport\.meta\b/.test(toolDef.targetOrCode)) {
-    return { ok: false, output: 'Dinamikus import() tiltott a sandboxban.' };
+  // sandbox_js (extra regex precheck; actual boundary is Docker/bwrap + registerHooks + Node --permission)
+  if (/\bimport\s*(?:\/\*[\s\S]*?\*\/|\s)*\(|\bimport\.meta\b/.test(toolDef.targetOrCode)) {
+    return { ok: false, output: 'Dinamikus import() vagy import.meta tiltott a sandboxban.' };
   }
-  const clonedArgs = structuredClone(args || {});
-  const sandboxScript = `
-const ARGS = JSON.parse(${JSON.stringify(JSON.stringify(clonedArgs))});
-for (const k of ['process', 'global', 'Buffer', 'setTimeout', 'setInterval', 'setImmediate', 'fetch', 'eval', 'Function']) {
-  try {
-    Object.defineProperty(globalThis, k, { value: undefined, writable: false, configurable: false });
-  } catch {}
-}
-(function(process, require, module, exports, global, globalThis, Buffer, __fn) {
-  "use strict";
-  ${toolDef.targetOrCode}
-})();
-`;
-  const sb = runInSupervisorSandbox({
-    scriptOrCommand: sandboxScript,
-    isNodeScript: true,
-    nodeArgs: ['--disallow-code-generation-from-strings', '--max-old-space-size=64'],
+  const sb = runStrictJsSandbox({
+    userCode: toolDef.targetOrCode,
+    inputData: args || {},
     timeoutMs: 3000,
+    _testBackendOverride: testOptions?._testBackendOverride,
+    _testMockExecutor: testOptions?._testMockExecutor,
   });
-  return { ok: sb.passed, output: sb.passed ? sb.stdout || '(OK)' : sb.stderr || sb.stdout };
+
+  if (!sb.ok) {
+    return { ok: false, output: sb.error || sb.stderr || 'Sandbox végrehajtási hiba.' };
+  }
+
+  const parts: string[] = [];
+  if (sb.logs.length > 0) parts.push(sb.logs.join('\n'));
+  if (!sb.wasUndefined) {
+    parts.push(typeof sb.value === 'string' ? sb.value : JSON.stringify(sb.value));
+  }
+  return { ok: true, output: (parts.join('\n') || '(OK)').slice(0, 4000) };
 }
 
 /** B1: Autonomous Goal / Mission Planner-Executor */

@@ -16,9 +16,9 @@ Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/
 | `node -v` | `v22.23.5` | Megfelel a `node:sqlite` által megkövetelt `22.5+` verziónak. |
 | `npm run lint` (`tsc --noEmit`) | Sikeres (0 hiba) | TypeScript típusellenőrzés hiba nélkül lefut. |
 | `npm run build` (`vite build`) | Sikeres | A kliens és PWA csomag hiba nélkül lefordul. |
-| `npm test` | **92 / 92 sikeres** | Eredeti 76 teszt + 10 első körös (`tests/security_audit_fixes.test.ts`) + **6 második körös** regressziós teszt (`tests/security_audit_fixes_pass2.test.ts`). |
+| `npm test` | **99 teszt: 95 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + 1. körös (`security_audit_fixes.test.ts`) + 2. körös (`security_audit_fixes_pass2.test.ts`) + **4 harmadik körös** regressziós teszt (`tests/sandbox_js_isolation_pass3.test.ts`). A 4 `SKIP` jelű teszt szándékosan ugorja át a valós konténerfuttatást, mert ebben a tesztkörnyezetben nincs `docker` vagy `bwrap` telepítve (a backend nélküli elutasítás + mock `bwrap`/`docker` + valós Node `--permission` és `registerHooks` futtatás zöld). |
 | `npm audit` | 4 `moderate`, 0 `high`, 0 `critical` | Mind a 4 mérsékelt jelzés a `vite-plugin-pwa -> workbox-build -> glob / minimatch` dev/build láncból jön; `--force` főverzió-visszalépést (`vite-plugin-pwa@1.1.0`) okozna. |
-| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), az `audit/fixes-2` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
+| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), az `audit/fixes-3` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
 
 ---
 
@@ -49,9 +49,9 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 |---|---|---|---|---|---|
 | S1 | `server/infra/sshHostMigrator.ts:59-196` | **Kritikus** | SSH költöztetés során parancssori argumentumban vagy héj-interpolációval adott jelszó/gazdagép parancs-injekciót okozhatott és kilátszhatott a `ps aux` folyamatlistában. **Repro:** `host: "192.168.1.5; id"` vagy `-p <jelszó>`. | `validateMigrationTarget()` szigorú IP/hostname/felhasználónév validáció; `execFile` (`shell: false`) argumentumtömb; `sshpass -e` környezeti változóval (`SSHPASS`) vagy `0700` jogosultságú ideiglenes `SSH_ASKPASS` segédszkript, amely a `finally` ágban azonnal törlődik; jelszó maszkolva a naplókban. | **javítva** |
 | S2 | `server/infra/batch4PiHardwareAndNet.ts:304-399` | **Magas** | Web File Commander tetszőleges fájlt olvashatott/írhatott `../` segítségével (`.secrets.key`, `.env`, `.state.json`). | `resolveSafeCommanderPath()` + `isProtectedPath()` tiltja a munkakönyvtáron kívüli és az összes kulcs-/állapotfájl elérését. Tesztelve: `Audit Fix 6`. | **javítva** |
-| S3 | `server/infra/hostAdmin.ts:14`, `server/infra/superAdmin.ts:14`, `server/sandbox/supervisorSandbox.ts:112-255` | **Közepes** | Gazdagép admin és homokozó futtatás. | `spawnSync` / `execFileSync` argumentumtömbbel (`shell: false`), `docker --network=none` / `bwrap --unshare-net` / `unshare -rn` elkülönítéssel, `SIGKILL` időkorláttal és 512 KB kimeneti korláttal. | **javítva** |
-| S4 | `server/security/permissionGate.ts:110-240`, `server/agents/tools.ts:196-245`, `server/agents/engine.ts:166-235`, `server/system/ops.ts:371-415`, `server/infra/batch4PiHardwareAndNet.ts:509-550, 684-710`, `src/components/SettingsView.tsx:865-895` | **Közepes** | Korábban a tiltólistás destruktív-parancs szűrés kikerülhető volt, és `fullAutonomousMode` automatikusan átengedhetett héjparancsokat. **Repro:** `ls ; id`, `cat $(echo .env)`, `cat ../etc/passwd`. | A nyers shell-futtatás tiltólistája lecserélve: alapértelmezetten **minden** gazdagép-parancs jóváhagyást igényel (`shouldRequireDangerousExecApproval()`), kivéve a szigorú csak-olvasható **allowlistet** (`ls`, munkakönyvtárba kötött `cat`, `df`, `uptime`, `uname`, `pwd`, `date`), amely `execFileSync(..., { shell: false })` argumentumtömbként fut, és visszautasítja a `; | & $ \` > < () {} * ? ~ \ ' "` karaktereket és `../` útvonalat. A `fullAutonomousMode` sem kapcsolja ki a jóváhagyást — kizárólag a külön, audit-naplózott **„Veszélyes Zóna”** kapcsoló (`dangerousExecAutoApprove`). Tesztelve: `Pass 2 Fix 4`. | **javítva** |
-| S5 | `server/power/batch5AutonomyEngine.ts:726-787`, `server/power/universalSuite.ts:1155-1205`, `server/sandbox/supervisorSandbox.ts:112-194` | **Magas** | `sandbox_js` kitörés: `node:vm` nem biztonsági határ, és a host-realm `Math`/`JSON`/`Date` objektumok átadása lehetővé tette a `Math.constructor.constructor('return process')()` típusú RCE kitörést. **Repro:** `createAndSelfTestDynamicTool` vagy `executeDynamicTool` futtatása `Math.constructor.constructor('return process')()` kóddal. | `node:vm` teljesen eltávolítva. A `sandbox_js` kód külön izolált folyamatban fut (`docker` / `bwrap` / `unshare` előnyben, `--disallow-code-generation-from-strings`, `--max-old-space-size=64`, `timeout` + `SIGKILL`), kizárólag `structuredClone`-nal másolt adatokkal/primitívekkel, miközben `import()`, `import.meta`, `process`, `require`, `Function`, `eval`, `globalThis` és `Buffer` tiltva van. Tesztelve: `Pass 2 Fix 1`. | **javítva** |
+| S3 | `server/infra/hostAdmin.ts:14`, `server/infra/superAdmin.ts:14`, `server/sandbox/supervisorSandbox.ts:132-203, 571-797`, `server/routes/api.ts:440-452`, `src/components/SystemOpsView.tsx:810-850`, `src/components/SettingsView.tsx:888-934` | **Közepes** | Gazdagép admin és Supervisor dry-run homokozó futtatás (`bwrap --ro-bind / /` helyett üres `--tmpfs /` kötelező, plusz UI visszajelzés). | `bwrap_sandbox` módban a Supervisor dry-run is üres `--tmpfs /` gyökéren fut csak `/usr`, `/bin`, `/lib*` read-only csatolással (`buildBwrapBaseArgs`). Az `unshare_net_sandbox` és `isolated_tmpfs_subprocess` mód kizárólag a Supervisor dry-run funkcióhoz maradhat meg; a Web UI **Beállítások** és **Rendszer & Költöztetés** oldalán megjelenik a Supervisor, `sandbox_js` és Node `--permission` státusz (`sandboxCapabilities`). | **javítva** |
+| S4 | `server/security/permissionGate.ts:112-235`, `server/agents/tools.ts:196-245`, `server/agents/engine.ts:166-235`, `server/system/ops.ts:371-415`, `server/infra/batch4PiHardwareAndNet.ts:509-550, 684-710`, `src/components/SettingsView.tsx:865-895` | **Közepes / Alacsony** | Korábban a tiltólistás destruktív-parancs szűrés kikerülhető volt, `fullAutonomousMode` automatikusan átengedhetett héjparancsokat, illetve a `cat` engedélylistában egy munkakönyvtáron belüli symlink mutathatott `.env` vagy `.secrets*` fájlokra. **Repro:** `ls ; id`, `cat $(echo .env)`, `ln -s ../.env link.txt && cat link.txt`. | Alapértelmezetten **minden** gazdagép-parancs jóváhagyást igényel (`shouldRequireDangerousExecApproval()`), kivéve a szigorú csak-olvasható **allowlistet** (`ls`, munkakönyvtárba kötött `cat`, `df`, `uptime`, `uname`, `pwd`, `date`) `execFileSync(..., { shell: false })` hívással. `resolveWorkspacePathForAllowlist()` (`server/security/permissionGate.ts:122-162`) `fs.lstatSync` + `fs.realpathSync` után is ellenőrzi a cél útvonalat a `PROTECTED_WORKSPACE_PATH_RE` mintával, így symlinkkel sem olvasható `.env`/`.secrets*`/`.state.json*`. Tesztelve: `Pass 2 Fix 4` + `Pass 3 Fix 6`. | **javítva** |
+| S5 | `server/sandbox/supervisorSandbox.ts:63-562`, `server/power/batch5AutonomyEngine.ts:725-845`, `server/power/universalSuite.ts:1159-1211`, `server/automation/workflowsAndProductivity.ts:247-283` | **Kritikus** | 1) A korábbi regex `import()` tiltást egy komment kijátszotta (`import/**/('node:child_process')`). 2) `bwrap --ro-bind / /` olvashatóvá tette a gazdagép titkait (`.env`, `.secrets.key`, `.state.json`). 3) Docker/bwrap hiányában `unshare -rn` vagy izoláció nélküli alfolyamat futott. **Repro:** `import/**/('node:child_process').then(m=>m.execSync('touch /tmp/pwned'))`. | Teljes újrahúzás (`runStrictJsSandbox`): **1.** Nem regexre támaszkodik (a regex csak gyors előszűrés); a 2-fájlos ESM futtató (`runner.mjs` + `user-fn.mjs`) egy `node:module` `registerHooks` modulfogóval minden további statikus és dinamikus/kommentes `import` betöltést megtagad. **2.** `sandbox_js` kizárólag **`docker`** (`--network=none`, `--read-only`, `--cap-drop=ALL`, `--pids-limit=32`, `--memory=128m`, `--user nobody`, csak `/sandbox:ro` és tmpfs `/tmp`) vagy **`bwrap`** (`--tmpfs /`, csak `/usr`/`/bin`/`/lib*`/node read-only, `--unshare-all`, `--die-with-parent`, `--new-session`, `--clearenv`, projekt/home/titokfájlok nélkül) alatt futhat. Ha egyik sincs, azonnal megtagadja a futtatást (`NO_SANDBOX_BACKEND`, nincs `unshare`/alfolyamat fallback!). **3.** Futásidejű Node `--permission` réteg (`detectNodePermissionSupport()`): csak a 3 sandbox fájlra ad `--allow-fs-read` jogot. **4.** Korlátozott stdout/stderr és szigorú `JSON.parse` kimenet (`parseStrictSandboxJsonOutput()`). Tesztelve: `Pass 2 Fix 1` + `Pass 3 Fix 1–5`. | **javítva** |
 
 ### 2.4. Felhasználói HTML Kiszolgálása, XSS, CSP és Tokenek
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
@@ -108,7 +108,7 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | Q3 | `server/`, `src/`, `shared/` | **Alacsony** | Típusbiztonság (`: any`, `as any`, `@ts-ignore`, `@ts-expect-error`) ellenőrzése `grep`-pel. | **0 db** előfordulás a teljes kódbázisban; `npm run lint` (`tsc --noEmit`) teljesen tiszta. | **javítva** |
-| Q4 | `tests/security_audit_fixes.test.ts`, `tests/security_audit_fixes_pass2.test.ts` + 15 további tesztfájl | **Közepes** | Regressziós tesztlefedettség az összes 1. és 2. körös biztonsági javításra (sandbox kitörés, brute-force 429, egyszeri setup-kód, allowlist shell + Veszélyes Zóna, DNS rebinding 403, body/rate limitek, OTA figyelmeztetés, audit horgony). | Létrehozva a 10 első körös + 6 második körös biztonsági regressziós teszt; a teljes tesztcsomag **92 / 92** zöld eredménnyel fut le. | **javítva** |
+| Q4 | `tests/security_audit_fixes.test.ts`, `tests/security_audit_fixes_pass2.test.ts`, `tests/sandbox_js_isolation_pass3.test.ts` + 15 további tesztfájl | **Közepes** | Regressziós tesztlefedettség az összes 1., 2. és 3. körös biztonsági javításra (valódi `docker`/`bwrap` izoláció, kommentes `import/**/` elleni `registerHooks` + `--permission` védelem, backend hiányában azonnali tiltás, `cat` symlink tiltás, brute-force 429, egyszeri setup-kód, DNS rebinding 403). | Létrehozva a 10 első körös + 6 második körös + 4 harmadik körös biztonsági regressziós teszt; a teljes tesztcsomag **99 tesztből 95 sikeres, 0 hiba, 4 `SKIP`** (a hiányzó helyi `docker`/`bwrap` binárisok miatt átugrott valós konténertesztek). | **javítva** |
 
 ---
 
@@ -148,18 +148,24 @@ A korábbi iterációkban a README több mint ~560 elnevezett (`Mxxx`, `Úxxx`, 
 
 Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár és nincsenek meg a GitHub hozzáférési jogosultságaid, az alábbi lépéseket kézzel kell lefuttatnod a saját gépeden:
 
-1. **Külön `audit/fixes-2` branch, pontonkénti commitok és Pull Request létrehozása:**
+1. **Külön `audit/fixes-3` branch, külön commitok és Pull Request létrehozása:**
    ```bash
-   git checkout -b audit/fixes-2
+   git checkout -b audit/fixes-3
    git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log
    git add -A
-   # Ajánlott pontonként külön commitokat készíteni (pl. sandbox, brute-force/timingSafeEqual, setup-code, shell-allowlist, dns-rebinding, rate-limit/ota/audit-anchor, AUDIT.md)
-   git commit -m "security: pass 2 hardening fixes + regression tests"
-   git push -u origin audit/fixes-2
-   # Ezután nyiss Pull Requestet GitHubon az audit/fixes-2 -> main ágra!
+   # Külön commitok ajánlott sorrendben: sandbox-strict-isolation, permission-hook-and-symlink, ui-isolation-status, pass3-tests-and-audit
+   git commit -m "security: pass 3 strict bwrap/docker sandbox_js isolation, Node --permission & symlink guard"
+   git push -u origin audit/fixes-3
+   # Ezután nyiss Pull Requestet GitHubon az audit/fixes-3 -> main ágra!
    ```
 
-2. **Git History ellenőrzése (maradt-e titok korábbi commitokban — ne tisztítsd vaktában, előbb nézd meg):**
+2. **Bubblewrap telepítése Raspberry Pi / Debian gazdagépen (hogy a `sandbox_js` valódi izolációval futhasson):**
+   ```bash
+   sudo apt update && sudo apt install -y bubblewrap
+   ```
+   *(Vagy telepíts Dockert a `node:22-alpine` image-dzsel; ezek nélkül a `sandbox_js` biztonsági okból letiltva marad.)*
+
+3. **Git History ellenőrzése (maradt-e titok korábbi commitokban — ne tisztítsd vaktában, előbb nézd meg):**
    ```bash
    git log --all --stat -- '.state.json*' '.secrets*' '.env*'
    git log --all -p -S 'TELEGRAM_BOT_TOKEN' -- '.env*' '.state.json*'
@@ -173,12 +179,12 @@ Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár és nincsenek meg a 
    git push --force --all
    ```
 
-3. **Kötelező kulcs- és token-rotáció (ha a `git log --all` találatot hoz `.state.json*`, `.secrets*` vagy `.env*` fájlokra):**
+4. **Kötelező kulcs- és token-rotáció (ha a `git log --all` találatot hoz `.state.json*`, `.secrets*` vagy `.env*` fájlokra):**
    - **Telegram Bot token**: állíts be újat a `@BotFather`-nél (`/revoke`).
    - **AI szolgáltatói API kulcsok**: cseréld le az összes érintett OpenAI / Gemini / Anthropic / OpenRouter / Groq / stb. kulcsot és vond vissza a régieket.
    - **Vault mesterkulcs (`.secrets.key` / `NOVASWARM_MASTER_KEY`) és webes operátori jelszó**: töröld/generáld újra a `.secrets.key`-t az éles szerveren, és állíts be új operátori jelszót az egyszeri setup-kóddal.
    - **Föderációs és webhook titkok / SSH költöztető kulcsok**: cseréld a `federationTokens`-t, webhook HMAC kulcsokat és az SSH kulcsokat/jelszavakat, ha valaha belekerültek az állapotfájlokba.
 
-4. **OTA GPG-ellenőrzés és napi audit-horgony bekapcsolása:**
+5. **OTA GPG-ellenőrzés és napi audit-horgony bekapcsolása:**
    - Írd alá GPG-vel a kiadási tageket (`git tag -s vX.Y.Z`), opcionálisan állítsd be a `/etc/systemd/system/novaswarm.service` fájlban az `Environment=NOVASWARM_VERIFY_TAG_SIG=1` sort (különben `auto` módban működik, és figyelmeztet, ha nincs aláírt tag).
    - A Web UI **Beállítások** oldalán engedélyezd a **Napi Audit Fej-Hash küldése Telegramra** kapcsolót.
