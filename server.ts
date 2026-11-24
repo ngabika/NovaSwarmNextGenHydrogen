@@ -28,6 +28,10 @@ import {
   requireAllowedHostMiddleware,
 } from './server/security/auth';
 import {
+  checkSudoNopasswd,
+  maybeRunDailyAutoPhoenixSnapshot,
+} from './server/security/autonomyProfile';
+import {
   createDefaultApiRateLimitMiddleware,
   createPublicRouteRateLimitMiddleware,
   createSelectiveJsonBodyMiddleware,
@@ -309,6 +313,21 @@ async function bootstrap() {
   getState();
   ensureOneTimeSetupCode();
   try {
+    const sudoStat = checkSudoNopasswd();
+    if (!sudoStat.hasNopasswd) {
+      console.warn(`[NovaSwarm SUDO FIGYELEM] ${sudoStat.message}`);
+    } else {
+      console.info(`[NovaSwarm SUDO] ${sudoStat.message}`);
+    }
+  } catch {
+    // non-fatal
+  }
+  try {
+    maybeRunDailyAutoPhoenixSnapshot();
+  } catch {
+    // non-fatal
+  }
+  try {
     applyHardwareAdaptiveOptimization(false);
   } catch {
     // non-fatal on constrained containers
@@ -539,6 +558,14 @@ async function bootstrap() {
     }
     pruneRetentionData();
     pruneExpiredEphemeralNotes();
+    try {
+      const autoSnap = maybeRunDailyAutoPhoenixSnapshot();
+      if (autoSnap.created) {
+        broadcastEvent('state:updated');
+      }
+    } catch {
+      // non-fatal
+    }
     void maybeSendDailyAuditAnchorToTelegram().catch(() => {});
     try {
       runSqliteMaintenance();

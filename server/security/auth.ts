@@ -418,19 +418,20 @@ export function verifySameOriginRequest(headers: {
   }
 }
 
+export function hasValidHumanSessionCookie(headers: { cookie?: string }): boolean {
+  if (!hasWebAuthPassword()) {
+    return false;
+  }
+  const cookies = parseCookieHeader(headers.cookie);
+  return verifySessionToken(cookies[WEB_SESSION_COOKIE_NAME]);
+}
+
 export function isRequestAuthorized(headers: { cookie?: string; authorization?: string }): boolean {
   const state = getState();
   if (!state.settings.webAuthEnabled) {
     return true;
   }
-  if (!hasWebAuthPassword()) {
-    return false;
-  }
-  const cookies = parseCookieHeader(headers.cookie);
-  if (verifySessionToken(cookies[WEB_SESSION_COOKIE_NAME])) {
-    return true;
-  }
-  return false;
+  return hasValidHumanSessionCookie(headers);
 }
 
 export function getWsUpgradeDecision(req: http.IncomingMessage): {

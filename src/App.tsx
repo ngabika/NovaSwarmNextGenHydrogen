@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import {
   Activity,
+  AlertTriangle,
   Bell,
   Bot,
   Brain,
@@ -28,7 +29,13 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import type { HardwareMetrics, NovaSwarmState, SandboxCapabilities } from '../shared/types';
+import type {
+  HardwareMetrics,
+  NovaSwarmState,
+  PhoenixAutonomyStatus,
+  SandboxCapabilities,
+  SudoCheckStatus,
+} from '../shared/types';
 import { CommandPalette } from './components/CommandPalette';
 import { InfoHint } from './components/InfoHint';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -86,6 +93,9 @@ export default function App() {
   const [cacheSize, setCacheSize] = useState(0);
   const [sandboxBackend, setSandboxBackend] = useState<string>('isolated_tmpfs_subprocess');
   const [sandboxCapabilities, setSandboxCapabilities] = useState<SandboxCapabilities | null>(null);
+  const [sudoStatus, setSudoStatus] = useState<SudoCheckStatus | null>(null);
+  const [phoenixAutonomy, setPhoenixAutonomy] = useState<PhoenixAutonomyStatus | null>(null);
+  const [creatingPhoenixSnap, setCreatingPhoenixSnap] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -136,6 +146,8 @@ export default function App() {
         cacheSize?: number;
         sandboxBackend?: string;
         sandboxCapabilities?: SandboxCapabilities;
+        sudoStatus?: SudoCheckStatus;
+        phoenixAutonomy?: PhoenixAutonomyStatus;
       };
       setAuthLocked(false);
       setAuthSetupRequired(false);
@@ -145,6 +157,8 @@ export default function App() {
       setCacheSize(data.cacheSize ?? 0);
       if (data.sandboxBackend) setSandboxBackend(data.sandboxBackend);
       if (data.sandboxCapabilities) setSandboxCapabilities(data.sandboxCapabilities);
+      if (data.sudoStatus) setSudoStatus(data.sudoStatus);
+      if (data.phoenixAutonomy) setPhoenixAutonomy(data.phoenixAutonomy);
       setLoadError(null);
       return true;
     } catch (err) {
@@ -836,6 +850,54 @@ export default function App() {
           </div>
         )}
 
+        {state.settings.fullAutonomyProfileEnabled && (
+          <div
+            role="alert"
+            className="bg-red-600 text-white border-b border-red-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+          >
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              TELJES AUTONÓMIA PROFIL AKTÍV — az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat! Telegram engedélylista, Web jelszó és a /stop vészleállító továbbra is aktív.
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {phoenixAutonomy?.staleWarning && (
+                <button
+                  type="button"
+                  disabled={creatingPhoenixSnap}
+                  onClick={async () => {
+                    setCreatingPhoenixSnap(true);
+                    try {
+                      await fetch('/api/v3/phoenix/snapshot', { method: 'POST' });
+                      await fetchState();
+                    } finally {
+                      setCreatingPhoenixSnap(false);
+                    }
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-amber-300 text-slate-950 rounded hover:bg-amber-200 disabled:opacity-60"
+                >
+                  {creatingPhoenixSnap ? 'Mentés...' : 'Phoenix Mentés (>24h!)'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                className="px-2.5 py-1 text-[11px] font-semibold bg-white text-red-700 rounded hover:bg-red-50"
+              >
+                Profil kezelése
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!state.settings.fullAutonomyProfileEnabled && phoenixAutonomy?.staleWarning && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+            <span className="inline-flex items-center gap-2 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {phoenixAutonomy.warningMessage}
+            </span>
+          </div>
+        )}
+
         {reminderBanner && (
           <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900">
             <span className="inline-flex items-center gap-2 font-medium">
@@ -959,6 +1021,8 @@ export default function App() {
                 state={state}
                 sandboxBackend={sandboxBackend}
                 sandboxCapabilities={sandboxCapabilities}
+                sudoStatus={sudoStatus}
+                phoenixAutonomy={phoenixAutonomy}
                 onRefreshState={fetchState}
               />
             )}
@@ -967,6 +1031,8 @@ export default function App() {
                 language={lang}
                 settings={state.settings}
                 sandboxCapabilities={sandboxCapabilities}
+                sudoStatus={sudoStatus}
+                phoenixAutonomy={phoenixAutonomy}
                 onRefreshState={fetchState}
               />
             )}

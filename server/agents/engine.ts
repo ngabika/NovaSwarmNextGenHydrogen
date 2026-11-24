@@ -22,6 +22,15 @@ import {
   type RouterDependencies,
 } from '../providers/router';
 import {
+  detectSudoPasswordError,
+  formatExecTimeoutMessage,
+  formatSudoMissingNopasswdMessage,
+  getExecTimeoutForCommand,
+  isExecTimeoutError,
+  rewriteSudoNonInteractive,
+  runTrackedHostCommand,
+} from '../security/autonomyProfile';
+import {
   assertHostPermission,
   detectDestructiveOperation,
   parseSafeAllowlistedHostCommand,
@@ -168,6 +177,8 @@ export function executeHostCommandForAgent(
   command: string
 ): { executed: boolean; pendingApproval?: boolean; approvalId?: string; stdout: string; stderr: string } {
   assertHostPermission(`exec:${command}`, agent.id);
+  const currentSettings = getState().settings;
+  const { timeoutSec, timeoutMs } = getExecTimeoutForCommand(command, currentSettings);
 
   const safeCmd = parseSafeAllowlistedHostCommand(command);
   if (safeCmd.allowed) {
@@ -175,24 +186,26 @@ export function executeHostCommandForAgent(
       const out = execFileSync(safeCmd.bin, safeCmd.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
-        timeout: 15000,
+        timeout: timeoutMs,
         shell: false,
       });
+      const prefix = String(out || '').trim().slice(0, 180);
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Parancs (allowlist, shell:false) végrehajtva: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
+        message: `[${new Date().toISOString()}] Parancs (allowlist, shell:false, timeout: ${timeoutSec}s) végrehajtva: ${safeCmd.bin} ${safeCmd.args.join(' ')}${prefix ? ` | Kimenet: ${prefix}` : ''}`,
         verifiedExecution: true,
       });
       return { executed: true, stdout: out, stderr: '' };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = isExecTimeoutError(err) ? formatExecTimeoutMessage(timeoutSec) : rawMsg;
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Parancs sikertelen (${command}): ${msg}`,
+        message: `[${new Date().toISOString()}] Parancs sikertelen (${command}): ${msg.slice(0, 180)}`,
         verifiedExecution: true,
       });
       return { executed: false, stdout: '', stderr: msg };
@@ -216,40 +229,109 @@ export function executeHostCommandForAgent(
     };
   }
 
+  const effectiveCommand = rewriteSudoNonInteractive(command);
+  const startedAt = new Date().toISOString();
   appendAuditLog({
     type: 'security',
     sourceAgentId: agent.id,
     sourceAgentName: agent.name,
-    message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli parancsvégrehajtás: ${command}`,
+    message: `[VESZÉLYES ZÓNA] [${startedAt}] Jóváhagyás nélküli parancsvégrehajtás indítva (timeout=${timeoutSec}s): ${effectiveCommand}`,
     verifiedExecution: true,
   });
 
   try {
-    const out = execFileSync('sh', ['-c', command], {
+    const out = execFileSync('sh', ['-c', effectiveCommand], {
       cwd: process.cwd(),
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: timeoutMs,
       shell: false,
     });
+    const prefix = String(out || '').trim().slice(0, 180);
     appendAuditLog({
       type: 'action',
       sourceAgentId: agent.id,
       sourceAgentName: agent.name,
-      message: `Parancs (Veszélyes Zóna) végrehajtva: ${command}`,
+      message: `[${new Date().toISOString()}] Parancs (Veszélyes Zóna) végrehajtva: ${effectiveCommand}${prefix ? ` | Kimenet: ${prefix}` : ''}`,
       verifiedExecution: true,
     });
     return { executed: true, stdout: out, stderr: '' };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const stderrText =
+      err && typeof err === 'object' && 'stderr' in err ? String((err as { stderr?: unknown }).stderr ?? '') : '';
+    const msg = isExecTimeoutError(err)
+      ? formatExecTimeoutMessage(timeoutSec)
+      : detectSudoPasswordError(stderrText || rawMsg)
+        ? `${formatSudoMissingNopasswdMessage()}\nRészlet: ${(stderrText || rawMsg).slice(0, 200)}`
+        : rawMsg;
     appendAuditLog({
       type: 'action',
       sourceAgentId: agent.id,
       sourceAgentName: agent.name,
-      message: `Parancs sikertelen (${command}): ${msg}`,
+      message: `[${new Date().toISOString()}] Parancs sikertelen (${effectiveCommand}): ${msg.slice(0, 180)}`,
       verifiedExecution: true,
     });
     return { executed: false, stdout: '', stderr: msg };
   }
+}
+
+export async function executeHostCommandForAgentAsync(
+  agent: Agent,
+  command: string
+): Promise<{ executed: boolean; pendingApproval?: boolean; approvalId?: string; stdout: string; stderr: string }> {
+  assertHostPermission(`exec:${command}`, agent.id);
+  const safeCmd = parseSafeAllowlistedHostCommand(command);
+  if (safeCmd.allowed) {
+    const { timeoutSec } = getExecTimeoutForCommand(command, getState().settings);
+    const res = await runTrackedHostCommand({
+      bin: safeCmd.bin,
+      args: safeCmd.args,
+      timeoutSec,
+    });
+    const outPrefix = (res.stdout || res.stderr || '').trim().slice(0, 180);
+    appendAuditLog({
+      type: 'action',
+      sourceAgentId: agent.id,
+      sourceAgentName: agent.name,
+      message: `[${new Date().toISOString()}] Parancs (allowlist, shell:false) ${res.ok ? 'végrehajtva' : 'sikertelen'}: ${safeCmd.bin} ${safeCmd.args.join(' ')}${outPrefix ? ` | Kimenet: ${outPrefix}` : ''}`,
+      verifiedExecution: true,
+    });
+    return { executed: res.ok, stdout: res.stdout, stderr: res.ok ? '' : res.stderr };
+  }
+
+  const destructive = detectDestructiveOperation(command);
+  if (shouldRequireDangerousExecApproval()) {
+    const actionType = destructive.type || 'destructive_shell';
+    const actionTitle = destructive.title || `Nem engedélylistás parancs futtatása (${safeCmd.reason})`;
+    const req = requireDestructiveApproval(actionType, actionTitle, command, agent.name);
+    void import('../telegram/bot')
+      .then((m) => m.notifyApprovalToTelegram(req))
+      .catch(() => {});
+    return {
+      executed: false,
+      pendingApproval: true,
+      approvalId: req.id,
+      stdout: '',
+      stderr: `Jóváhagyás szükséges a parancs futtatása előtt (${actionTitle}). Jóváhagyási azonosító: ${req.id}`,
+    };
+  }
+
+  const effectiveCommand = rewriteSudoNonInteractive(command);
+  const { timeoutSec } = getExecTimeoutForCommand(effectiveCommand, getState().settings);
+  const res = await runTrackedHostCommand({
+    bin: 'sh',
+    args: ['-c', effectiveCommand],
+    timeoutSec,
+  });
+  const outPrefix = (res.stdout || res.stderr || '').trim().slice(0, 180);
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: agent.id,
+    sourceAgentName: agent.name,
+    message: `[VESZÉLYES ZÓNA] [${new Date().toISOString()}] Parancs=${effectiveCommand} | Állapot=${res.ok ? 'OK' : 'HIBA'} | Kimenet=${outPrefix || '(üres)'}`,
+    verifiedExecution: true,
+  });
+  return { executed: res.ok, stdout: res.stdout, stderr: res.ok ? '' : res.stderr };
 }
 
 const AGENT_BLOCKED_PATH_RE = /(^|\/)(\.env(\..*)?|\.secrets(\.[^/]+)?|\.state\.json.*|\.config\.json|novaswarm\.sqlite.*|\.git(\/|$)|backups(\/|$))/i;

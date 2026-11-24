@@ -618,6 +618,12 @@ export function createDefaultSettings(): Settings {
     agentSelfCritiquePass: false,
     defaultResponseTone: 'professional',
     dangerousExecAutoApprove: false,
+    fullAutonomyProfileEnabled: false,
+    fullAutonomyPreviousFlags: null,
+    execTimeoutSeconds: 12,
+    longExecTimeoutSeconds: 600,
+    autoPhoenixSnapshotInFullAutonomy: true,
+    lastPhoenixSnapshotAt: null,
     sendAuditAnchorToTelegram: false,
     lastAuditAnchorSentDate: null,
   };

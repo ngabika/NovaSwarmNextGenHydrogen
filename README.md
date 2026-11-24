@@ -16,6 +16,19 @@ Az alkalmazás alapértelmezett állapota biztonságos konfigurációval indul, 
 - `channelPairingRequired: true` — Telegram bot alapból **fail-closed** (`telegramAllowedChatIds` vagy `telegramChatId` nélkül minden üzenetet elutasít).
 - `supervisorStrictness: 'balanced'` — szigorúbb ellenőrzés, `nightShiftEnabled: false` és `autonomousKanbanWorkerEnabled: false` alapértelmezéssel.
 
+### „Teljes autonómia” Profil, Időkorlátok és Sudo (`NOPASSWD`)
+
+A Web UI **Beállítások** oldalán található 1-kattintásos **„Teljes autonómia” profil** operátori jelszó és figyelmeztető megerősítés után együtt kapcsolja be a gazdagép-jogosultságot, a teljes autonóm módot és a parancsfuttatási jóváhagyásmentességet (kikapcsoláskor pedig visszaállítja a korábbi kapcsolóállapotokat). A profil mellett is aktív marad a Telegram chat-ID engedélylista, a webes belépési jelszó, a `/stop` vészleállító (amely azonnali `SIGKILL`-lel lelövi a futó host folyamatfát) és az ágens vezérlősík-tiltás.
+
+- **Konfigurálható `exec` időkorlátok:** `execTimeoutSeconds` (5–3600 mp, alap `12`) rövid parancsokhoz, valamint `longExecTimeoutSeconds` (30–7200 mp, alap `600`) hosszú telepítésekhez (`apt`, `npm`, `vite build`, OS frissítés).
+- **Jelszó nélküli `sudo` (`NOPASSWD`) a Raspberry Pi-n:** A háttérfolyamat nem interactive módban (`sudo -n`) fut, és induláskor + Telegram `/sudo` paranccsal + a **Rendszer & Költöztetés** oldalon ellenőrzi a jogosultságot. Beállítása a gazdagépen:
+  ```bash
+  sudo visudo -f /etc/sudoers.d/novaswarm
+  # Add hozzá:
+  <felhasználónév> ALL=(ALL) NOPASSWD:ALL
+  ```
+- **Napi automatikus Phoenix mentés:** Teljes autonómiában a rendszer naponta automatikus Phoenix pillanatképet készít, és figyelmeztet, ha a legutóbbi mentés 24 óránál régebbi.
+
 ---
 
 ## Moduláris Felépítés (Mag + Opcionális Modulok)

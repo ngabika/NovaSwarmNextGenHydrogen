@@ -16,6 +16,11 @@ import {
   runAutonomousMission,
 } from '../power/universalSuite';
 import { invokeWithFailover } from '../providers/router';
+import {
+  checkSudoNopasswd,
+  getExecTimeoutForCommand,
+  getPhoenixAutonomyStatus,
+} from '../security/autonomyProfile';
 import { activateKillSwitch, assertHostPermission, resolveApproval } from '../security/permissionGate';
 import {
   collectPiHardwareDeepStatus,
@@ -199,6 +204,7 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'anonimizal', description: 'PII és API kulcs anonimizáló' },
           { command: 'teendok', description: 'Akciópontok kinyerése szövegből' },
           { command: 'v8riport', description: 'Omni vezetői Markdown riport' },
+          { command: 'sudo', description: 'Jelszó nélküli sudo (NOPASSWD) ellenőrzése' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -420,15 +426,33 @@ export async function processTelegramInput(
   if (text === '/statusz' || text === '/status') {
     const hw = collectHardwareMetrics();
     const activeAgents = state.agents.filter((a) => a.active && !a.isSupervisor).length;
+    const sudoStat = checkSudoNopasswd();
+    const phoenixStat = getPhoenixAutonomyStatus();
     return [
       `NovaSwarm Állapot:`,
       `- Aktív ágensek: ${activeAgents} (+1 Felügyelő: ${state.supervisor.status})`,
-      `- Host jogosultság: ${state.settings.hostPermissionsGranted ? 'Engedélyezve' : 'Korlátozva'}`,
+      `- Teljes autonómia profil: ${state.settings.fullAutonomyProfileEnabled ? 'AKTÍV (parancsok jóváhagyás nélkül futhatnak)' : 'Ki'}`,
+      `- Jogosultságok: host=${state.settings.hostPermissionsGranted ? 'IGEN' : 'Nem'} | autonóm=${state.settings.fullAutonomousMode ? 'IGEN' : 'Nem'} | veszélyes_exec=${state.settings.dangerousExecAutoApprove ? 'IGEN' : 'Nem'}`,
+      `- Exec időkorlát: ${state.settings.execTimeoutSeconds ?? 12}s (hosszú: ${state.settings.longExecTimeoutSeconds ?? 600}s)`,
+      `- Sudo NOPASSWD (${sudoStat.username}): ${sudoStat.hasNopasswd ? 'Rendben' : 'HIÁNYZIK (/sudo)'}`,
       `- Kill switch: ${state.settings.killSwitchActive ? 'AKTÍV' : 'Ki'}`,
       `- CPU: ${hw.cpuLoadPercent}% (${hw.cpuCores} mag) | RAM: ${hw.ramUsedMb}/${hw.ramTotalMb} MB (${hw.ramPercent}%)`,
       `- Hőmérséklet: ${hw.temperatureCelsius !== null ? `${hw.temperatureCelsius}°C` : 'N/A'} | Akku: ${hw.batteryPercent !== null ? `${hw.batteryPercent}%` : 'AC/N/A'}`,
       `- Napi költés: $${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}`,
       `- Heartbeat: ${state.settings.lastHeartbeatSummary || 'még nem futott'}`,
+      ...(phoenixStat.warningMessage ? [`⚠️ ${phoenixStat.warningMessage}`] : []),
+    ].join('\n');
+  }
+
+  if (text === '/sudo') {
+    const sudoStat = checkSudoNopasswd();
+    return [
+      `Sudo (NOPASSWD) diagnosztika (${sudoStat.username}):`,
+      `• Állapot: ${sudoStat.hasNopasswd ? 'RENDBEN (jelszó nélküli sudo működik)' : 'HIÁNYZIK / jelszót kér'}`,
+      `• Részlet: ${sudoStat.message}`,
+      ...(!sudoStat.hasNopasswd
+        ? ['', 'Manuális beállítás:', `${sudoStat.visudoCommand}\n${sudoStat.sudoersLine}`]
+        : []),
     ].join('\n');
   }
 
@@ -708,7 +732,13 @@ export async function processTelegramInput(
   if (text === '/hwopt') {
     const out = applyHardwareAdaptiveOptimization(true);
     const wd = await runRamOomWatchdogTick();
-    return `${out.profile.tierLabel}\n${out.profile.appliedNotes.join('\n')}\nRAM Őrszem: ${wd.ramPercent}% (küszöb ${wd.thresholdPercent}%)`;
+    const { timeoutSec: aptTimeoutSec } = getExecTimeoutForCommand('apt-get update', state.settings);
+    return [
+      out.profile.tierLabel,
+      ...out.profile.appliedNotes,
+      `RAM Őrszem: ${wd.ramPercent}% (küszöb ${wd.thresholdPercent}%)`,
+      `Teljes autonómia profil: ${state.settings.fullAutonomyProfileEnabled ? 'AKTÍV' : 'Ki'} | Exec timeout: ${state.settings.execTimeoutSeconds ?? 12}s (hosszú: ${aptTimeoutSec}s)`,
+    ].join('\n');
   }
 
   if (text === '/brief') {

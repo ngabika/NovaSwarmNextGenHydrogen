@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { KeyRound, OctagonAlert, Save } from 'lucide-react';
-import type { ExecutionPreset, LanguageCode, SandboxCapabilities, Settings } from '../../shared/types';
+import { AlertTriangle, KeyRound, OctagonAlert, Save, ShieldAlert } from 'lucide-react';
+import type {
+  ExecutionPreset,
+  LanguageCode,
+  PhoenixAutonomyStatus,
+  SandboxCapabilities,
+  Settings,
+  SudoCheckStatus,
+} from '../../shared/types';
 import { InfoHint } from './InfoHint';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
@@ -8,10 +15,19 @@ interface Props {
   language: LanguageCode;
   settings: Settings;
   sandboxCapabilities?: SandboxCapabilities | null;
+  sudoStatus?: SudoCheckStatus | null;
+  phoenixAutonomy?: PhoenixAutonomyStatus | null;
   onRefreshState: () => Promise<void>;
 }
 
-export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapabilities, onRefreshState }) => {
+export const SettingsView: React.FC<Props> = ({
+  language,
+  settings,
+  sandboxCapabilities,
+  sudoStatus,
+  phoenixAutonomy,
+  onRefreshState,
+}) => {
   const [form, setForm] = useState<Settings>(settings);
   const [telegramToken, setTelegramToken] = useState('');
   const [braveSearchKey, setBraveSearchKey] = useState('');
@@ -21,8 +37,16 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+
+  // Full Autonomy profile activation modal state
+  const [autonomyModalOpen, setAutonomyModalOpen] = useState(false);
+  const [autonomyPassword, setAutonomyPassword] = useState('');
+  const [autonomyBusy, setAutonomyBusy] = useState(false);
+  const [autonomyMsg, setAutonomyMsg] = useState<string | null>(null);
+  const [autonomyErr, setAutonomyErr] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(settings);
@@ -32,12 +56,18 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
     e.preventDefault();
     setSaving(true);
     setSavedMsg(null);
+    setSaveError(null);
     try {
+      const {
+        fullAutonomyProfileEnabled: _ignoredProfileFlag,
+        fullAutonomyPreviousFlags: _ignoredPrevFlags,
+        ...restForm
+      } = form;
       const res = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...form,
+          ...restForm,
           telegramToken: telegramToken.trim() || undefined,
           braveSearchKey: braveSearchKey.trim() || undefined,
           homeAssistantToken: homeAssistantToken.trim() || undefined,
@@ -49,9 +79,45 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
         setHomeAssistantToken('');
         setSavedMsg('Beállítások mentve és azonnal érvényesítve.');
         await onRefreshState();
+      } else {
+        const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(errBody.error || `Mentési hiba (HTTP ${res.status})`);
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleAutonomyProfile = async (enableTarget: boolean) => {
+    setAutonomyBusy(true);
+    setAutonomyErr(null);
+    setAutonomyMsg(null);
+    try {
+      const res = await fetch('/api/autonomy-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: enableTarget,
+          password: enableTarget ? autonomyPassword : undefined,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok) {
+        setAutonomyErr(body.error || `Hiba a profil váltásakor (HTTP ${res.status}).`);
+        return;
+      }
+      setAutonomyPassword('');
+      setAutonomyModalOpen(false);
+      setAutonomyMsg(
+        enableTarget
+          ? 'Teljes autonómia profil BEKAPCSOLVA (Host + Autonóm + Veszélyes Zóna aktív).'
+          : 'Teljes autonómia profil KIKAPCSOLVA, az előző jogosultságok visszaállítva.'
+      );
+      await onRefreshState();
+    } catch (err) {
+      setAutonomyErr(err instanceof Error ? err.message : 'Hálózati hiba');
+    } finally {
+      setAutonomyBusy(false);
     }
   };
 
@@ -118,6 +184,11 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
         {savedMsg && (
           <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900">
             {savedMsg}
+          </div>
+        )}
+        {saveError && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900">
+            {saveError}
           </div>
         )}
 
@@ -856,6 +927,113 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
             </div>
           </div>
 
+          <div className="p-4 rounded-xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/30 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4 text-amber-800 dark:text-amber-300" />
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    „Teljes autonómia” Profil (1-kattintásos csomag)
+                  </h4>
+                  <span
+                    className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
+                      settings.fullAutonomyProfileEnabled
+                        ? 'bg-red-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {settings.fullAutonomyProfileEnabled ? 'AKTÍV' : 'Kikapcsolva'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-700 dark:text-slate-300 max-w-2xl">
+                  Bekapcsolja együtt a <strong>Host jogosultságot</strong>, a <strong>Teljes autonóm módot</strong> és a <strong>Veszélyes Zónát</strong> (exec jóváhagyás nélkül). Kikapcsoláskor visszaállítja a korábbi egyéni értékeket.
+                  A Telegram engedélylista, a Web operátori jelszó és a <span className="font-mono">/stop</span> vészleállító ezalatt is aktív marad.
+                </p>
+              </div>
+              {settings.fullAutonomyProfileEnabled ? (
+                <button
+                  type="button"
+                  disabled={autonomyBusy}
+                  onClick={() => void handleToggleAutonomyProfile(false)}
+                  className="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
+                >
+                  Teljes autonómia Kikapcsolása
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutonomyErr(null);
+                    setAutonomyPassword('');
+                    setAutonomyModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 whitespace-nowrap"
+                >
+                  Teljes autonómia Bekapcsolása...
+                </button>
+              )}
+            </div>
+            {autonomyMsg && (
+              <div className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900/70 border border-amber-300 text-xs text-slate-900 dark:text-slate-100">
+                {autonomyMsg}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 items-end">
+              <div>
+                <label htmlFor="set-exec-timeout" className="block text-xs font-medium text-slate-800 dark:text-slate-200 mb-1">
+                  Exec Parancs Időkorlát (mp, 5–3600)
+                </label>
+                <input
+                  id="set-exec-timeout"
+                  type="number"
+                  min={5}
+                  max={3600}
+                  value={form.execTimeoutSeconds ?? 12}
+                  onChange={(e) => setForm({ ...form, execTimeoutSeconds: Number(e.target.value) })}
+                  className="w-full px-3 py-1.5 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
+                />
+              </div>
+              <div>
+                <label htmlFor="set-long-exec-timeout" className="block text-xs font-medium text-slate-800 dark:text-slate-200 mb-1">
+                  Hosszú Parancs (apt/npm/build) Időkorlát (mp, 30–7200)
+                </label>
+                <input
+                  id="set-long-exec-timeout"
+                  type="number"
+                  min={30}
+                  max={7200}
+                  value={form.longExecTimeoutSeconds ?? 600}
+                  onChange={(e) => setForm({ ...form, longExecTimeoutSeconds: Number(e.target.value) })}
+                  className="w-full px-3 py-1.5 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
+                />
+              </div>
+              <div className="flex flex-col justify-end text-[11px] font-mono text-slate-600 dark:text-slate-300 space-y-0.5">
+                <span>
+                  Sudo NOPASSWD:{' '}
+                  <strong className={sudoStatus?.hasNopasswd ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
+                    {sudoStatus ? (sudoStatus.hasNopasswd ? 'Rendben' : 'HIÁNYZIK') : '—'}
+                  </strong>
+                </span>
+                <span>
+                  Phoenix mentés:{' '}
+                  <strong className={phoenixAutonomy?.staleWarning ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}>
+                    {phoenixAutonomy?.lastSnapshotAt
+                      ? `${phoenixAutonomy.ageHours ?? 0} órája`
+                      : 'még nincs'}
+                  </strong>
+                </span>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.autoPhoenixSnapshotInFullAutonomy !== false}
+                onChange={(e) => setForm({ ...form, autoPhoenixSnapshotInFullAutonomy: e.target.checked })}
+              />
+              <span>Napi automatikus Phoenix pillanatkép készítése Teljes autonómia alatt (24 óránként figyelmeztet, ha hiányzik)</span>
+            </label>
+          </div>
+
           <div className="space-y-2.5">
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2.5 text-sm font-medium cursor-pointer">
@@ -1493,6 +1671,79 @@ export const SettingsView: React.FC<Props> = ({ language, settings, sandboxCapab
             : tr(language, 'killSwitchActivate')}
         </button>
       </div>
+
+      {autonomyModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="autonomy-modal-title"
+          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
+        >
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-4 shadow-xl">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <h3 id="autonomy-modal-title" className="text-base font-bold">
+                Teljes autonómia profil megerősítése
+              </h3>
+            </div>
+            <div className="text-xs text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
+              <p>
+                A profil bekapcsolása egyszerre engedélyezi a géphez való hozzáférést, a jóváhagyás nélküli
+                önálló feladatvégrehajtást és a parancssori <strong>Veszélyes Zónát</strong>.
+              </p>
+              <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-900 dark:text-red-200">
+                <strong>Kockázati figyelmeztetés:</strong> külső weboldalból, e-mailből vagy üzenetből származó
+                prompt injection esetén az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat!
+              </div>
+              <p>
+                A Telegram chat-ID engedélylista, a webes jelszózár, a napi Phoenix mentés és a{' '}
+                <span className="font-mono">/stop</span> vészleállító ezalatt is aktív marad.
+              </p>
+            </div>
+            {!settings.webAuthHasPassword && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-900">
+                Előbb állíts be egy operátori jelszót lent a „Hálózati Operátori Jelszó Zár” szekcióban!
+              </div>
+            )}
+            {autonomyErr && (
+              <div className="p-2.5 rounded-lg bg-red-50 border border-red-300 text-xs text-red-900">
+                {autonomyErr}
+              </div>
+            )}
+            <div>
+              <label htmlFor="autonomy-confirm-pw" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Operátori jelszó megerősítése
+              </label>
+              <input
+                id="autonomy-confirm-pw"
+                type="password"
+                value={autonomyPassword}
+                onChange={(e) => setAutonomyPassword(e.target.value)}
+                placeholder="Add meg az operátori jelszót..."
+                autoFocus
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAutonomyModalOpen(false)}
+                className="px-3.5 py-2 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                disabled={autonomyBusy || !settings.webAuthHasPassword || !autonomyPassword.trim()}
+                onClick={() => void handleToggleAutonomyProfile(true)}
+                className="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {autonomyBusy ? 'Aktiválás...' : 'Értem a kockázatot, Bekapcsolás'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

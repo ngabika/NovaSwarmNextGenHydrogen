@@ -208,6 +208,7 @@ import {
   consumeOneTimeSetupCode,
   ensureOneTimeSetupCode,
   extractClientIp,
+  hasValidHumanSessionCookie,
   isRequestAuthorized,
   issueSessionToken,
   recordLoginFailure,
@@ -215,6 +216,16 @@ import {
   verifyOneTimeSetupCode,
   WEB_SESSION_COOKIE_NAME,
 } from '../security/auth';
+import {
+  checkSudoNopasswd,
+  clampExecTimeoutSeconds,
+  clampLongExecTimeoutSeconds,
+  getCachedSudoStatus,
+  getChangedSecuritySettingsKeys,
+  getPhoenixAutonomyStatus,
+  maybeRunDailyAutoPhoenixSnapshot,
+  toggleFullAutonomyProfile,
+} from '../security/autonomyProfile';
 import {
   activateKillSwitch,
   assertHostPermission,
@@ -252,7 +263,7 @@ import {
   maybeSendDailyAuditAnchorToTelegram,
   registerCronTask,
   removeUptimeTarget,
-  requestOsPackageUpgrade,
+  requestOsPackageUpgradeAsync,
   restoreBackupPoint,
   runHeartbeatTick,
   runUptimeChecks,
@@ -445,6 +456,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     const state = getState();
     const hardware = collectHardwareMetrics();
     const terminalSessions = listTerminalSessions();
+    const sudoStatus = getCachedSudoStatus() || checkSudoNopasswd();
+    const phoenixAutonomy = getPhoenixAutonomyStatus();
     res.json({
       state,
       hardware,
@@ -452,7 +465,67 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       cacheSize: getResponseCacheSize(),
       sandboxBackend: detectActiveSandboxBackend(),
       sandboxCapabilities: getSandboxCapabilities(),
+      sudoStatus,
+      phoenixAutonomy,
     });
+  });
+
+  router.get('/system/sudo-check', (_req, res) => {
+    const status = checkSudoNopasswd();
+    res.json({ status });
+  });
+
+  router.post('/system/sudo-check', (_req, res) => {
+    const status = checkSudoNopasswd();
+    broadcastEvent('state:updated');
+    res.json({ status });
+  });
+
+  router.post('/autonomy-profile', async (req, res) => {
+    try {
+      if (req.headers['x-novaswarm-tool'] || req.headers.authorization) {
+        return res.status(403).json({
+          error: 'Ágens vagy Bearer token nem módosíthatja a Teljes autonómia profilt.',
+          code: 'AGENT_PRIVILEGE_BOUNDARY',
+        });
+      }
+      if (hasWebAuthPassword() && !hasValidHumanSessionCookie(req.headers)) {
+        return res.status(401).json({
+          error: 'A Teljes autonómia profil kapcsolásához érvényes emberi Web UI munkamenet-süti szükséges.',
+          code: 'HUMAN_SESSION_REQUIRED',
+        });
+      }
+      const { enabled, password } = req.body as { enabled?: boolean; password?: string };
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'Az "enabled" boolean mező kötelező.' });
+      }
+      const result = await toggleFullAutonomyProfile({
+        enabled,
+        password,
+        clientIp: extractClientIp(req),
+      });
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
+      if (!result.ok) {
+        return res.status(result.statusCode).json({
+          error: result.error,
+          code: result.code,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+      }
+      if (enabled) {
+        maybeRunDailyAutoPhoenixSnapshot();
+      }
+      broadcastEvent('state:updated');
+      return res.json({
+        ok: true,
+        settings: getState().settings,
+        phoenixAutonomy: getPhoenixAutonomyStatus(),
+      });
+    } catch (err) {
+      handleErr(res, err);
+    }
   });
 
   // 6-step Setup Wizard completion (one-time only unless already authenticated)
@@ -627,6 +700,35 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         braveSearchKey?: string;
         homeAssistantToken?: string;
       };
+      const currentSettings = getState().settings;
+      const changedSecurityKeys = getChangedSecuritySettingsKeys(
+        patch as Record<string, unknown>,
+        currentSettings
+      );
+      if (
+        changedSecurityKeys.includes('fullAutonomyProfileEnabled') ||
+        changedSecurityKeys.includes('fullAutonomyPreviousFlags')
+      ) {
+        return res.status(403).json({
+          error: 'A Teljes autonómia profil kizárólag a /api/autonomy-profile végponton kapcsolható be/ki.',
+          code: 'USE_AUTONOMY_PROFILE_ENDPOINT',
+        });
+      }
+      if (changedSecurityKeys.length > 0) {
+        if (req.headers['x-novaswarm-tool'] || req.headers.authorization) {
+          return res.status(403).json({
+            error: `Ágens vagy külső eszköz nem módosíthat biztonsági beállításokat (${changedSecurityKeys.join(', ')}).`,
+            code: 'AGENT_PRIVILEGE_BOUNDARY',
+          });
+        }
+        if (hasWebAuthPassword() && !hasValidHumanSessionCookie(req.headers)) {
+          return res.status(401).json({
+            error: 'Biztonsági beállítások módosításához érvényes emberi Web UI munkamenet-süti szükséges.',
+            code: 'HUMAN_SESSION_REQUIRED',
+          });
+        }
+      }
+
       if (typeof patch.braveSearchKey === 'string' && patch.braveSearchKey.trim()) {
         setNamedSecret('brave_search_key', patch.braveSearchKey.trim());
       }
@@ -637,6 +739,20 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         if (patch.language) s.settings.language = patch.language;
         if (typeof patch.hostPermissionsGranted === 'boolean') {
           s.settings.hostPermissionsGranted = patch.hostPermissionsGranted;
+        }
+        if (typeof patch.execTimeoutSeconds === 'number') {
+          s.settings.execTimeoutSeconds = clampExecTimeoutSeconds(patch.execTimeoutSeconds);
+        }
+        if (typeof patch.longExecTimeoutSeconds === 'number') {
+          s.settings.longExecTimeoutSeconds = clampLongExecTimeoutSeconds(patch.longExecTimeoutSeconds);
+        }
+        if (typeof patch.autoPhoenixSnapshotInFullAutonomy === 'boolean') {
+          s.settings.autoPhoenixSnapshotInFullAutonomy = patch.autoPhoenixSnapshotInFullAutonomy;
+        }
+        if (Array.isArray(patch.telegramAllowedChatIds)) {
+          s.settings.telegramAllowedChatIds = Array.from(
+            new Set(patch.telegramAllowedChatIds.map((x) => String(x).trim()).filter(Boolean))
+          );
         }
         if (typeof patch.userProfile === 'string') s.settings.userProfile = patch.userProfile;
         if (patch.primaryProvider) s.settings.primaryProvider = patch.primaryProvider;
@@ -2305,6 +2421,18 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   });
 
   router.post('/kill-switch', (req, res) => {
+    if (req.headers['x-novaswarm-tool'] || req.headers.authorization) {
+      return res.status(403).json({
+        error: 'Ágens vagy Bearer token nem módosíthatja a vészleállítót.',
+        code: 'AGENT_PRIVILEGE_BOUNDARY',
+      });
+    }
+    if (hasWebAuthPassword() && !hasValidHumanSessionCookie(req.headers)) {
+      return res.status(401).json({
+        error: 'A vészleállító kapcsolásához érvényes emberi Web UI munkamenet-süti szükséges.',
+        code: 'HUMAN_SESSION_REQUIRED',
+      });
+    }
     const { active } = req.body as { active: boolean };
     if (active) {
       activateKillSwitch('web');
@@ -2419,18 +2547,20 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.json({ ok: true });
   });
 
-  router.post('/system/os-upgrade', (_req, res) => {
+  router.post('/system/os-upgrade', async (_req, res) => {
     try {
-      const queued = requestOsPackageUpgrade('Web UI');
-      const reqObj = getState().approvals.find((a) => a.id === queued.queuedApprovalId);
-      if (reqObj) void notifyApprovalToTelegram(reqObj);
-      else {
-        void sendTelegramMessage(
-          `OS csomagfrissítés jóváhagyásra vár: ${queued.command}\nJóváhagyás: /approve ${queued.queuedApprovalId.slice(0, 8)}`
-        );
+      const result = await requestOsPackageUpgradeAsync('Web UI');
+      if (result.queuedApprovalId) {
+        const reqObj = getState().approvals.find((a) => a.id === result.queuedApprovalId);
+        if (reqObj) void notifyApprovalToTelegram(reqObj);
+        else {
+          void sendTelegramMessage(
+            `OS csomagfrissítés jóváhagyásra vár: ${result.command}\nJóváhagyás: /approve ${result.queuedApprovalId.slice(0, 8)}`
+          );
+        }
       }
       broadcastEvent('state:updated');
-      res.json(queued);
+      res.json(result);
     } catch (err) {
       handleErr(res, err);
     }

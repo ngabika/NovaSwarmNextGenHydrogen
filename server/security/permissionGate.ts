@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendAuditLog, createApprovalRequest, getState, updateState } from '../state/store';
@@ -364,16 +365,67 @@ export function resolveApproval(
   return found;
 }
 
+const activeHostChildren = new Set<ChildProcess>();
+const killSwitchAbortListeners = new Set<() => void>();
+
+export function registerActiveHostChild(child: ChildProcess, onAbort?: () => void): () => void {
+  activeHostChildren.add(child);
+  if (onAbort) killSwitchAbortListeners.add(onAbort);
+  return () => {
+    activeHostChildren.delete(child);
+    if (onAbort) killSwitchAbortListeners.delete(onAbort);
+  };
+}
+
+export function getActiveHostChildCount(): number {
+  return activeHostChildren.size;
+}
+
+export function terminateActiveHostProcesses(): number {
+  for (const listener of [...killSwitchAbortListeners]) {
+    try {
+      listener();
+    } catch {
+      // ignore listener errors
+    }
+  }
+  let terminated = 0;
+  for (const child of [...activeHostChildren]) {
+    try {
+      if (child.pid && process.platform !== 'win32') {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // fallback to direct kill below
+        }
+      }
+      if (!child.killed) {
+        child.kill('SIGKILL');
+        terminated += 1;
+      }
+    } catch {
+      // ignore already exited child
+    }
+  }
+  activeHostChildren.clear();
+  killSwitchAbortListeners.clear();
+  return terminated;
+}
+
 export function activateKillSwitch(source: 'web' | 'telegram'): void {
   updateState((s) => {
     s.settings.killSwitchActive = true;
     s.activeExplicitTaskAgentId = null;
   });
+  const terminatedCount = terminateActiveHostProcesses();
   appendAuditLog({
     type: 'system',
     sourceAgentId: 'kill-switch',
     sourceAgentName: 'Vészleállító',
-    message: `VÉSZLEÁLLÍTÓ AKTIVÁLVA (${source}): minden aktív ágens-folyamat és MCP művelet azonnal leállítva.`,
+    message:
+      terminatedCount > 0
+        ? `VÉSZLEÁLLÍTÓ AKTIVÁLVA (${source}): ${terminatedCount} futó gazdagép-parancs azonnal megszakítva (SIGKILL).`
+        : `VÉSZLEÁLLÍTÓ AKTIVÁLVA (${source}): minden aktív ágens-folyamat és MCP művelet azonnal leállítva.`,
   });
 }
 

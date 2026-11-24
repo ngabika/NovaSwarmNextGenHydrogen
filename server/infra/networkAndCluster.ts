@@ -383,10 +383,14 @@ export function createPhoenixSnapshot(): { fileName: string; sizeBytes: number; 
   );
   fs.writeFileSync(fullPath, payload, 'utf8');
   const sha256 = crypto.createHash('sha256').update(payload).digest('hex');
+  const createdAt = new Date().toISOString();
+  updateState((s) => {
+    s.settings.lastPhoenixSnapshotAt = createdAt;
+  });
   return {
     fileName,
     sizeBytes: Buffer.byteLength(payload, 'utf8'),
     sha256,
-    createdAt: new Date().toISOString(),
+    createdAt,
   };
 }

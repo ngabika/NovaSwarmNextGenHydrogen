@@ -9,6 +9,11 @@ import type {
   PostMortemReport,
 } from '../../shared/types';
 import { invokeWithFailover } from '../providers/router';
+import {
+  getExecTimeoutForCommand,
+  rewriteSudoNonInteractive,
+  runTrackedHostCommand,
+} from '../security/autonomyProfile';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import {
   assertHostPermission,
@@ -506,24 +511,22 @@ export async function runBashCopilot(
   let executed = false;
   if (execute) {
     assertHostPermission(`bash_copilot:${command}`);
+    const { timeoutSec } = getExecTimeoutForCommand(command);
     const safeCmd = parseSafeAllowlistedHostCommand(command);
     if (safeCmd.allowed) {
-      try {
-        output = execFileSync(safeCmd.bin, safeCmd.args, {
-          cwd: process.cwd(),
-          encoding: 'utf8',
-          timeout: 8000,
-          shell: false,
-        }).trim();
-        executed = true;
-      } catch (err) {
-        output = err instanceof Error ? err.message : String(err);
-      }
+      const execRes = await runTrackedHostCommand({
+        bin: safeCmd.bin,
+        args: safeCmd.args,
+        timeoutSec,
+      });
+      executed = execRes.ok;
+      output = (execRes.ok ? execRes.stdout : execRes.errorMessage || execRes.stderr).trim();
+      const prefix = output.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres)';
       appendAuditLog({
         type: 'terminal',
         sourceAgentId: 'bash-copilot',
         sourceAgentName: 'Bash Copilot',
-        message: `Bash Copilot (allowlist, shell:false) futtatás: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
+        message: `Bash Copilot (allowlist, shell:false, ${new Date().toISOString()}): ${safeCmd.bin} ${safeCmd.args.join(' ')} | kimenet: ${prefix}`,
         verifiedExecution: executed,
       });
     } else {
@@ -539,28 +542,27 @@ export async function runBashCopilot(
           output: `Jóváhagyás szükséges a parancs futtatása előtt (ID: ${req.id.slice(0, 8)}): ${actionTitle}`,
         };
       }
+      const execCommand = rewriteSudoNonInteractive(command);
       appendAuditLog({
         type: 'security',
         sourceAgentId: 'bash-copilot',
         sourceAgentName: 'Bash Copilot',
-        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli Bash Copilot futtatás: ${command}`,
+        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli Bash Copilot futtatás (${new Date().toISOString()}, timeout=${timeoutSec}s): ${execCommand}`,
         verifiedExecution: true,
       });
-      try {
-        output = execFileSync('sh', ['-c', command], {
-          encoding: 'utf8',
-          timeout: 8000,
-          shell: false,
-        }).trim();
-        executed = true;
-      } catch (err) {
-        output = err instanceof Error ? err.message : String(err);
-      }
+      const execRes = await runTrackedHostCommand({
+        bin: 'sh',
+        args: ['-c', execCommand],
+        timeoutSec,
+      });
+      executed = execRes.ok;
+      output = (execRes.ok ? execRes.stdout : execRes.errorMessage || execRes.stderr).trim();
+      const prefix = output.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres)';
       appendAuditLog({
         type: 'terminal',
         sourceAgentId: 'bash-copilot',
         sourceAgentName: 'Bash Copilot',
-        message: `Bash Copilot (Veszélyes Zóna) futtatás: ${command}`,
+        message: `Bash Copilot (Veszélyes Zóna, ${new Date().toISOString()}) futtatás: ${execCommand} | státusz=${executed ? 'OK' : 'HIBA'} | kimenet: ${prefix}`,
         verifiedExecution: executed,
       });
     }

@@ -880,9 +880,42 @@ export interface Settings {
   defaultResponseTone?: 'professional' | 'friendly' | 'direct' | 'socratic';
   /** Veszélyes Zóna: host shell exec jóváhagyás nélküli engedélyezése (alapból false, fullAutonomousMode NEM kapcsolja be!) */
   dangerousExecAutoApprove?: boolean;
+  /** Teljes autonómia egygombos profil + előző 3 kapcsoló elmentett állapota */
+  fullAutonomyProfileEnabled?: boolean;
+  fullAutonomyPreviousFlags?: {
+    hostPermissionsGranted: boolean;
+    fullAutonomousMode: boolean;
+    dangerousExecAutoApprove: boolean;
+  } | null;
+  /** Konfigurálható parancsfuttatási időkorlátok (másodperc) */
+  execTimeoutSeconds?: number;
+  longExecTimeoutSeconds?: number;
+  /** Teljes autonómia alatt napi automatikus Phoenix pillanatkép */
+  autoPhoenixSnapshotInFullAutonomy?: boolean;
+  lastPhoenixSnapshotAt?: string | null;
   /** Külső audit-lánc horgony: napi fej-hash küldése Telegramra */
   sendAuditAnchorToTelegram?: boolean;
   lastAuditAnchorSentDate?: string | null;
+}
+
+export interface SudoCheckStatus {
+  checkedAt: string;
+  username: string;
+  sudoInstalled: boolean;
+  hasNopasswd: boolean;
+  isRoot: boolean;
+  message: string;
+  visudoCommand: string;
+  sudoersLine: string;
+}
+
+export interface PhoenixAutonomyStatus {
+  fullAutonomyActive: boolean;
+  autoDailyEnabled: boolean;
+  lastSnapshotAt: string | null;
+  ageHours: number | null;
+  staleWarning: boolean;
+  warningMessage: string | null;
 }
 
 /** Ú31: Deep Research Report */

@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,6 +44,12 @@ import {
   pingClusterNodes,
   sendWakeOnLanPacket,
 } from '../infra/networkAndCluster';
+import {
+  getExecTimeoutForCommand,
+  isForbiddenAgentControlPlaneUrl,
+  rewriteSudoNonInteractive,
+  runTrackedHostCommand,
+} from '../security/autonomyProfile';
 import {
   notarizeDocumentHash,
   validateSafeOutboundUrl,
@@ -193,24 +198,34 @@ export async function executeAgentTool(params: {
       }
 
       assertHostPermission(`exec:${command}`, agent.id);
+      const { timeoutSec } = getExecTimeoutForCommand(command);
       const safeCmd = parseSafeAllowlistedHostCommand(command);
       if (safeCmd.allowed) {
-        const out = execFileSync(safeCmd.bin, safeCmd.args, {
-          cwd: process.cwd(),
-          encoding: 'utf8',
-          timeout: 12000,
-          shell: false,
+        const execRes = await runTrackedHostCommand({
+          bin: safeCmd.bin,
+          args: safeCmd.args,
+          timeoutSec,
         });
+        const combined = execRes.ok
+          ? execRes.stdout
+          : execRes.errorMessage || execRes.stderr || 'Parancs sikertelen.';
+        const outputPrefix = combined.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres kimenet)';
         appendAuditLog({
           type: 'action',
           sourceAgentId: agent.id,
           sourceAgentName: agent.name,
-          message: `Tool exec_shell (allowlist, shell:false) végrehajtva: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
-          verifiedExecution: true,
+          message: `Tool exec_shell (allowlist, shell:false, ${new Date().toISOString()}): ${safeCmd.bin} ${safeCmd.args.join(' ')} | kimenet: ${outputPrefix}`,
+          verifiedExecution: execRes.ok,
         });
         return {
-          step: { tool: 'exec_shell', args: { command }, ok: true, sandboxed: false, outputPreview: out.slice(0, 240) },
-          observation: out.slice(0, 3000) || '(üres kimenet)',
+          step: {
+            tool: 'exec_shell',
+            args: { command },
+            ok: execRes.ok,
+            sandboxed: false,
+            outputPreview: combined.slice(0, 240),
+          },
+          observation: combined.slice(0, 3000) || '(üres kimenet)',
         };
       }
 
@@ -229,29 +244,34 @@ export async function executeAgentTool(params: {
         };
       }
 
+      const execCommand = rewriteSudoNonInteractive(command);
+      const startedAtIso = new Date().toISOString();
       appendAuditLog({
         type: 'security',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli exec_shell végrehajtás: ${command}`,
+        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli exec_shell végrehajtás (${startedAtIso}, timeout=${timeoutSec}s): ${execCommand}`,
         verifiedExecution: true,
       });
-      const out = execFileSync('sh', ['-c', command], {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        timeout: 12000,
-        shell: false,
+      const execRes = await runTrackedHostCommand({
+        bin: 'sh',
+        args: ['-c', execCommand],
+        timeoutSec,
       });
+      const combined = execRes.ok
+        ? execRes.stdout
+        : execRes.errorMessage || execRes.stderr || 'Parancs végrehajtása sikertelen.';
+      const outputPrefix = combined.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres kimenet)';
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Tool exec_shell (Veszélyes Zóna) végrehajtva: ${command}`,
-        verifiedExecution: true,
+        message: `Tool exec_shell (Veszélyes Zóna, ${new Date().toISOString()}): ${execCommand} | státusz=${execRes.ok ? 'OK' : 'HIBA'} | kimenet: ${outputPrefix}`,
+        verifiedExecution: execRes.ok,
       });
       return {
-        step: { tool: 'exec_shell', args: { command }, ok: true, sandboxed: false, outputPreview: out.slice(0, 240) },
-        observation: out.slice(0, 3000) || '(üres kimenet)',
+        step: { tool: 'exec_shell', args: { command }, ok: execRes.ok, sandboxed: false, outputPreview: combined.slice(0, 240) },
+        observation: combined.slice(0, 3000) || '(üres kimenet)',
       };
     }
 
@@ -335,6 +355,8 @@ export async function executeAgentTool(params: {
       const url = String(args.url || '').trim();
       const safeUrl = validateSafeOutboundUrl(url, getState().settings.lanSubnetAllowlist);
       if (!safeUrl.safe) throw new Error(safeUrl.reason || 'Tiltott vagy érvénytelen URL.');
+      const cpCheck = isForbiddenAgentControlPlaneUrl(url);
+      if (cpCheck.forbidden) throw new Error(cpCheck.reason);
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       const html = await res.text();
       const parsed = cleanHtmlToMarkdown(html, url);
@@ -380,6 +402,8 @@ export async function executeAgentTool(params: {
       if (!agent.webSearchEnabled) throw new Error('Webes böngészés le van tiltva ehhez az ágenshez.');
       const action = (String(args.action || 'navigate_dom') as 'navigate_dom' | 'screenshot' | 'extract_links');
       const url = String(args.url || '').trim();
+      const cpCheck = isForbiddenAgentControlPlaneUrl(url);
+      if (cpCheck.forbidden) throw new Error(cpCheck.reason);
       const bRes = await runHeadlessBrowserAction({ action, url });
       return {
         step: {
@@ -745,6 +769,8 @@ export async function executeAgentTool(params: {
       const url = String(args.url || '').trim();
       const safeUrl = validateSafeOutboundUrl(url, getState().settings.lanSubnetAllowlist);
       if (!safeUrl.safe) throw new Error(safeUrl.reason || 'Tiltott URL.');
+      const cpCheck = isForbiddenAgentControlPlaneUrl(url);
+      if (cpCheck.forbidden) throw new Error(cpCheck.reason);
       const method = (String(args.method || 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE');
       const res = await executeApiStudioRequest({
         name: `Agent HTTP: ${url.slice(0, 30)}`,

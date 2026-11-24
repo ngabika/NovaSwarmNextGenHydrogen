@@ -38,10 +38,12 @@ import type {
   LanguageCode,
   NovaSwarmState,
   OtaVersionStatus,
+  PhoenixAutonomyStatus,
   SandboxCapabilities,
   Settings,
   SshHostProfile,
   SslWatchTarget,
+  SudoCheckStatus,
   UptimeTarget,
 } from '../../shared/types';
 import { tr } from '../locales/translations';
@@ -81,6 +83,8 @@ interface Props {
   state?: NovaSwarmState;
   sandboxBackend?: string;
   sandboxCapabilities?: SandboxCapabilities | null;
+  sudoStatus?: SudoCheckStatus | null;
+  phoenixAutonomy?: PhoenixAutonomyStatus | null;
   onRefreshState: () => Promise<void>;
 }
 
@@ -99,9 +103,18 @@ export const SystemOpsView: React.FC<Props> = ({
   state,
   sandboxBackend,
   sandboxCapabilities,
+  sudoStatus,
+  phoenixAutonomy,
   onRefreshState,
 }) => {
   const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
+  const [sudoLocal, setSudoLocal] = useState<SudoCheckStatus | null>(sudoStatus ?? null);
+  const [sudoChecking, setSudoChecking] = useState(false);
+  const [phoenixSaving, setPhoenixSaving] = useState(false);
+
+  useEffect(() => {
+    if (sudoStatus) setSudoLocal(sudoStatus);
+  }, [sudoStatus]);
 
   const [ota, setOta] = useState<OtaVersionStatus | null>(null);
   const [otaDiff, setOtaDiff] = useState<string | null>(null);
@@ -536,6 +549,103 @@ export const SystemOpsView: React.FC<Props> = ({
 
       {subTab === 'ops' && (
         <>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-slate-700" />
+                  Sudo (NOPASSWD) Jogosultság
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border ${
+                      sudoLocal?.hasNopasswd
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-red-50 border-red-300 text-red-800'
+                    }`}
+                  >
+                    {sudoLocal ? (sudoLocal.hasNopasswd ? 'RENDBEN' : 'HIÁNYZIK') : 'Ellenőrzés...'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={sudoChecking}
+                    onClick={async () => {
+                      setSudoChecking(true);
+                      try {
+                        const r = await fetch('/api/system/sudo-check', { method: 'POST' });
+                        if (r.ok) {
+                          const data = (await r.json()) as { status?: SudoCheckStatus };
+                          if (data.status) setSudoLocal(data.status);
+                        }
+                        await onRefreshState();
+                      } finally {
+                        setSudoChecking(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Újraellenőrzés
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-700">
+                {sudoLocal?.message || 'Jelszó nélküli sudo (sudo -n true) állapot ellenőrzése...'}
+              </p>
+              {sudoLocal && !sudoLocal.hasNopasswd && (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+                  <div className="font-semibold text-slate-800">
+                    Manuális beállítás (a rendszer soha nem ír sudoers fájlt automatikusan):
+                  </div>
+                  <pre className="p-2 rounded bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto">
+                    {`${sudoLocal.visudoCommand}\n${sudoLocal.sudoersLine}`}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-slate-700" />
+                  Phoenix Pillanatkép Őrszem
+                </h3>
+                <button
+                  type="button"
+                  disabled={phoenixSaving}
+                  onClick={async () => {
+                    setPhoenixSaving(true);
+                    try {
+                      await fetch('/api/v3/phoenix/snapshot', { method: 'POST' });
+                      await onRefreshState();
+                    } finally {
+                      setPhoenixSaving(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {phoenixSaving ? 'Készítés...' : 'Phoenix Pillanatkép Készítése'}
+                </button>
+              </div>
+              <div className="text-xs text-slate-600 space-y-1">
+                <div>
+                  Legutóbbi pillanatkép:{' '}
+                  <span className="font-mono font-semibold">
+                    {phoenixAutonomy?.lastSnapshotAt
+                      ? `${new Date(phoenixAutonomy.lastSnapshotAt).toLocaleString()} (${phoenixAutonomy.ageHours ?? 0} órája)`
+                      : 'Még nincs rögzített Phoenix mentés'}
+                  </span>
+                </div>
+                {phoenixAutonomy?.staleWarning && (
+                  <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-medium">
+                    {phoenixAutonomy.warningMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">

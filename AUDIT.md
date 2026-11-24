@@ -16,9 +16,9 @@ Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/
 | `node -v` | `v22.23.5` | Megfelel a `node:sqlite` által megkövetelt `22.5+` verziónak. |
 | `npm run lint` (`tsc --noEmit`) | Sikeres (0 hiba) | TypeScript típusellenőrzés hiba nélkül lefut. |
 | `npm run build` (`vite build`) | Sikeres | A kliens és PWA csomag hiba nélkül lefordul. |
-| `npm test` | **99 teszt: 95 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + 1. körös (`security_audit_fixes.test.ts`) + 2. körös (`security_audit_fixes_pass2.test.ts`) + **4 harmadik körös** regressziós teszt (`tests/sandbox_js_isolation_pass3.test.ts`). A 4 `SKIP` jelű teszt szándékosan ugorja át a valós konténerfuttatást, mert ebben a tesztkörnyezetben nincs `docker` vagy `bwrap` telepítve (a backend nélküli elutasítás + mock `bwrap`/`docker` + valós Node `--permission` és `registerHooks` futtatás zöld). |
+| `npm test` | **106 teszt: 102 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + 1. körös (`security_audit_fixes.test.ts`) + 2. körös (`security_audit_fixes_pass2.test.ts`) + 3. körös (`sandbox_js_isolation_pass3.test.ts`) + **7 „Teljes autonómia” profil és jogosultsághatár** regressziós teszt (`tests/full_autonomy_profile.test.ts`). A 4 `SKIP` jelű teszt szándékosan ugorja át a valós konténerfuttatást, mert ebben a tesztkörnyezetben nincs `docker` vagy `bwrap` telepítve (`sudo` bináris szintén nincs jelen — a `sudo` ellenőrző tesztek injektált mock futtatóval futnak). |
 | `npm audit` | 4 `moderate`, 0 `high`, 0 `critical` | Mind a 4 mérsékelt jelzés a `vite-plugin-pwa -> workbox-build -> glob / minimatch` dev/build láncból jön; `--force` főverzió-visszalépést (`vite-plugin-pwa@1.1.0`) okozna. |
-| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), az `audit/fixes-3` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
+| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), a `feature/full-autonomy-profile` / `audit/fixes-3` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
 
 ---
 
@@ -108,7 +108,16 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | Q3 | `server/`, `src/`, `shared/` | **Alacsony** | Típusbiztonság (`: any`, `as any`, `@ts-ignore`, `@ts-expect-error`) ellenőrzése `grep`-pel. | **0 db** előfordulás a teljes kódbázisban; `npm run lint` (`tsc --noEmit`) teljesen tiszta. | **javítva** |
-| Q4 | `tests/security_audit_fixes.test.ts`, `tests/security_audit_fixes_pass2.test.ts`, `tests/sandbox_js_isolation_pass3.test.ts` + 15 további tesztfájl | **Közepes** | Regressziós tesztlefedettség az összes 1., 2. és 3. körös biztonsági javításra (valódi `docker`/`bwrap` izoláció, kommentes `import/**/` elleni `registerHooks` + `--permission` védelem, backend hiányában azonnali tiltás, `cat` symlink tiltás, brute-force 429, egyszeri setup-kód, DNS rebinding 403). | Létrehozva a 10 első körös + 6 második körös + 4 harmadik körös biztonsági regressziós teszt; a teljes tesztcsomag **99 tesztből 95 sikeres, 0 hiba, 4 `SKIP`** (a hiányzó helyi `docker`/`bwrap` binárisok miatt átugrott valós konténertesztek). | **javítva** |
+| Q4 | `tests/security_audit_fixes.test.ts`, `tests/security_audit_fixes_pass2.test.ts`, `tests/sandbox_js_isolation_pass3.test.ts`, `tests/full_autonomy_profile.test.ts` + 15 további tesztfájl | **Közepes** | Regressziós tesztlefedettség az összes biztonsági javításra és a Teljes autonómia profilra (`106` teszt: `bwrap`/`docker` izoláció, `--permission`, `registerHooks`, `cat` symlink tiltás, brute-force 429, egyszeri setup-kód, DNS rebinding 403, humán süti határ, `/stop` folyamatcsoport-leállítás, konfigurálható timeout, Phoenix figyelmeztetés). | Létrehozva a 10 első körös + 6 második körös + 4 harmadik körös + 7 Teljes autonómia regressziós teszt; a teljes tesztcsomag **106 tesztből 102 sikeres, 0 hiba, 4 `SKIP`** (a hiányzó helyi `docker`/`bwrap` binárisok miatt átugrott valós konténertesztek). | **javítva** |
+
+### 2.12. „Teljes autonómia” Profil, Konfigurálható Időkorlátok, Sudo NOPASSWD és Jogosultsághatár
+| # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
+|---|---|---|---|---|---|
+| FA1 | `server/security/autonomyProfile.ts:497-566`, `server/routes/api.ts:482-532`, `src/components/SettingsView.tsx`, `src/App.tsx` | **Magas** | 1-kattintásos „Teljes autonómia” profil (`fullAutonomyProfileEnabled`): egyszerre kapcsolja be a `hostPermissionsGranted`, `fullAutonomousMode` és `dangerousExecAutoApprove` kapcsolókat, miközben elmenti az előző értékeket (`fullAutonomyPreviousFlags`) és kikapcsoláskor visszaállítja azokat. | Kötelező operátori jelszó + megerősítő modal (`role="dialog"`), `'security'` audit-naplózás, Telegram riasztás, állandó piros figyelmeztető sáv (`App.tsx`) és `/statusz` / `/hwopt` jelzés. A 3 egyedi kapcsoló továbbra is függetlenül szerkeszthető; a Telegram engedélylista (`telegramAllowedChatIds`) és `webAuthEnabled` aktív marad. Tesztelve: `full_autonomy_profile.test.ts` #1, #2. | **javítva** |
+| FA2 | `server/security/autonomyProfile.ts:476-495`, `server/security/auth.ts`, `server/routes/api.ts`, `server/agents/tools.ts`, `server/power/universalSuite.ts` | **Kritikus** | Privilégiumhatár-védelem: megakadályozza, hogy teljes autonómiában az ágens `http_request` / `web_fetch` eszközei (vagy `x-novaswarm-tool` / `Bearer` fejlécek) visszahívjanak a helyi NovaSwarm vezérlősíkra és kikapcsolják a korlátokat vagy módosítsák a biztonsági beállításokat. | `isForbiddenAgentControlPlaneUrl()` blokkolja a helyi loopback/LAN `:3000` `/api/autonomy-profile`, `/api/settings`, `/api/auth`, `/api/kill-switch` stb. célpontokat; a kritikus API végpontok kizárólag érvényes **humán `novaswarm_session` sütit** fogadnak el (operátori jelszó beállításakor `webAuthEnabled: false` mellett is), és `PATCH /api/settings` tiltja a `fullAutonomyProfileEnabled` átbillentését. Tesztelve: `full_autonomy_profile.test.ts` #4. | **javítva** |
+| FA3 | `server/security/autonomyProfile.ts:199-388`, `server/security/permissionGate.ts:384-425`, `server/agents/tools.ts`, `server/agents/engine.ts`, `server/system/ops.ts`, `server/infra/batch4PiHardwareAndNet.ts` | **Magas** | Hosszabb telepítések (`apt`, `npm`, `vite build`) korábban fix 12/30 mp után leálltak, illetve a `/stop` vészleállító nem ölte le a futó háttérfolyamatok alfolyamat-fáját. | Konfigurálható `execTimeoutSeconds` (5–3600 mp, alap 12) és `longExecTimeoutSeconds` (30–7200 mp, alap 600); `runTrackedHostCommand` leválasztott folyamatcsoportban (`detached: true`) indít, `/stop` (`activateKillSwitch`) pedig azonnal `SIGKILL`-t küld a teljes `-pid` folyamatcsoportnak és bontja a csöveket. Minden autonóm futás parancs/ágens/időbélyeg/kimeneti előtaggal audit-naplózott. Tesztelve: `full_autonomy_profile.test.ts` #3, #6. | **javítva** |
+| FA4 | `server/security/autonomyProfile.ts:135-197`, `server/routes/api.ts:458-480`, `server/telegram/bot.ts:428-455`, `src/components/SystemOpsView.tsx`, `server.ts:316` | **Közepes** | Jelszó nélküli `sudo` (`NOPASSWD`) hiányában a háttérben indított `sudo` parancs jelszó bekérésekor elakad vagy megbukik. | Induláskori + `/api/system/sudo-check` + Telegram `/sudo` + `SystemOpsView` zöld/piros kártya pontos `sudo visudo -f /etc/sudoers.d/novaswarm` -> `<felhasználó> ALL=(ALL) NOPASSWD:ALL` útmutatóval (automatikusan soha nem szerkeszt `/etc/sudoers.d/`-t); futtatás előtt a `sudo` átíródik nem-interaktív `sudo -n`-re, és jelszóhiba esetén érthető magyar figyelmeztetést ad. Tesztelve: `full_autonomy_profile.test.ts` #5. *(Éles `sudo` bináris jelenléte a konténerben nem ellenőrizhető.)* | **javítva** *(diagnosztika + mock teszt)* |
+| FA5 | `server/security/autonomyProfile.ts:570-705`, `server/infra/networkAndCluster.ts`, `server.ts:326, 562`, `src/App.tsx`, `src/components/SystemOpsView.tsx` | **Közepes** | Teljes autonómiában a visszaállítási pont hiánya kockázatos; napi automatikus mentés és elavulási jelzés szükséges. | `autoPhoenixSnapshotInFullAutonomy` (alap: `true`) naponta automatikusan készít Phoenix pillanatképet Teljes autonómia közben; 24 óránál régebbi vagy hiányzó mentés esetén sárga figyelmeztető sáv jelenik meg a felületen és a `/statusz` kimenetben. Tesztelve: `full_autonomy_profile.test.ts` #7. | **javítva** |
 
 ---
 
@@ -148,22 +157,24 @@ A korábbi iterációkban a README több mint ~560 elnevezett (`Mxxx`, `Úxxx`, 
 
 Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár és nincsenek meg a GitHub hozzáférési jogosultságaid, az alábbi lépéseket kézzel kell lefuttatnod a saját gépeden:
 
-1. **Külön `audit/fixes-3` branch, külön commitok és Pull Request létrehozása:**
+1. **Külön `feature/full-autonomy-profile` branch, commitok és Pull Request létrehozása:**
    ```bash
-   git checkout -b audit/fixes-3
+   git checkout -b feature/full-autonomy-profile
    git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log
    git add -A
-   # Külön commitok ajánlott sorrendben: sandbox-strict-isolation, permission-hook-and-symlink, ui-isolation-status, pass3-tests-and-audit
-   git commit -m "security: pass 3 strict bwrap/docker sandbox_js isolation, Node --permission & symlink guard"
-   git push -u origin audit/fixes-3
-   # Ezután nyiss Pull Requestet GitHubon az audit/fixes-3 -> main ágra!
+   git commit -m "feat: 1-click Full Autonomy profile, configurable exec timeouts, sudo -n diagnostics & Phoenix guard"
+   git push -u origin feature/full-autonomy-profile
+   # Ezután nyiss Pull Requestet GitHubon a feature/full-autonomy-profile -> main ágra!
    ```
 
-2. **Bubblewrap telepítése Raspberry Pi / Debian gazdagépen (hogy a `sandbox_js` valódi izolációval futhasson):**
+2. **Bubblewrap és jelszó nélküli `sudo` (`NOPASSWD`) beállítása Raspberry Pi / Debian gazdagépen:**
    ```bash
    sudo apt update && sudo apt install -y bubblewrap
+   sudo visudo -f /etc/sudoers.d/novaswarm
+   # Add hozzá (a saját felhasználóneveddel, pl. ngabika):
+   # ngabika ALL=(ALL) NOPASSWD:ALL
    ```
-   *(Vagy telepíts Dockert a `node:22-alpine` image-dzsel; ezek nélkül a `sandbox_js` biztonsági okból letiltva marad.)*
+   *(A NovaSwarm automatikusan `sudo -n`-nel futtat és ellenőrzi a `/sudo` paranccsal vagy a Rendszer & Költöztetés -> Sudo (NOPASSWD) kártyán.)*
 
 3. **Git History ellenőrzése (maradt-e titok korábbi commitokban — ne tisztítsd vaktában, előbb nézd meg):**
    ```bash

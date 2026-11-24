@@ -12,6 +12,15 @@ import type {
   UptimeTarget,
 } from '../../shared/types';
 import {
+  clampLongExecTimeoutSeconds,
+  detectSudoPasswordError,
+  formatExecTimeoutMessage,
+  formatSudoMissingNopasswdMessage,
+  getPhoenixAutonomyStatus,
+  isExecTimeoutError,
+  runTrackedHostCommand,
+} from '../security/autonomyProfile';
+import {
   assertHostPermission,
   requireDestructiveApproval,
   shouldRequireDangerousExecApproval,
@@ -262,6 +271,10 @@ export async function runHeartbeatTick(onAlert?: (msg: string) => Promise<void>)
   if (agedCards.length > 0) issues.push(`${agedCards.length} beakadt Kanban kártya`);
   if (downTargets.length > 0) issues.push(`${downTargets.length} leállt uptime cél (${downTargets.join(', ')})`);
   if (pendingApprovals > 0) issues.push(`${pendingApprovals} függő jóváhagyás`);
+  const phoenixStatus = getPhoenixAutonomyStatus();
+  if (phoenixStatus.staleWarning && phoenixStatus.warningMessage) {
+    issues.push(phoenixStatus.warningMessage);
+  }
 
   const summary =
     issues.length > 0
@@ -375,39 +388,107 @@ export function requestOsPackageUpgrade(requestedBy = 'Felhasználó'): {
   command: string;
 } {
   assertHostPermission('os_package_upgrade');
-  const cmd = 'sudo apt-get update && sudo apt-get upgrade -y';
+  const cmd = 'sudo -n apt-get update && sudo -n apt-get upgrade -y';
   if (!shouldRequireDangerousExecApproval()) {
+    const longSec = clampLongExecTimeoutSeconds(getState().settings.longExecTimeoutSeconds);
+    const timeoutMs = longSec * 1000;
     let output = '';
     appendAuditLog({
       type: 'security',
       sourceAgentId: 'system-ops',
       sourceAgentName: requestedBy,
-      message: `[VESZÉLYES ZÓNA] OS csomagfrissítés jóváhagyás nélkül elindítva: ${cmd}`,
+      message: `[VESZÉLYES ZÓNA] OS csomagfrissítés jóváhagyás nélkül elindítva (${new Date().toISOString()}, timeout=${longSec}s): ${cmd}`,
       verifiedExecution: true,
     });
     try {
-      const uOut = execFileSync('sudo', ['apt-get', 'update'], {
+      const uOut = execFileSync('sudo', ['-n', 'apt-get', 'update'], {
         cwd: process.cwd(),
         encoding: 'utf8',
-        timeout: 30000,
+        timeout: timeoutMs,
         shell: false,
       });
-      const gOut = execFileSync('sudo', ['apt-get', 'upgrade', '-y'], {
+      const gOut = execFileSync('sudo', ['-n', 'apt-get', 'upgrade', '-y'], {
         cwd: process.cwd(),
         encoding: 'utf8',
-        timeout: 60000,
+        timeout: timeoutMs,
         shell: false,
       });
       output = `${uOut}\n${gOut}`.trim().slice(0, 1200);
     } catch (err) {
-      output = `Veszélyes Zóna végrehajtás kimenet: ${err instanceof Error ? err.message : String(err)}`;
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const stderrText =
+        typeof (err as { stderr?: unknown })?.stderr === 'string'
+          ? String((err as { stderr?: unknown }).stderr)
+          : '';
+      if (isExecTimeoutError(err)) {
+        output = formatExecTimeoutMessage(longSec);
+      } else if (detectSudoPasswordError(`${rawMsg}\n${stderrText}`)) {
+        output = formatSudoMissingNopasswdMessage();
+      } else {
+        output = `Veszélyes Zóna végrehajtás kimenet: ${rawMsg}`;
+      }
     }
+    const prefix = output.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres)';
     appendAuditLog({
       type: 'action',
       sourceAgentId: 'system-ops',
       sourceAgentName: requestedBy,
-      message: `OS csomagfrissítés végrehajtva (Veszélyes Zóna): ${cmd}`,
+      message: `OS csomagfrissítés végrehajtva (Veszélyes Zóna, ${new Date().toISOString()}): ${cmd} | kimenet: ${prefix}`,
       verifiedExecution: true,
+    });
+    return { queuedApprovalId: 'auto-executed', executedDirectly: true, output, command: cmd };
+  }
+  const req = requireDestructiveApproval(
+    'os_upgrade',
+    'Operációs rendszer csomaglista frissítése és csomag-upgrade',
+    cmd,
+    requestedBy
+  );
+  return { queuedApprovalId: req.id, executedDirectly: false, command: cmd };
+}
+
+export async function requestOsPackageUpgradeAsync(requestedBy = 'Felhasználó'): Promise<{
+  queuedApprovalId: string;
+  executedDirectly?: boolean;
+  output?: string;
+  command: string;
+}> {
+  assertHostPermission('os_package_upgrade');
+  const cmd = 'sudo -n apt-get update && sudo -n apt-get upgrade -y';
+  if (!shouldRequireDangerousExecApproval()) {
+    const longSec = clampLongExecTimeoutSeconds(getState().settings.longExecTimeoutSeconds);
+    appendAuditLog({
+      type: 'security',
+      sourceAgentId: 'system-ops',
+      sourceAgentName: requestedBy,
+      message: `[VESZÉLYES ZÓNA] OS csomagfrissítés jóváhagyás nélkül elindítva (${new Date().toISOString()}, timeout=${longSec}s): ${cmd}`,
+      verifiedExecution: true,
+    });
+    const uRes = await runTrackedHostCommand({
+      bin: 'sudo',
+      args: ['-n', 'apt-get', 'update'],
+      timeoutSec: longSec,
+    });
+    let output = '';
+    if (!uRes.ok) {
+      output = uRes.errorMessage || uRes.stderr || 'apt-get update sikertelen.';
+    } else {
+      const gRes = await runTrackedHostCommand({
+        bin: 'sudo',
+        args: ['-n', 'apt-get', 'upgrade', '-y'],
+        timeoutSec: longSec,
+      });
+      output = gRes.ok
+        ? `${uRes.stdout}\n${gRes.stdout}`.trim().slice(0, 1200)
+        : gRes.errorMessage || gRes.stderr || 'apt-get upgrade sikertelen.';
+    }
+    const prefix = output.replace(/\s+/g, ' ').trim().slice(0, 140) || '(üres)';
+    appendAuditLog({
+      type: 'action',
+      sourceAgentId: 'system-ops',
+      sourceAgentName: requestedBy,
+      message: `OS csomagfrissítés végrehajtva (Veszélyes Zóna, ${new Date().toISOString()}): ${cmd} | kimenet: ${prefix}`,
+      verifiedExecution: uRes.ok,
     });
     return { queuedApprovalId: 'auto-executed', executedDirectly: true, output, command: cmd };
   }

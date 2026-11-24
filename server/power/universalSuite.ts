@@ -27,6 +27,7 @@ import {
   type StrictJsSandboxMockExecutor,
   type StrongSandboxBackend,
 } from '../sandbox/supervisorSandbox';
+import { isForbiddenAgentControlPlaneUrl } from '../security/autonomyProfile';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { createAndValidateSkill } from '../skills/loader';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -1175,6 +1176,10 @@ export async function executeDynamicTool(
     const urlCheck = validateSafeOutboundUrl(url);
     if (!urlCheck.ok) {
       return { ok: false, output: urlCheck.reason || 'Tiltott célpont URL (SSRF védelem).' };
+    }
+    const cpCheck = isForbiddenAgentControlPlaneUrl(url);
+    if (cpCheck.forbidden) {
+      return { ok: false, output: cpCheck.reason || 'Tiltott belső vezérlősík URL.' };
     }
     const res = await fetchImpl(url, {
       method: toolDef.kind === 'http_post' ? 'POST' : 'GET',
