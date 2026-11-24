@@ -23,6 +23,7 @@ import {
   type RouterDependencies,
 } from '../providers/router';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { createAndValidateSkill } from '../skills/loader';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { runUptimeChecks } from '../system/ops';
@@ -208,6 +209,8 @@ export async function executeApiStudioRequest(
 }> {
   const url = req.url.trim();
   if (!/^https?:\/\//i.test(url)) throw new Error('Érvényes http:// vagy https:// URL szükséges.');
+  const urlCheck = validateSafeOutboundUrl(url);
+  if (!urlCheck.ok) throw new Error(urlCheck.reason || 'Tiltott célpont URL (SSRF védelem).');
 
   let parsedHeaders: Record<string, string> = {};
   if (req.headersJson?.trim()) {
@@ -1160,6 +1163,10 @@ export async function executeDynamicTool(
     let url = toolDef.targetOrCode;
     for (const [k, v] of Object.entries(args)) {
       url = url.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), encodeURIComponent(String(v ?? '')));
+    }
+    const urlCheck = validateSafeOutboundUrl(url);
+    if (!urlCheck.ok) {
+      return { ok: false, output: urlCheck.reason || 'Tiltott célpont URL (SSRF védelem).' };
     }
     const res = await fetchImpl(url, {
       method: toolDef.kind === 'http_post' ? 'POST' : 'GET',

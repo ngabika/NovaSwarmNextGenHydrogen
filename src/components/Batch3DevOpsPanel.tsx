@@ -8,6 +8,7 @@ import {
   ShieldAlert,
   Sparkles,
 } from 'lucide-react';
+import { InfoHint } from './InfoHint';
 
 export const Batch3DevOpsPanel: React.FC = () => {
   const [xray, setXray] = useState<{
@@ -54,7 +55,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <FolderGit2 className="h-4 w-4" />
-              Repo X-Ray & Függőségi Gráf (Ú72)
+              <span>Kódbázis Röntgen &amp; Függőségi Gráf</span>
+              <InfoHint
+                label="Kódbázis Röntgen"
+                text="Átnézi a szerver mappát, megmutatja a legnagyobb fájlokat és lerajzolja, melyik modul mire épül."
+              />
             </h3>
             <button
               type="button"
@@ -96,7 +101,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />
-              CVE Sebezhetőségi Vizsgálat (npm audit + OSV · Ú75)
+              <span>Csomag Sebezhetőségi Vizsgálat (CVE)</span>
+              <InfoHint
+                label="CVE vizsgálat"
+                text="Leellenőrzi a projekt külső programcsomagjait, hogy van-e bennük ismert biztonsági rés."
+              />
             </h3>
             <button
               type="button"
@@ -132,7 +141,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Braces className="h-4 w-4" />
-            Regex Kiértékelő & NL → Cron Generátor (Ú76)
+            <span>Szövegminta (Regex) &amp; Időzítés-Generátor</span>
+            <InfoHint
+              label="Regex és időzítés-generátor"
+              text="Tesztelheted a keresőmintákat, vagy magyar mondatból (pl. minden 15 percben) automatikus időzítő kódot készíthetsz."
+            />
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <input
@@ -177,7 +190,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Activity className="h-4 w-4" />
-            HTTP Load Tester P50 / P95 / P99 (Ú78)
+            <span>Weboldal Terhelés- és Sebességteszt</span>
+            <InfoHint
+              label="Weboldal terhelésteszt"
+              text="Több párhuzamos lekéréssel megméri, milyen gyorsan és megbízhatóan válaszol egy webcím."
+            />
           </h3>
           <div className="flex flex-wrap gap-2 text-xs">
             <input
@@ -222,7 +239,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FileCode2 className="h-4 w-4" />
-            SQL → Mermaid ER & Dockerfile Auditor (Ú77, Ú80)
+            <span>Adatbázis Tervrajz &amp; Dockerfile Ellenőrző</span>
+            <InfoHint
+              label="Adatbázis tervrajz és Dockerfile"
+              text="SQL táblákból vizuális kapcsolati ábrát rajzol, valamint átnézi a Docker fájlt tipikus hibák után."
+            />
           </h3>
           <textarea
             rows={3}
@@ -285,7 +306,11 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Globe className="h-4 w-4" />
-            UI / SEO Oldal Auditor & Git Changelog (Ú79, Ú134, M144)
+            <span>Oldal SEO Ellenőrző &amp; Változásnapló</span>
+            <InfoHint
+              label="SEO ellenőrző és napló"
+              text="Megvizsgálja egy weboldal keresőoptimalizálási beállításait és letölti a projekt friss változásnaplóját."
+            />
           </h3>
           <div className="flex flex-wrap gap-2 text-xs">
             <input

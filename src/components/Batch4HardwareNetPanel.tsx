@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 interface Props {
   state?: NovaSwarmState;
@@ -108,7 +109,11 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Cpu className="h-4 w-4 text-emerald-600" />
-              Pi Hardver, GPIO/I2C, ZRAM & Szenzorok (Ú161, M207)
+              <span>Hardver, Hőfok &amp; Memória Állapot</span>
+              <InfoHint
+                label="Hardver és hőfok állapot"
+                text="Valós időben mutatja a gép szabad memóriáját, processzor-terhelését, hőmérsékletét és a Raspberry Pi csatolókat."
+              />
             </h3>
             <button
               type="button"
@@ -136,7 +141,11 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-amber-600" />
-            LAN Behatolás-Szűrő (Ú194) & Okosmérő (Ú167)
+            <span>Helyi Hálózat Figyelő &amp; Okosmérő</span>
+            <InfoHint
+              label="Hálózati figyelő és okosmérő"
+              text="Észreveszi, ha ismeretlen eszköz csatlakozott az otthoni Wi-Fi-re, és leolvassa a Shelly vagy P1 okoskonnektor adatait."
+            />
           </h3>
           <div className="flex flex-wrap gap-2">
             <button
@@ -206,7 +215,11 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Terminal className="h-4 w-4" />
-            Bash Copilot (Ú251) & Post-Mortem (Ú253)
+            <span>Magyar Parancs-Segéd &amp; Hiba-Elemző</span>
+            <InfoHint
+              label="Magyar parancs-segéd"
+              text="Ha magyarul leírod, mit szeretnél látni a gépen, javasol egy Linux parancsot. A Post-Mortem gomb pedig kinyomozza a hibák okát."
+            />
           </h3>
           <div className="flex gap-2">
             <input
@@ -273,7 +286,11 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <LayoutGrid className="h-4 w-4 text-blue-600" />
-            Egyedi Főoldali Widget (Ú258) & LAN Drop (Ú188)
+            <span>Egyedi Főoldali Dobozok &amp; Gyors Fájlküldés</span>
+            <InfoHint
+              label="Főoldali dobozok és fájlküldés"
+              text="Saját mérődobozokat tehetsz az Áttekintés oldalra, a LAN Drop-pal pedig egy kattintással küldhetsz fájlokat a telefon és a gép között."
+            />
           </h3>
           <div className="flex flex-wrap sm:flex-nowrap gap-2">
             <input
@@ -388,7 +405,11 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FolderOpen className="h-4 w-4 text-amber-600" />
-            Webes Fájlkezelő & Szerkesztő (Ú199)
+            <span>Webes Fájlkezelő &amp; Szerkesztő</span>
+            <InfoHint
+              label="Webes fájlkezelő"
+              text="Böngészőből nézheted át és szerkesztheted a munkamappád fájljait; a jelszavakat tartalmazó titkos fájlok automatikusan védve vannak."
+            />
           </h3>
           <div className="flex gap-2">
             <input

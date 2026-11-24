@@ -297,7 +297,7 @@ export const TerminalView: React.FC<Props> = ({
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             <Film className="h-3.5 w-3.5" />
-            Felvételek (M53)
+            Felvételek
           </button>
           <button
             type="button"

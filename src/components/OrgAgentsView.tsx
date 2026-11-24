@@ -12,6 +12,7 @@ import type {
   VoiceReplyMode,
 } from '../../shared/types';
 import { tr } from '../locales/translations';
+import { InfoHint } from './InfoHint';
 
 interface Props {
   language: LanguageCode;
@@ -248,8 +249,12 @@ const AgentTreeNode: React.FC<{
             )}
 
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">
-                Modell Failover Lánc (M40 · vesszővel elválasztva, pl. openrouter:deepseek/deepseek-chat, ollama:qwen2.5:3b)
+              <label className="text-[11px] text-slate-500 flex items-center gap-1.5 mb-1">
+                <span>Tartalék Modell Sorrend (vesszővel elválasztva, pl. openrouter:deepseek/deepseek-chat, ollama:qwen2.5:3b)</span>
+                <InfoHint
+                  label="Tartalék modell sorrend"
+                  text="Ha az elsődleges AI szolgáltató nem elérhető vagy drága, ebben a sorrendben próbálkozik a tartalék modellekkel."
+                />
               </label>
               <input
                 type="text"
@@ -846,7 +851,11 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Moon className="h-4 w-4 text-indigo-600" />
-              Éjszakai Műszak — Autonóm Háttér Kódoló & Karbantartó (Ú61)
+              <span>Éjszakai Műszak — Önálló Háttér Karbantartó</span>
+              <InfoHint
+                label="Éjszakai műszak"
+                text="Manuálisan is elindíthatod az éjszakai karbantartási kört, ami összegzi a függő kártyákat és rendezi a memóriát."
+              />
             </h3>
             <p className="text-xs text-slate-500">
               Önállóan feldolgozza a függő Kanban kártyákat és frissíti a memóriát rákérdezés nélkül.

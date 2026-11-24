@@ -751,7 +751,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </button>
             <button
               type="button"
-              title={card.worktreePath ? 'Worktree leválasztása' : 'Izolált Git Worktree csatolása (M31)'}
+              title={card.worktreePath ? 'Külön munkamappa leválasztása' : 'Elkülönített Git munkamappa csatolása'}
               onClick={() => void handleToggleWorktree(card)}
               className={`px-1 py-0.5 text-[10px] font-mono border rounded ${
                 card.worktreePath ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-500 border-slate-300 hover:text-slate-900'
@@ -942,7 +942,7 @@ export const SwarmChatView: React.FC<Props> = ({
                     </span>
                     <button
                       type="button"
-                      title="Szál elágaztatása innen (Fork M32)"
+                      title="Beszélgetés elágaztatása innen"
                       onClick={() => void handleForkFromMessage(m.id)}
                       className="hover:opacity-100 opacity-70"
                     >
@@ -960,7 +960,7 @@ export const SwarmChatView: React.FC<Props> = ({
                       <button
                         type="button"
                         disabled={redTeamBusyId === m.id}
-                        title="Red-Team Ördög Ügyvédje kritika (Ú67)"
+                        title="Kritikai ellenőrzés (Ördög Ügyvédje)"
                         onClick={() => void handleRedTeam(m.id)}
                         className="hover:opacity-100 opacity-70 disabled:opacity-30"
                       >
@@ -971,7 +971,7 @@ export const SwarmChatView: React.FC<Props> = ({
                       <button
                         type="button"
                         disabled={regenerating}
-                        title="Utolsó válasz újragenerálása (M32)"
+                        title="Utolsó válasz újragenerálása"
                         onClick={() => void handleRegenerateLast()}
                         className="hover:opacity-100 opacity-70 disabled:opacity-30"
                       >
@@ -980,7 +980,7 @@ export const SwarmChatView: React.FC<Props> = ({
                     )}
                     <button
                       type="button"
-                      title="Másolás vágólapra (M37)"
+                      title="Másolás vágólapra"
                       onClick={() => void handleCopyMessage(m.id, m.content)}
                       className="hover:opacity-100 opacity-70"
                     >
@@ -1040,7 +1040,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 </div>
                 {m.councilVotes && m.councilVotes.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-slate-200">
-                    <div className="text-[11px] font-semibold text-slate-700 mb-1">Konzilium Szavazási Mátrix (M36)</div>
+                    <div className="text-[11px] font-semibold text-slate-700 mb-1">Csapat Szavazási Összesítő</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] font-mono">
                       {m.councilVotes.map((v, vi) => (
                         <div key={vi} className="p-1.5 bg-white border border-slate-200 rounded">
@@ -1756,14 +1756,17 @@ export const SwarmChatView: React.FC<Props> = ({
                         className="w-full max-h-[380px] object-contain bg-white border border-slate-200 rounded"
                       />
                     ) : selectedArtifact.kind === 'chart_svg' ? (
-                      <div
-                        className="bg-white border border-slate-200 rounded p-2 overflow-auto"
-                        dangerouslySetInnerHTML={{ __html: selectedArtifact.urlOrContent }}
-                      />
+                      <div className="bg-white border border-slate-200 rounded p-2 overflow-auto">
+                        <img
+                          src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(selectedArtifact.urlOrContent)}`}
+                          alt={selectedArtifact.title}
+                          className="w-full h-auto"
+                        />
+                      </div>
                     ) : (
                       <iframe
                         title={selectedArtifact.title}
-                        sandbox="allow-scripts"
+                        sandbox=""
                         srcDoc={selectedArtifact.urlOrContent}
                         className="w-full h-[380px] bg-white border border-slate-200 rounded"
                       />

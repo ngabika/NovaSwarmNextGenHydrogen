@@ -13,6 +13,7 @@ import type {
 import { controlDockerContainer, listDockerContainers, scanLanDevices } from '../infra/hostAdmin';
 import { sendWakeOnLanPacket } from '../infra/networkAndCluster';
 import { invokeWithFailover, unloadOllamaModel } from '../providers/router';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { flushTelemetryRingBuffer, runRamOomWatchdogTick } from '../system/hardwareOptimizer';
 import { collectHardwareMetrics } from '../system/ops';
@@ -381,6 +382,8 @@ export async function dispatchSwarmMeshTask(
       const targetUrl = chosen.ollamaUrl
         ? `${chosen.ollamaUrl.replace(/\/+$/, '')}/api/generate`
         : `${chosen.url.replace(/\/+$/, '')}/v1/chat/completions`;
+      const urlCheck = validateSafeOutboundUrl(targetUrl);
+      if (!urlCheck.ok) throw new Error(urlCheck.reason || 'Tiltott mesh célpont URL.');
       const body = chosen.ollamaUrl
         ? JSON.stringify({ model: s.settings.ollamaModel, prompt, stream: false })
         : JSON.stringify({ model: s.settings.ollamaModel, messages: [{ role: 'user', content: prompt }] });

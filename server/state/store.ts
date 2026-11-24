@@ -35,31 +35,85 @@ const ROOT_DIR = process.cwd();
 const STATE_PATH = path.join(ROOT_DIR, '.state.json');
 const CONFIG_PATH = path.join(ROOT_DIR, '.config.json');
 const SECRETS_PATH = path.join(ROOT_DIR, '.secrets.vault.json');
+const SECRETS_KEY_PATH = path.join(ROOT_DIR, '.secrets.key');
+
+let cachedMasterKeyHex: string | null = null;
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Derive deterministic machine-local key for encrypting MCP & provider secrets at rest */
-function getVaultKey(): Buffer {
+/** Legacy deterministic KDF kept read-only for migrating pre-audit vaults */
+function getLegacyDeterministicVaultKey(): Buffer {
   const seed = `${os.hostname()}:${os.userInfo().username}:${ROOT_DIR}:novaswarm-vault-v1`;
   return crypto.createHash('sha256').update(seed).digest();
 }
 
+/** Random 256-bit local master key stored with mode 0600 (or NOVASWARM_MASTER_KEY env) */
+function getMasterKeyMaterial(): string {
+  const envKey = process.env.NOVASWARM_MASTER_KEY?.trim();
+  if (envKey && envKey.length >= 16) return envKey;
+  if (cachedMasterKeyHex) return cachedMasterKeyHex;
+
+  try {
+    if (fs.existsSync(SECRETS_KEY_PATH)) {
+      const raw = fs.readFileSync(SECRETS_KEY_PATH, 'utf8').trim();
+      if (/^[0-9a-f]{32,}$/i.test(raw)) {
+        try {
+          fs.chmodSync(SECRETS_KEY_PATH, 0o600);
+        } catch {
+          // ignore on non-POSIX FS
+        }
+        cachedMasterKeyHex = raw;
+        return cachedMasterKeyHex;
+      }
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    atomicWriteFileSync(SECRETS_KEY_PATH, `${generated}\n`);
+    cachedMasterKeyHex = generated;
+    return generated;
+  } catch {
+    cachedMasterKeyHex = crypto.randomBytes(32).toString('hex');
+    return cachedMasterKeyHex;
+  }
+}
+
+function getAuditHmacKey(): Buffer {
+  return crypto.createHmac('sha256', getMasterKeyMaterial()).update('novaswarm-audit-hmac-v1').digest();
+}
+
 export function encryptSecret(plaintext: string): string {
+  const salt = crypto.randomBytes(16);
+  const key = crypto.scryptSync(getMasterKeyMaterial(), salt, 32);
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getVaultKey(), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+  return `v2:${salt.toString('hex')}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 export function decryptSecret(payload: string): string {
-  const [ivHex, tagHex, dataHex] = payload.split(':');
+  if (!payload) return '';
+  const parts = payload.split(':');
+  if (parts[0] === 'v2' && parts.length === 5) {
+    const [, saltHex, ivHex, tagHex, dataHex] = parts;
+    if (!saltHex || !ivHex || !tagHex || !dataHex) return '';
+    const key = crypto.scryptSync(getMasterKeyMaterial(), Buffer.from(saltHex, 'hex'), 32);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(dataHex, 'hex')),
+      decipher.final(),
+    ]);
+    return decrypted.toString('utf8');
+  }
+
+  // Legacy 3-part format fallback
+  const [ivHex, tagHex, dataHex] = parts;
   if (!ivHex || !tagHex || !dataHex) return '';
   const decipher = crypto.createDecipheriv(
     'aes-256-gcm',
-    getVaultKey(),
+    getLegacyDeterministicVaultKey(),
     Buffer.from(ivHex, 'hex')
   );
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
@@ -414,7 +468,7 @@ export function createDefaultSettings(): Settings {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     onboardingCompleted: false,
     language: 'hu',
-    hostPermissionsGranted: true,
+    hostPermissionsGranted: false,
     killSwitchActive: false,
     userProfile: '',
     primaryProvider: 'gemini',
@@ -475,22 +529,22 @@ export function createDefaultSettings(): Settings {
     defaultPreset: 'fast',
     responseCacheEnabled: true,
     responseCacheTtlSec: 600,
-    guardrailsEnabled: false,
+    guardrailsEnabled: true,
     guardrailBlockPii: false,
-    guardrailBlockSecrets: false,
-    guardrailBlockPromptInjection: false,
+    guardrailBlockSecrets: true,
+    guardrailBlockPromptInjection: true,
     heartbeatEnabled: true,
     heartbeatIntervalMinutes: 5,
-    channelPairingRequired: false,
+    channelPairingRequired: true,
     lastHeartbeatAt: null,
     lastHeartbeatSummary: null,
     kanbanWipLimit: 3,
     kanbanAgingHours: 48,
     federationEnabled: false,
     instanceName: os.hostname().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'novaswarm-node',
-    webAuthEnabled: false,
+    webAuthEnabled: true,
     webAuthHasPassword: hasWebAuthPassword(),
-    autonomousKanbanWorkerEnabled: true,
+    autonomousKanbanWorkerEnabled: false,
     embeddingMode: 'local_ngram',
     ollamaEmbeddingModel: 'nomic-embed-text',
     otaRepoSlug: process.env.NOVASWARM_OTA_REPO || 'ngabika/NovaSwarmNextGenHydrogen',
@@ -510,13 +564,13 @@ export function createDefaultSettings(): Settings {
     wakeWordEnabled: false,
     wakeWordPhrase: 'nova',
     dashboardWidgets: createDefaultDashboardWidgets(),
-    fullAutonomousMode: true,
+    fullAutonomousMode: false,
     themeMode: 'light',
     privacyMaskEnabled: false,
-    nightShiftEnabled: true,
+    nightShiftEnabled: false,
     nightShiftIntervalMinutes: 30,
     redTeamEnabled: false,
-    supervisorStrictness: 'permissive',
+    supervisorStrictness: 'balanced',
     retentionDays: 90,
     softDowngradeOnBudget: true,
     defaultCurrency: 'HUF',
@@ -1109,6 +1163,7 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
       ...base.supervisor,
       ...(source.supervisor || {}),
     },
+    auditChainAnchor: source.auditChainAnchor,
   };
 
   saveState(migrated);
@@ -1151,9 +1206,16 @@ export function rotateStateBackupGenerations(targetPath = STATE_PATH): void {
     const bak1 = `${targetPath}.bak1`;
     const bak2 = `${targetPath}.bak2`;
     const bak3 = `${targetPath}.bak3`;
-    if (fs.existsSync(bak2)) fs.copyFileSync(bak2, bak3);
-    if (fs.existsSync(bak1)) fs.copyFileSync(bak1, bak2);
+    if (fs.existsSync(bak2)) {
+      fs.copyFileSync(bak2, bak3);
+      try { fs.chmodSync(bak3, 0o600); } catch { /* ignore */ }
+    }
+    if (fs.existsSync(bak1)) {
+      fs.copyFileSync(bak1, bak2);
+      try { fs.chmodSync(bak2, 0o600); } catch { /* ignore */ }
+    }
     fs.copyFileSync(targetPath, bak1);
+    try { fs.chmodSync(bak1, 0o600); } catch { /* ignore */ }
   } catch {
     // non-fatal best-effort rotation
   }
@@ -1223,7 +1285,7 @@ export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarm
 
 function computeAuditHash(entry: AuditLogEntry, prevHash: string): string {
   const payload = `${prevHash}|${entry.id}|${entry.timestamp}|${entry.type}|${entry.sourceAgentId}|${entry.message}`;
-  return crypto.createHash('sha256').update(payload).digest('hex');
+  return crypto.createHmac('sha256', getAuditHmacKey()).update(payload).digest('hex');
 }
 
 export function verifyAuditLogChain(): {
@@ -1231,18 +1293,21 @@ export function verifyAuditLogChain(): {
   checkedEntries: number;
   brokenIds: string[];
 } {
-  const logs = getState().auditLogs;
+  const state = getState();
+  const logs = state.auditLogs;
   const brokenIds: string[] = [];
-  let expectedPrev = 'GENESIS';
+  let expectedPrev = state.auditChainAnchor?.prevHash || 'GENESIS';
   let checkedEntries = 0;
 
   for (const log of logs) {
     if (!log.hash) continue; // Legacy pre-chain entries
     checkedEntries += 1;
-    const prevToUse = log.prevHash || expectedPrev;
-    const recomputed = computeAuditHash(log, prevToUse);
-    if (recomputed !== log.hash) {
+    if (log.prevHash !== expectedPrev) {
       brokenIds.push(log.id);
+    }
+    const recomputed = computeAuditHash(log, expectedPrev);
+    if (recomputed !== log.hash) {
+      if (!brokenIds.includes(log.id)) brokenIds.push(log.id);
     }
     expectedPrev = log.hash;
   }
@@ -1257,7 +1322,7 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | '
 
   updateState((s) => {
     const lastChained = [...s.auditLogs].reverse().find((x) => Boolean(x.hash));
-    const prevHash = lastChained?.hash || 'GENESIS';
+    const prevHash = lastChained?.hash || s.auditChainAnchor?.prevHash || 'GENESIS';
     const baseEntry: AuditLogEntry = {
       ...entry,
       id,
@@ -1271,14 +1336,14 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | '
     const maxEntries = Math.max(100, s.settings.auditLogMaxEntries || 2000);
     if (s.auditLogs.length > maxEntries) {
       const overflow = s.auditLogs.length - maxEntries;
-      let removed = 0;
-      s.auditLogs = s.auditLogs.filter((item) => {
-        if (removed < overflow && item.type !== 'chat') {
-          removed++;
-          return false;
-        }
-        return true;
-      });
+      const dropped = s.auditLogs.splice(0, overflow);
+      const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
+      if (lastDroppedHash) {
+        s.auditChainAnchor = {
+          prevHash: lastDroppedHash,
+          prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
+        };
+      }
     }
   });
 
@@ -1310,7 +1375,7 @@ export function appendUnifiedMessage(
   return full;
 }
 
-/** M156: Retention cleanup across transient logs/history */
+/** M156: Retention cleanup across transient logs/history (head-only prune preserves audit hash chain anchor) */
 export function pruneRetentionData(daysOverride?: number): { prunedLogs: number; prunedClipboard: number } {
   const days = Math.max(1, daysOverride ?? getState().settings.retentionDays ?? 90);
   const cutoffMs = Date.now() - days * 86_400_000;
@@ -1318,9 +1383,25 @@ export function pruneRetentionData(daysOverride?: number): { prunedLogs: number;
   let prunedClipboard = 0;
 
   updateState((s) => {
-    const beforeL = s.auditLogs.length;
-    s.auditLogs = s.auditLogs.filter((l) => Date.parse(l.timestamp) >= cutoffMs || l.type === 'security');
-    prunedLogs = beforeL - s.auditLogs.length;
+    let headCutIdx = 0;
+    while (headCutIdx < s.auditLogs.length) {
+      const item = s.auditLogs[headCutIdx];
+      if (item.type === 'security' || Date.parse(item.timestamp) >= cutoffMs) {
+        break;
+      }
+      headCutIdx++;
+    }
+    if (headCutIdx > 0) {
+      const dropped = s.auditLogs.splice(0, headCutIdx);
+      prunedLogs = dropped.length;
+      const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
+      if (lastDroppedHash) {
+        s.auditChainAnchor = {
+          prevHash: lastDroppedHash,
+          prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
+        };
+      }
+    }
 
     const beforeC = s.clipboardHistory.length;
     s.clipboardHistory = s.clipboardHistory.filter((c) => Date.parse(c.createdAt) >= cutoffMs);

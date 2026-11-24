@@ -193,26 +193,40 @@ async function bootstrap() {
     }
   });
 
+  const escapeHtmlStrict = (val: string) =>
+    String(val)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   // Ú100: Public read-only shared portal view
   app.get('/share/:token', (req, res) => {
     const resolved = resolveSharedPortalResource(req.params.token);
     if (!resolved) {
       return res.status(404).send('<h1>A megosztott hivatkozás lejárt vagy nem található.</h1>');
     }
-    const safeTitle = resolved.link.title.replace(/[<>&"]/g, '');
-    const safeBody = JSON.stringify(resolved.payload, null, 2).replace(/[<>&]/g, (c) =>
-      c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'
-    );
-    res.send(`<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>${safeTitle} — NovaSwarm Megosztás</title><style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:860px;margin:40px auto;padding:0 20px;color:#0f172a;background:#f8fafc}pre{background:#fff;border:1px solid #e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:13px}</style></head><body><h1>${safeTitle}</h1><p>Típus: ${resolved.link.resourceType} · Megtekintések: ${resolved.link.views}</p><pre>${safeBody}</pre></body></html>`);
+    const safeTitle = escapeHtmlStrict(resolved.link.title);
+    const safeType = escapeHtmlStrict(String(resolved.link.resourceType || ''));
+    const safeBody = escapeHtmlStrict(JSON.stringify(resolved.payload, null, 2));
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    res.send(`<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>${safeTitle} — NovaSwarm Megosztás</title><style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:860px;margin:40px auto;padding:0 20px;color:#0f172a;background:#f8fafc}pre{background:#fff;border:1px solid #e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:13px}</style></head><body><h1>${safeTitle}</h1><p>Típus: ${safeType} · Megtekintések: ${Number(resolved.link.views) || 0}</p><pre>${safeBody}</pre></body></html>`);
   });
 
-  // Ú206: Self-Hosted App Builder route (/apps/:slug)
+  // Ú206: Self-Hosted App Builder route (/apps/:slug) — isolated via CSP sandbox so user HTML cannot steal cookies/WS
   app.get('/apps/:slug', (req, res) => {
     const found = getState().hostedMiniApps.find((a) => a.slug === req.params.slug);
     if (!found) {
       return res.status(404).send('<h1>A keresett Mini-App nem található.</h1>');
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader(
+      'Content-Security-Policy',
+      "sandbox allow-scripts allow-forms; default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
     return res.send(found.htmlContent);
   });
 
@@ -225,18 +239,20 @@ async function bootstrap() {
   // Ú244 & Ú257: Once-Time Secret ("Égő Cetli") public LAN viewer
   app.get('/burn/:token', (req, res) => {
     const out = consumeEphemeralNote(req.params.token);
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    res.setHeader('Cache-Control', 'no-store');
     if (!out.ok) {
-      return res.status(404).send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:600px;margin:48px auto;padding:16px"><h2>Égő Cetli</h2><p>${out.reason}</p></body></html>`);
+      return res.status(404).send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:600px;margin:48px auto;padding:16px"><h2>Égő Cetli</h2><p>${escapeHtmlStrict(out.reason || 'A cetli lejárt vagy megsemmisült.')}</p></body></html>`);
     }
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return res.send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:640px;margin:48px auto;padding:24px;background:#f8fafc"><h2>${esc(out.title || 'Titkos Üzenet')}</h2><p style="color:#b45309;font-size:13px">${out.burnedNow ? 'Ez az üzenet a megnyitással megsemmisült.' : 'Ideiglenes széf tartalom.'}</p><pre style="background:#fff;border:1px solid #cbd5e1;padding:16px;border-radius:8px;white-space:pre-wrap">${esc(out.content || '')}</pre></body></html>`);
+    return res.send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:640px;margin:48px auto;padding:24px;background:#f8fafc"><h2>${escapeHtmlStrict(out.title || 'Titkos Üzenet')}</h2><p style="color:#b45309;font-size:13px">${out.burnedNow ? 'Ez az üzenet a megnyitással megsemmisült.' : 'Ideiglenes széf tartalom.'}</p><pre style="background:#fff;border:1px solid #cbd5e1;padding:16px;border-radius:8px;white-space:pre-wrap">${escapeHtmlStrict(out.content || '')}</pre></body></html>`);
   });
 
   // Ú314: Expiring LAN Drop File Share Token endpoint (/drop/:token)
   app.get('/drop/:token', (req, res) => {
     const out = consumeDropShareToken(req.params.token);
     if (!out.ok || !out.filePath || !out.fileName) {
-      return res.status(404).send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:560px;margin:48px auto;padding:16px"><h2>LAN Drop Megosztás</h2><p>${out.reason || 'A link érvénytelen.'}</p></body></html>`);
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      return res.status(404).send(`<!doctype html><html lang="hu"><body style="font-family:system-ui;max-width:560px;margin:48px auto;padding:16px"><h2>LAN Drop Megosztás</h2><p>${escapeHtmlStrict(out.reason || 'A link érvénytelen.')}</p></body></html>`);
     }
     return res.download(out.filePath, out.fileName);
   });

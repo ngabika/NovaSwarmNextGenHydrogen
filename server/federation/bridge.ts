@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { FederationPeer } from '../../shared/types';
 import { handleUserTurn } from '../agents/engine';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import {
   appendAuditLog,
   getFederationPeerToken,
@@ -8,6 +9,37 @@ import {
   setFederationPeerToken,
   updateState,
 } from '../state/store';
+
+export function verifyFederationInboundAuth(authHeader?: string): { ok: boolean; error?: string } {
+  const state = getState();
+  if (!state.settings.federationEnabled) {
+    return { ok: false, error: 'A Föderáció nincs engedélyezve ezen a csomóponton.' };
+  }
+  const token = authHeader?.replace(/^Bearer\s+/i, '').trim() || '';
+  if (!token) {
+    return { ok: false, error: 'Hiányzó Bearer föderációs hitelesítő token.' };
+  }
+  const envFedToken = process.env.NOVASWARM_FEDERATION_TOKEN?.trim();
+  const candidates: string[] = [];
+  if (envFedToken) candidates.push(envFedToken);
+  for (const peer of state.federationPeers) {
+    if (!peer.enabled) continue;
+    const t = getFederationPeerToken(peer.id);
+    if (t) candidates.push(t);
+  }
+  if (candidates.length === 0) {
+    return { ok: false, error: 'Nincs konfigurált föderációs társ-token ezen a példányon.' };
+  }
+  const tokenBuf = Buffer.from(token);
+  const matched = candidates.some((cand) => {
+    const candBuf = Buffer.from(cand);
+    return candBuf.length === tokenBuf.length && crypto.timingSafeEqual(candBuf, tokenBuf);
+  });
+  if (!matched) {
+    return { ok: false, error: 'Érvénytelen föderációs hitelesítő token.' };
+  }
+  return { ok: true };
+}
 
 const VALID_SEGMENT = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
@@ -59,6 +91,10 @@ export async function pingFederationPeer(id: string): Promise<FederationPeer | n
   const peer = state.federationPeers.find((p) => p.id === id);
   if (!peer) return null;
 
+  const urlGuard = validateSafeOutboundUrl(peer.baseUrl);
+  if (!urlGuard.safe) {
+    return peer;
+  }
   const token = getFederationPeerToken(peer.id);
   try {
     const res = await fetch(`${peer.baseUrl}/api/federation/manifest`, {
@@ -113,6 +149,10 @@ export async function sendFederationMessage(params: {
     throw new Error(`Föderált társ nem található vagy inaktív: ${parsed.peer}`);
   }
 
+  const urlGuard = validateSafeOutboundUrl(peer.baseUrl);
+  if (!urlGuard.safe) {
+    return { ok: false, error: urlGuard.reason };
+  }
   const token = getFederationPeerToken(peer.id);
   try {
     const res = await fetch(`${peer.baseUrl}/api/federation/inbound`, {
@@ -206,6 +246,10 @@ export async function handoffKanbanToPeer(cardId: string, peerId: string): Promi
   const peer = state.federationPeers.find((p) => p.id === peerId && p.enabled);
   if (!peer) throw new Error('Föderációs társ nem található vagy inaktív.');
 
+  const urlGuard = validateSafeOutboundUrl(peer.baseUrl);
+  if (!urlGuard.safe) {
+    return { ok: false, message: urlGuard.reason || 'Tiltott föderációs célpont URL.' };
+  }
   const token = getFederationPeerToken(peer.id);
   const res = await fetch(`${peer.baseUrl}/api/federation/handoff-inbound`, {
     method: 'POST',
@@ -300,6 +344,8 @@ export async function syncSharedMemoriesWithPeers(): Promise<{
 
   let syncedPeers = 0;
   for (const peer of state.federationPeers.filter((p) => p.enabled)) {
+    const urlGuard = validateSafeOutboundUrl(peer.baseUrl);
+    if (!urlGuard.safe) continue;
     const token = getFederationPeerToken(peer.id);
     try {
       const res = await fetch(`${peer.baseUrl}/api/federation/memory-sync-inbound`, {

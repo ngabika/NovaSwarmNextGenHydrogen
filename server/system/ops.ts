@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'node:child_process';
+import { execFileSync, execSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -293,7 +293,7 @@ export async function runHeartbeatTick(onAlert?: (msg: string) => Promise<void>)
 
 export function createBackupPoint(): BackupPoint {
   if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
   }
   const state = getState();
   const id = `bkp-${crypto.randomUUID().slice(0, 8)}`;
@@ -309,7 +309,7 @@ export function createBackupPoint(): BackupPoint {
     null,
     2
   );
-  fs.writeFileSync(fullPath, snapshotPayload, 'utf8');
+  fs.writeFileSync(fullPath, snapshotPayload, { encoding: 'utf8', mode: 0o600 });
   const sizeBytes = fs.statSync(fullPath).size;
 
   const destination: BackupPoint['destination'] = state.settings.cloudBackupGoogleDriveConnected
@@ -678,10 +678,10 @@ export function applyOtaUpdate(): {
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (prevCommit) {
+    if (prevCommit && /^[0-9a-f]{7,40}$/i.test(prevCommit.trim())) {
       try {
-        execSync(`git reset --hard ${prevCommit}`, { cwd: process.cwd(), stdio: 'ignore', timeout: 15000 });
-        execSync('npm run build', { cwd: process.cwd(), stdio: 'ignore', timeout: 60000 });
+        execFileSync('git', ['reset', '--hard', prevCommit.trim()], { cwd: process.cwd(), stdio: 'ignore', timeout: 15000 });
+        execFileSync('npm', ['run', 'build'], { cwd: process.cwd(), stdio: 'ignore', timeout: 60000 });
       } catch {
         // rollback best effort
       }
@@ -709,21 +709,32 @@ export function speakOnHostSpeaker(text: string): { launched: boolean; engine?: 
     return { launched: false, reason: 'Gazdagép hangszóró TTS kikapcsolva' };
   }
   const clean = text.replace(/[^\p{L}\p{N}\s.,!?-]/gu, ' ').slice(0, 400);
-  const piperBin = state.settings.piperTtsBinary?.trim() || 'piper';
+  const lang = /^[a-z]{2}(?:-[a-zA-Z0-9]+)?$/.test(state.settings.language) ? state.settings.language : 'hu';
+  const rawPiper = state.settings.piperTtsBinary?.trim() || 'piper';
+  const safePiperBin = /^[a-zA-Z0-9_./-]+$/.test(rawPiper) ? rawPiper : null;
 
-  /** Ú46: Try neural Piper TTS first if available on host */
-  try {
-    execSync(`command -v ${piperBin.replace(/[^a-zA-Z0-9_./-]/g, '')}`, { stdio: 'ignore' });
-    const shCmd = `printf '%s' ${JSON.stringify(clean)} | ${piperBin} --output-raw 2>/dev/null | aplay -r 22050 -f S16_LE -t raw - >/dev/null 2>&1 || espeak-ng -v ${state.settings.language} ${JSON.stringify(clean)}`;
-    const child = spawn('sh', ['-c', shCmd], { detached: true, stdio: 'ignore' });
-    child.unref();
-    return { launched: true, engine: 'piper' };
-  } catch {
-    // Fallback to espeak-ng
+  /** Ú46: Try neural Piper TTS first if available on host without shell interpolation */
+  if (safePiperBin) {
+    try {
+      execFileSync('which', [safePiperBin], { stdio: 'ignore' });
+      const piper = spawn(safePiperBin, ['--output-raw'], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const aplay = spawn('aplay', ['-r', '22050', '-f', 'S16_LE', '-t', 'raw', '-'], {
+        detached: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      piper.stdout?.pipe(aplay.stdin);
+      piper.stdin?.end(clean);
+      aplay.unref();
+      return { launched: true, engine: 'piper' };
+    } catch {
+      // Fallback to espeak-ng
+    }
   }
 
   try {
-    const child = spawn('espeak-ng', ['-v', state.settings.language, clean], {
+    const child = spawn('espeak-ng', ['-v', lang, clean], {
       detached: true,
       stdio: 'ignore',
     });

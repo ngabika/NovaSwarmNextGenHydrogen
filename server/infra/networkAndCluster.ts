@@ -22,6 +22,20 @@ export async function sendWakeOnLanPacket(macAddress: string, broadcastIp = '255
   if (cleanHex.length !== 12) {
     return { ok: false, mac: macAddress, broadcastIp, message: 'Érvénytelen MAC cím (12 hex karakter szükséges).' };
   }
+  const targetIp = (broadcastIp || '255.255.255.255').trim();
+  const isPrivateOrBroadcastIpv4 =
+    targetIp === '255.255.255.255' ||
+    targetIp.startsWith('192.168.') ||
+    targetIp.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(targetIp);
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(targetIp) || !isPrivateOrBroadcastIpv4) {
+    return {
+      ok: false,
+      mac: macAddress,
+      broadcastIp,
+      message: 'Érvénytelen vagy nem privát LAN broadcast IP-cím a Wake-on-LAN csomaghoz.',
+    };
+  }
   const macBytes = Buffer.from(cleanHex, 'hex');
   const magic = Buffer.alloc(6 + 16 * 6, 0xff);
   for (let i = 0; i < 16; i++) {

@@ -804,54 +804,180 @@ export function generateVectorLogoSvg(input: {
 // Ú234: Safe Mathematical Function Evaluator & SVG Coordinate Plotter
 // ============================================================================
 
-export function evaluateMathExpression(expr: string, xValue: number): number {
-  const sanitized = expr
-    .toLowerCase()
-    .replace(/\^/g, '**')
-    .replace(/\bpi\b/g, String(Math.PI))
-    .replace(/\be\b/g, String(Math.E));
+type MathToken =
+  | { kind: 'num'; val: number }
+  | { kind: 'id'; val: string }
+  | { kind: 'op'; val: string }
+  | { kind: 'paren'; val: '(' | ')' }
+  | { kind: 'comma' };
 
-  // Strict allowlist of safe math tokens — zero arbitrary code execution
-  const strippedTokens = sanitized
-    .replace(/\b(sin|cos|tan|sqrt|abs|log|exp|floor|ceil|round|pow|min|max)\b/g, '')
-    .replace(/\bx\b/g, '');
-  if (!/^[0-9+\-*/().,\s*]+$/.test(strippedTokens)) {
+function tokenizeMath(expr: string): MathToken[] {
+  const tokens: MathToken[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (/[0-9.]/.test(ch)) {
+      let end = i;
+      while (end < expr.length && /[0-9.]/.test(expr[end])) end++;
+      const numStr = expr.slice(i, end);
+      const parsed = Number(numStr);
+      if (!Number.isFinite(parsed)) throw new Error(`Érvénytelen szám: ${numStr}`);
+      tokens.push({ kind: 'num', val: parsed });
+      i = end;
+      continue;
+    }
+    if (/[a-z_]/i.test(ch)) {
+      let end = i;
+      while (end < expr.length && /[a-z0-9_]/i.test(expr[end])) end++;
+      tokens.push({ kind: 'id', val: expr.slice(i, end).toLowerCase() });
+      i = end;
+      continue;
+    }
+    if (ch === '*' && expr[i + 1] === '*') {
+      tokens.push({ kind: 'op', val: '**' });
+      i += 2;
+      continue;
+    }
+    if ('+-*/^%'.includes(ch)) {
+      tokens.push({ kind: 'op', val: ch === '^' ? '**' : ch });
+      i++;
+      continue;
+    }
+    if (ch === '(' || ch === ')') {
+      tokens.push({ kind: 'paren', val: ch });
+      i++;
+      continue;
+    }
+    if (ch === ',') {
+      tokens.push({ kind: 'comma' });
+      i++;
+      continue;
+    }
+    throw new Error(`Nem megengedett karakter a kifejezésben: ${ch}`);
+  }
+  return tokens;
+}
+
+const SAFE_MATH_FUNCS: Record<string, (...args: number[]) => number> = {
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  sqrt: Math.sqrt,
+  abs: Math.abs,
+  log: Math.log,
+  exp: Math.exp,
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
+  pow: Math.pow,
+  min: Math.min,
+  max: Math.max,
+};
+
+export function evaluateMathExpression(expr: string, xValue: number): number {
+  const tokens = tokenizeMath(expr);
+  let pos = 0;
+  const peek = () => tokens[pos];
+  const consume = () => tokens[pos++];
+
+  function parseAddSub(): number {
+    let left = parseMulDiv();
+    while (true) {
+      const t = peek();
+      if (!t || t.kind !== 'op' || (t.val !== '+' && t.val !== '-')) break;
+      consume();
+      const right = parseMulDiv();
+      left = t.val === '+' ? left + right : left - right;
+    }
+    return left;
+  }
+
+  function parseMulDiv(): number {
+    let left = parsePower();
+    while (true) {
+      const t = peek();
+      if (!t || t.kind !== 'op' || (t.val !== '*' && t.val !== '/' && t.val !== '%')) break;
+      consume();
+      const right = parsePower();
+      left = t.val === '*' ? left * right : t.val === '/' ? left / right : left % right;
+    }
+    return left;
+  }
+
+  function parsePower(): number {
+    const base = parseUnary();
+    const t = peek();
+    if (t && t.kind === 'op' && t.val === '**') {
+      consume();
+      return Math.pow(base, parsePower());
+    }
+    return base;
+  }
+
+  function parseUnary(): number {
+    const t = peek();
+    if (t && t.kind === 'op' && (t.val === '+' || t.val === '-')) {
+      consume();
+      const val = parseUnary();
+      return t.val === '-' ? -val : val;
+    }
+    return parsePrimary();
+  }
+
+  function parsePrimary(): number {
+    const tok = peek();
+    if (!tok) throw new Error('Váratlan kifejezés-vége.');
+    if (tok.kind === 'num') {
+      consume();
+      return tok.val;
+    }
+    if (tok.kind === 'paren' && tok.val === '(') {
+      consume();
+      const inner = parseAddSub();
+      const close = consume();
+      if (!close || close.kind !== 'paren' || close.val !== ')') {
+        throw new Error('Hiányzó záró zárójel.');
+      }
+      return inner;
+    }
+    if (tok.kind === 'id') {
+      consume();
+      if (tok.val === 'x') return xValue;
+      if (tok.val === 'pi') return Math.PI;
+      if (tok.val === 'e') return Math.E;
+      const fn = SAFE_MATH_FUNCS[tok.val];
+      if (!fn) throw new Error(`Ismeretlen függvény vagy azonosító: ${tok.val}`);
+      const open = consume();
+      if (!open || open.kind !== 'paren' || open.val !== '(') {
+        throw new Error(`Zárójel szükséges a(z) ${tok.val}() függvényhez.`);
+      }
+      const args: number[] = [];
+      const afterOpen = peek();
+      if (!(afterOpen && afterOpen.kind === 'paren' && afterOpen.val === ')')) {
+        args.push(parseAddSub());
+        while (peek()?.kind === 'comma') {
+          consume();
+          args.push(parseAddSub());
+        }
+      }
+      const close = consume();
+      if (!close || close.kind !== 'paren' || close.val !== ')') {
+        throw new Error(`Hiányzó záró zárójel a(z) ${tok.val}() hívásnál.`);
+      }
+      return fn(...args);
+    }
     throw new Error('Nem megengedett matematikai kifejezés.');
   }
 
-  const fn = new Function(
-    'x',
-    'sin',
-    'cos',
-    'tan',
-    'sqrt',
-    'abs',
-    'log',
-    'exp',
-    'floor',
-    'ceil',
-    'round',
-    'pow',
-    'min',
-    'max',
-    `"use strict"; return Number(${sanitized});`
-  );
-  return fn(
-    xValue,
-    Math.sin,
-    Math.cos,
-    Math.tan,
-    Math.sqrt,
-    Math.abs,
-    Math.log,
-    Math.exp,
-    Math.floor,
-    Math.ceil,
-    Math.round,
-    Math.pow,
-    Math.min,
-    Math.max
-  ) as number;
+  const out = parseAddSub();
+  if (pos < tokens.length) {
+    throw new Error('Váratlan extra token a matematikai kifejezés végén.');
+  }
+  return out;
 }
 
 export function plotMathFunctionSvg(expr: string, xMin = -10, xMax = 10): {
@@ -964,11 +1090,12 @@ export function generateInteractiveQuizHtml(
   topic: string,
   questions: Array<{ question: string; options: string[]; answerIndex: number }>
 ): string {
-  const payload = JSON.stringify(questions);
-  return `<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>${topic.replace(/[<>&]/g, '')} — Kvíz</title>
+  const payload = JSON.stringify(questions).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  const safeTopic = topic.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>${safeTopic} — Kvíz</title>
 <style>body{font-family:system-ui,sans-serif;max-width:680px;margin:32px auto;padding:16px;background:#f8fafc;color:#0f172a}.card{background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:18px;margin-bottom:14px}button.opt{display:block;width:100%;text-align:left;padding:10px;margin:6px 0;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer}button.ok{background:#dcfce7;border-color:#16a34a}button.bad{background:#fee2e2;border-color:#dc2626}</style></head>
-<body><h2>${topic.replace(/[<>&]/g, '')}</h2><div id="root"></div><h3 id="score"></h3>
-<script>const qs=${payload};let score=0;const root=document.getElementById('root');qs.forEach((q,qi)=>{const c=document.createElement('div');c.className='card';c.innerHTML='<b>'+(qi+1)+'. '+q.question+'</b>';q.options.forEach((o,oi)=>{const b=document.createElement('button');b.className='opt';b.textContent=o;b.onclick=()=>{if(c.dataset.done)return;c.dataset.done='1';b.classList.add(oi===q.answerIndex?'ok':'bad');if(oi===q.answerIndex)score++;document.getElementById('score').textContent='Pontszám: '+score+' / '+qs.length;};c.appendChild(b);});root.appendChild(c);});</script></body></html>`;
+<body><h2>${safeTopic}</h2><div id="root"></div><h3 id="score"></h3>
+<script>const qs=${payload};let score=0;const root=document.getElementById('root');qs.forEach((q,qi)=>{const c=document.createElement('div');c.className='card';const title=document.createElement('b');title.textContent=(qi+1)+'. '+String(q.question||'');c.appendChild(title);(q.options||[]).forEach((o,oi)=>{const b=document.createElement('button');b.className='opt';b.textContent=String(o);b.onclick=()=>{if(c.dataset.done)return;c.dataset.done='1';b.classList.add(oi===q.answerIndex?'ok':'bad');if(oi===q.answerIndex)score++;document.getElementById('score').textContent='Pontszám: '+score+' / '+qs.length;};c.appendChild(b);});root.appendChild(c);});</script></body></html>`;
 }
 
 // ============================================================================
@@ -985,7 +1112,7 @@ export function createEphemeralNote(input: {
   const ttlMs = Math.max(1, Math.min(43200, Number(input.ttlMinutes || 60))) * 60_000;
   const note: EphemeralNote = {
     id: `eph-${crypto.randomUUID().slice(0, 8)}`,
-    token: crypto.randomBytes(12).toString('hex'),
+    token: crypto.randomBytes(24).toString('base64url'),
     title: input.title?.trim() || 'Égő Cetli',
     content: input.content,
     oneTimeRead: input.oneTimeRead !== false,
@@ -1007,33 +1134,42 @@ export function consumeEphemeralNote(token: string): {
   burnedNow?: boolean;
   reason?: string;
 } {
-  const note = getState().ephemeralNotes.find((n) => n.token === token);
-  if (!note) return { ok: false, reason: 'A cetli nem található vagy már törlődött.' };
-  if (note.burned) return { ok: false, reason: 'Ez a cetli egyszeri megnyitás után már megsemmisült.' };
-  if (Date.parse(note.expiresAt) <= Date.now()) {
-    updateState((s) => {
-      const ref = s.ephemeralNotes.find((n) => n.id === note.id);
-      if (ref) {
-        ref.burned = true;
-        ref.content = '';
-      }
-    });
-    return { ok: false, reason: 'A cetli élettartama lejárt.' };
-  }
+  let outcome: {
+    ok: boolean;
+    title?: string;
+    content?: string;
+    burnedNow?: boolean;
+    reason?: string;
+  } = { ok: false, reason: 'A cetli nem található vagy már törlődött.' };
 
-  const content = note.content;
-  const title = note.title;
-  const burnedNow = note.oneTimeRead;
   updateState((s) => {
-    const ref = s.ephemeralNotes.find((n) => n.id === note.id);
-    if (!ref) return;
+    const ref = s.ephemeralNotes.find((n) => n.token === token);
+    if (!ref) {
+      outcome = { ok: false, reason: 'A cetli nem található vagy már törlődött.' };
+      return;
+    }
+    if (ref.burned) {
+      outcome = { ok: false, reason: 'Ez a cetli egyszeri megnyitás után már megsemmisült.' };
+      return;
+    }
+    if (Date.parse(ref.expiresAt) <= Date.now()) {
+      ref.burned = true;
+      ref.content = '';
+      outcome = { ok: false, reason: 'A cetli élettartama lejárt.' };
+      return;
+    }
+    const content = ref.content;
+    const title = ref.title;
+    const burnedNow = ref.oneTimeRead;
     ref.readCount += 1;
     if (ref.oneTimeRead) {
       ref.burned = true;
       ref.content = '';
     }
+    outcome = { ok: true, title, content, burnedNow };
   });
-  return { ok: true, title, content, burnedNow };
+
+  return outcome;
 }
 
 export function pruneExpiredEphemeralNotes(): number {

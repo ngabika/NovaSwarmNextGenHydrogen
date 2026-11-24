@@ -9,7 +9,13 @@ import type {
   PostMortemReport,
 } from '../../shared/types';
 import { invokeWithFailover } from '../providers/router';
-import { assertHostPermission } from '../security/permissionGate';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
+import {
+  assertHostPermission,
+  detectDestructiveOperation,
+  requireDestructiveApproval,
+  shouldRequireApproval,
+} from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { scanLanArpTable } from './networkAndCluster';
 
@@ -199,8 +205,9 @@ export async function querySmartMeterEnergy(
   estimatedDailyCost: number;
   rawSummary: string;
 }> {
-  if (!/^https?:\/\//i.test(endpointUrl)) {
-    throw new Error('Érvényes Shelly / Smart Meter HTTP URL szükséges.');
+  const urlGuard = validateSafeOutboundUrl(endpointUrl);
+  if (!urlGuard.safe) {
+    throw new Error(urlGuard.reason || 'Tiltott okosmérő URL.');
   }
   const res = await fetchImpl(endpointUrl, { signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -277,13 +284,44 @@ export function detectLanIntruders(markCurrentAsKnown = false): {
 // Ú199: Two-Panel Web File Commander (Host Permission Gated)
 // ============================================================================
 
+const PROTECTED_SECRET_BASENAMES = new Set([
+  '.secrets.vault.json',
+  '.secrets.key',
+  '.env',
+  '.env.local',
+  '.env.production',
+  '.state.json',
+  '.state.json.bak1',
+  '.state.json.bak2',
+  '.state.json.bak3',
+  'novaswarm.sqlite',
+  'novaswarm.sqlite-wal',
+  'novaswarm.sqlite-shm',
+  'id_rsa',
+  'id_ed25519',
+]);
+
+function isProtectedPath(targetPath: string): boolean {
+  const base = path.basename(targetPath);
+  if (PROTECTED_SECRET_BASENAMES.has(base)) return true;
+  if (base.startsWith('.env.') || base.startsWith('.secrets') || base.startsWith('.state.json')) return true;
+  if (base.endsWith('.pem') || base.endsWith('.key')) return true;
+  return false;
+}
+
 export function resolveSafeCommanderPath(requestedPath?: string): string {
-  const base = process.cwd();
-  if (!requestedPath?.trim()) return base;
-  const resolved = path.isAbsolute(requestedPath)
+  const rootReal = fs.realpathSync(process.cwd());
+  if (!requestedPath?.trim()) return rootReal;
+  const candidate = path.isAbsolute(requestedPath)
     ? path.normalize(requestedPath)
-    : path.resolve(base, requestedPath);
-  return resolved;
+    : path.resolve(rootReal, requestedPath);
+
+  const probe = fs.existsSync(candidate) ? fs.realpathSync(candidate) : candidate;
+  const prefix = rootReal.endsWith(path.sep) ? rootReal : `${rootReal}${path.sep}`;
+  if (probe !== rootReal && !probe.startsWith(prefix)) {
+    throw new Error('A webes fájlkezelő csak a munkakönyvtáron belül engedélyezett.');
+  }
+  return probe;
 }
 
 export function listHostDirectory(dirPath?: string): {
@@ -330,6 +368,9 @@ export function listHostDirectory(dirPath?: string): {
 export function readHostTextFile(filePath: string): { path: string; content: string; sizeBytes: number } {
   assertHostPermission(`file_commander:read(${filePath})`);
   const resolved = resolveSafeCommanderPath(filePath);
+  if (isProtectedPath(resolved)) {
+    throw new Error('Védett titok/állapot fájl olvasása megtagadva a fájlkezelőből.');
+  }
   const st = fs.statSync(resolved);
   if (st.isDirectory()) throw new Error('Könyvtár tartalma nem nyitható meg szövegként.');
   if (st.size > 512 * 1024) throw new Error('A fájl túl nagy előnézethez (>512 KB).');
@@ -343,11 +384,16 @@ export function readHostTextFile(filePath: string): { path: string; content: str
 export function writeHostTextFile(filePath: string, content: string): { path: string; sizeBytes: number } {
   assertHostPermission(`file_commander:write(${filePath})`);
   const resolved = resolveSafeCommanderPath(filePath);
-  const base = path.basename(resolved);
-  if (['.secrets.vault.json', '.env', 'id_rsa', 'id_ed25519'].includes(base)) {
-    throw new Error('Védett kulcs/titok fájl nem szerkeszthető a fájlkezelőből.');
+  if (isProtectedPath(resolved)) {
+    throw new Error('Védett kulcs/titok/állapot fájl nem szerkeszthető a fájlkezelőből.');
   }
-  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  const parentDir = path.dirname(resolved);
+  fs.mkdirSync(parentDir, { recursive: true });
+  const realParent = fs.realpathSync(parentDir);
+  const rootReal = fs.realpathSync(process.cwd());
+  if (realParent !== rootReal && !realParent.startsWith(rootReal + path.sep)) {
+    throw new Error('Írás munkakönyvtáron kívül megtagadva.');
+  }
   fs.writeFileSync(resolved, content, 'utf8');
   return { path: resolved, sizeBytes: Buffer.byteLength(content, 'utf8') };
 }
@@ -459,6 +505,21 @@ export async function runBashCopilot(
   let executed = false;
   if (execute) {
     assertHostPermission(`bash_copilot:${command}`);
+    const destructive = detectDestructiveOperation(command);
+    if (destructive.isDestructive && shouldRequireApproval()) {
+      const req = requireDestructiveApproval(
+        destructive.type!,
+        destructive.title || 'Destruktív Bash Copilot parancs',
+        command,
+        'bash-copilot'
+      );
+      return {
+        command,
+        explanation,
+        executed: false,
+        output: `Jóváhagyás szükséges a destruktív parancs futtatása előtt (ID: ${req.id.slice(0, 8)}): ${destructive.title}`,
+      };
+    }
     try {
       output = execFileSync('sh', ['-c', command], {
         encoding: 'utf8',
@@ -583,11 +644,19 @@ export async function evaluateCustomWidgets(): Promise<CustomDashboardWidget[]> 
     let val = w.lastValue || 'N/A';
     try {
       if (w.kind === 'http_json') {
+        const urlGuard = validateSafeOutboundUrl(w.source);
+        if (!urlGuard.safe) {
+          throw new Error(urlGuard.reason || 'Tiltott widget URL.');
+        }
         const res = await fetch(w.source, { signal: AbortSignal.timeout(3000) });
         const txt = await res.text();
         val = txt.slice(0, 140);
       } else {
         assertHostPermission(`custom_widget:${w.source}`);
+        const destructive = detectDestructiveOperation(w.source);
+        if (destructive.isDestructive) {
+          throw new Error(`Destruktív parancs tiltva widgetben (${destructive.title}).`);
+        }
         val = execFileSync('sh', ['-c', w.source], { encoding: 'utf8', timeout: 3000 }).trim().slice(0, 140);
       }
     } catch (err) {

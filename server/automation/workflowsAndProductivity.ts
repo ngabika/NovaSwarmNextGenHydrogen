@@ -4,6 +4,7 @@ import type {
   HabitItem,
   KanbanCard,
   MediaArtifact,
+  ProviderId,
   WorkflowDefinition,
 } from '../../shared/types';
 import { handleUserTurn } from '../agents/engine';
@@ -455,7 +456,7 @@ export function importSanitizedBundle(bundle: {
     role: string;
     systemPrompt: string;
     modelId?: string;
-    providerId?: WorkflowDefinition['actionType'] extends never ? never : any;
+    providerId?: ProviderId;
     webSearchEnabled?: boolean;
   }>;
   workflows?: Array<Partial<WorkflowDefinition>>;

@@ -37,23 +37,25 @@ elif command -v pacman >/dev/null 2>&1; then
   $SUDO pacman -Sy --noconfirm --needed curl git base-devel python espeak-ng ffmpeg sshpass pciutils bubblewrap iproute2 || true
 fi
 
-# Node.js >= 20 check
+# Node.js >= 22.5 check (required by native node:sqlite)
 NEED_NODE=0
 if ! command -v node >/dev/null 2>&1; then
   NEED_NODE=1
 else
-  NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-  if [ "$NODE_MAJOR" -lt 20 ]; then
+  NODE_VER=$(node -v | sed 's/^v//')
+  NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
+  NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
+  if [ "${NODE_MAJOR:-0}" -lt 22 ] || { [ "${NODE_MAJOR:-0}" -eq 22 ] && [ "${NODE_MINOR:-0}" -lt 5 ]; }; then
     NEED_NODE=1
   fi
 fi
 
 if [ "$NEED_NODE" -eq 1 ]; then
-  echo "[2/6] Node.js 22 LTS telepítése..."
+  echo "[2/6] Node.js 22 LTS (>= 22.5) telepítése..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | ${SUDO:-} bash -
   ${SUDO:-} apt-get install -y -qq nodejs
 else
-  echo "[2/6] Node.js $(node -v) rendben."
+  echo "[2/6] Node.js $(node -v) rendben (>= 22.5)."
 fi
 
 # Hardware profiling for Ollama recommendation & memory safety

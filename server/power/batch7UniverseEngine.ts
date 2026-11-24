@@ -560,6 +560,16 @@ export async function scanLanOpenPorts(
   if (!/^[a-zA-Z0-9.-]+$/.test(host)) {
     throw new Error('Érvénytelen gazdagép név vagy IP-cím.');
   }
+  const isPrivateOrLocalHost =
+    host === 'localhost' ||
+    host.endsWith('.local') ||
+    host === '127.0.0.1' ||
+    host.startsWith('10.') ||
+    host.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  if (!isPrivateOrLocalHost) {
+    throw new Error('Port-térképezés csak helyi LAN / privát / .local / loopback célpontokra engedélyezett.');
+  }
   const cleanPorts = ports.filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535).slice(0, 24);
   const probes = await Promise.all(cleanPorts.map((p) => probeTcpPort(host, p)));
   const openPorts = probes
@@ -774,18 +784,39 @@ export async function runNpmAuditCheck(): Promise<{
   }
 }
 
+function resolveLanDropFilePath(rawFileName: string): { filePath: string; safeName: string } | null {
+  const safeName = path.basename(rawFileName.trim());
+  if (!safeName || safeName === '.' || safeName === '..') return null;
+  const candidateDirs = [
+    path.resolve(process.cwd(), 'backups', 'lan-drop'),
+    path.resolve(process.cwd(), 'lan-drop'),
+  ];
+  for (const dir of candidateDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const realDir = fs.realpathSync(dir);
+      const target = path.resolve(realDir, safeName);
+      if (!fs.existsSync(target)) continue;
+      const realTarget = fs.realpathSync(target);
+      if (realTarget.startsWith(realDir + path.sep) && fs.statSync(realTarget).isFile()) {
+        return { filePath: realTarget, safeName };
+      }
+    } catch {
+      // try next candidate dir
+    }
+  }
+  return null;
+}
+
 export function createDropShareToken(fileName: string, ttlMinutes = 60, maxDownloads = 5): DropShareToken {
-  const dropDir = path.resolve(process.cwd(), 'lan-drop');
-  const safeName = path.basename(fileName.trim());
-  if (!safeName) throw new Error('Fájlnév kötelező.');
-  const target = path.resolve(dropDir, safeName);
-  if (!target.startsWith(dropDir) || !fs.existsSync(target)) {
-    throw new Error(`Fájl nem található a lan-drop mappában: ${safeName}`);
+  const resolved = resolveLanDropFilePath(fileName);
+  if (!resolved) {
+    throw new Error(`Fájl nem található a lan-drop mappában: ${path.basename(fileName.trim())}`);
   }
   const mins = Math.max(1, Math.min(10080, Math.round(ttlMinutes || 60)));
   const token: DropShareToken = {
-    token: crypto.randomUUID().replace(/-/g, '').slice(0, 14),
-    fileName: safeName,
+    token: crypto.randomBytes(24).toString('base64url'),
+    fileName: resolved.safeName,
     expiresAt: new Date(Date.now() + mins * 60_000).toISOString(),
     downloads: 0,
     maxDownloads: Math.max(1, Math.min(100, Math.round(maxDownloads || 5))),
@@ -803,24 +834,35 @@ export function consumeDropShareToken(tokenStr: string): {
   fileName?: string;
   reason?: string;
 } {
-  const tokenObj = (getState().dropShareTokens || []).find((t) => t.token === tokenStr);
-  if (!tokenObj) return { ok: false, reason: 'Ismeretlen vagy törölt letöltési token.' };
-  if (Date.now() > Date.parse(tokenObj.expiresAt)) {
-    return { ok: false, reason: 'A letöltési link érvényességi ideje lejárt.' };
-  }
-  if (tokenObj.downloads >= tokenObj.maxDownloads) {
-    return { ok: false, reason: 'Elérte a maximális letöltési limitet.' };
-  }
-  const dropDir = path.resolve(process.cwd(), 'lan-drop');
-  const filePath = path.resolve(dropDir, path.basename(tokenObj.fileName));
-  if (!filePath.startsWith(dropDir) || !fs.existsSync(filePath)) {
-    return { ok: false, reason: 'A megosztott fájl már nem létezik a lemezen.' };
-  }
+  let outcome: { ok: boolean; filePath?: string; fileName?: string; reason?: string } = {
+    ok: false,
+    reason: 'Ismeretlen vagy törölt letöltési token.',
+  };
+
   updateState((s) => {
     const ref = (s.dropShareTokens || []).find((t) => t.token === tokenStr);
-    if (ref) ref.downloads += 1;
+    if (!ref) {
+      outcome = { ok: false, reason: 'Ismeretlen vagy törölt letöltési token.' };
+      return;
+    }
+    if (Date.now() > Date.parse(ref.expiresAt)) {
+      outcome = { ok: false, reason: 'A letöltési link érvényességi ideje lejárt.' };
+      return;
+    }
+    if (ref.downloads >= ref.maxDownloads) {
+      outcome = { ok: false, reason: 'Elérte a maximális letöltési limitet.' };
+      return;
+    }
+    const resolved = resolveLanDropFilePath(ref.fileName);
+    if (!resolved) {
+      outcome = { ok: false, reason: 'A megosztott fájl már nem létezik a lemezen.' };
+      return;
+    }
+    ref.downloads += 1;
+    outcome = { ok: true, filePath: resolved.filePath, fileName: resolved.safeName };
   });
-  return { ok: true, filePath, fileName: tokenObj.fileName };
+
+  return outcome;
 }
 
 export async function broadcastLanDiscoveryPing(port = 41234): Promise<{

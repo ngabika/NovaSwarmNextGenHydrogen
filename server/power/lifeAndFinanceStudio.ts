@@ -13,6 +13,7 @@ import type {
   VehicleMaintenanceItem,
 } from '../../shared/types';
 import { addSharedListItem } from './universalSuite';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
 /** Ú83: Universal CSV/JSON Data Wrangler */
@@ -628,6 +629,10 @@ export async function searchAcademicPapers(query: string): Promise<{
 
 /** Ú107: Read-It-Later Bookmark Archiver */
 export async function archiveBookmarkUrl(url: string, tags: string[] = []): Promise<BookmarkEntry> {
+  const urlCheck = validateSafeOutboundUrl(url.trim());
+  if (!urlCheck.ok) {
+    throw new Error(urlCheck.reason || 'Tiltott könyvjelző URL (SSRF védelem).');
+  }
   let title = url;
   let archivedExcerpt = '';
   try {

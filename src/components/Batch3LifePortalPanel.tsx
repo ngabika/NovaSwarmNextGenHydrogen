@@ -10,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 export const Batch3LifePortalPanel: React.FC<{
   state: NovaSwarmState;
@@ -48,7 +49,11 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Users className="h-4 w-4" />
-          Személyes CRM & Kapcsolati Emlékeztetők (Ú91)
+          <span>Személyes Névjegyzék &amp; Kapcsolatok</span>
+          <InfoHint
+            label="Személyes névjegyzék"
+            text="Egyszerű kapcsolatlista partnerekről, barátokról és ismerősökről gyors elérhetőségekkel."
+          />
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <input type="text" value={crmName} onChange={(e) => setCrmName(e.target.value)} placeholder="Név..." className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -94,7 +99,11 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Package className="h-4 w-4" />
-          Csomagkövetés & Megosztott Portál Linkek (Ú99, Ú100)
+          <span>Csomagkövetés &amp; Megosztó Linkek</span>
+          <InfoHint
+            label="Csomagkövetés és megosztás"
+            text="Nyomon követheted a várt csomagok kódját, és ideiglenes megosztó linket adhatsz listákhoz vagy riportokhoz."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <input type="text" value={pkgTitle} onChange={(e) => setPkgTitle(e.target.value)} placeholder="Csomag leírás..." className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -163,7 +172,11 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Home className="h-4 w-4" />
-          Heti Étrend → /lista Szinkron & Háztartás (Ú113-Ú115)
+          <span>Heti Étrend &amp; Bevásárlólista Szinkron</span>
+          <InfoHint
+            label="Heti étrend"
+            text="Ha megadsz egy receptet és a hozzávalóit, a hiányzó tételeket automatikusan felveszi a közös bevásárlólistára."
+          />
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
           <input type="text" value={mealDay} onChange={(e) => setMealDay(e.target.value)} className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -227,7 +240,11 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Coins className="h-4 w-4" />
-          EKB Devizaátváltó, ÁFA/Kamatos Kamat & Tudomány (Ú106, Ú141-147)
+          <span>Devizaváltó, ÁFA Kalkulátor &amp; Szakirodalom</span>
+          <InfoHint
+            label="Pénzügyi kalkulátorok"
+            text="Gyorsan átváltja a valutákat (EKB árfolyammal), kiszámolja a 27%-os ÁFÁ-t és tudományos cikkeket keres."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <input type="number" value={fxAmount} onChange={(e) => setFxAmount(Number(e.target.value))} className="w-24 px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />

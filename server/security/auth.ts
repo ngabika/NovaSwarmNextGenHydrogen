@@ -62,10 +62,71 @@ export function verifySessionToken(token?: string): boolean {
   }
 }
 
+function normalizeLoopbackHost(host: string): string {
+  const clean = host.toLowerCase().replace(/^\[|\]$/g, '');
+  if (clean === 'localhost' || clean === '127.0.0.1' || clean === '::1') return 'loopback';
+  return clean;
+}
+
+export function isLoopbackIp(ip?: string): boolean {
+  if (!ip) return false;
+  const clean = ip.replace(/^::ffff:/i, '').trim().toLowerCase();
+  return clean === '127.0.0.1' || clean === '::1' || clean === 'localhost';
+}
+
+export function verifySameOriginRequest(headers: {
+  origin?: string;
+  referer?: string;
+  host?: string;
+}): boolean {
+  const rawOrigin = headers.origin || headers.referer;
+  if (!rawOrigin) {
+    // Non-browser CLI/curl/internal test requests omit Origin/Referer
+    return true;
+  }
+  try {
+    const parsedOrigin = new URL(rawOrigin);
+    if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') {
+      return false;
+    }
+    const reqHostHeader = (headers.host || '').trim();
+    if (!reqHostHeader) {
+      return normalizeLoopbackHost(parsedOrigin.hostname) === 'loopback';
+    }
+    const parsedReqUrl = new URL(`http://${reqHostHeader}`);
+    if (
+      normalizeLoopbackHost(parsedOrigin.hostname) === 'loopback' &&
+      normalizeLoopbackHost(parsedReqUrl.hostname) === 'loopback'
+    ) {
+      // Check port match when loopback
+      const oPort = parsedOrigin.port || (parsedOrigin.protocol === 'https:' ? '443' : '80');
+      const rPort = parsedReqUrl.port || '80';
+      return oPort === rPort;
+    }
+    if (parsedOrigin.host.toLowerCase() === parsedReqUrl.host.toLowerCase()) {
+      return true;
+    }
+    if (process.env.APP_URL) {
+      try {
+        const appUrl = new URL(process.env.APP_URL);
+        if (parsedOrigin.host.toLowerCase() === appUrl.host.toLowerCase()) return true;
+      } catch {
+        // ignore invalid APP_URL
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function isRequestAuthorized(headers: { cookie?: string; authorization?: string }): boolean {
   const state = getState();
-  if (!state.settings.webAuthEnabled || !hasWebAuthPassword()) {
+  if (!state.settings.webAuthEnabled) {
     return true;
+  }
+  if (!hasWebAuthPassword()) {
+    return false;
   }
   const cookies = parseCookieHeader(headers.cookie);
   if (verifySessionToken(cookies[WEB_SESSION_COOKIE_NAME])) {
@@ -75,6 +136,17 @@ export function isRequestAuthorized(headers: { cookie?: string; authorization?: 
 }
 
 export function isWsUpgradeAuthorized(req: http.IncomingMessage): boolean {
+  if (!verifySameOriginRequest({
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    host: req.headers.host,
+  })) {
+    return false;
+  }
+  const state = getState();
+  if (state.settings.webAuthEnabled && !hasWebAuthPassword()) {
+    return isLoopbackIp(req.socket?.remoteAddress);
+  }
   return isRequestAuthorized({ cookie: req.headers.cookie });
 }
 
@@ -85,27 +157,56 @@ export function authenticateOperatorPassword(password: string): string | null {
 
 /**
  * Middleware protecting /api/* routes when settings.webAuthEnabled is true.
+ * Enforces Origin/Host same-origin check on mutating browser requests to block CSRF & DNS rebinding.
  * Leaves /api/auth/*, /api/channels/inbound/*, and /api/federation/* accessible so
- * login, Slack/Discord webhooks, and peer federation continue functioning.
+ * login, Slack/Discord webhooks, and peer federation (authenticated via bearer tokens) continue functioning.
  */
 export function requireWebAuthMiddleware(
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
 ): void {
+  const p = req.path || '';
+  const isWebhookOrFed = p.startsWith('/channels/inbound/') || p.startsWith('/federation/');
+
+  const method = (req.method || 'GET').toUpperCase();
+  if (!isWebhookOrFed && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    if (!verifySameOriginRequest({
+      origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+      referer: typeof req.headers.referer === 'string' ? req.headers.referer : undefined,
+      host: typeof req.headers.host === 'string' ? req.headers.host : undefined,
+    })) {
+      res.status(403).json({
+        error: 'Érvénytelen Origin/Host fejléc (CSRF / DNS-rebinding védelem).',
+        code: 'CSRF_ORIGIN_MISMATCH',
+      });
+      return;
+    }
+  }
+
   const state = getState();
-  if (!state.settings.webAuthEnabled || !hasWebAuthPassword()) {
+  if (!state.settings.webAuthEnabled) {
     next();
     return;
   }
 
-  const p = req.path || '';
-  if (
-    p.startsWith('/auth/') ||
-    p.startsWith('/channels/inbound/') ||
-    p.startsWith('/federation/')
-  ) {
+  if (p.startsWith('/auth/') || isWebhookOrFed) {
     next();
+    return;
+  }
+
+  if (!hasWebAuthPassword()) {
+    // Allow local loopback initial setup / preview until operator claims a password,
+    // while blocking remote unauthenticated LAN access when no password is set yet.
+    const clientIp = req.ip || req.socket?.remoteAddress;
+    if (isLoopbackIp(clientIp)) {
+      next();
+      return;
+    }
+    res.status(401).json({
+      error: 'Operátori kezdő jelszó beállítása szükséges helyi konzolról (LAN hozzáférés zárolva).',
+      code: 'AUTH_SETUP_REQUIRED',
+    });
     return;
   }
 

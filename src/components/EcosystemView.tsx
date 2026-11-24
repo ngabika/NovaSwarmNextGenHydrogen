@@ -26,6 +26,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import type { NovaSwarmState, WorkflowStep } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 const Batch3LifePortalPanel = lazy(() =>
   import('./Batch3LifePortalPanel').then((m) => ({ default: m.Batch3LifePortalPanel }))
@@ -177,45 +178,47 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
     }
   };
 
-  const tabs: Array<{ id: EcoTab; label: string; icon: React.ReactNode }> = [
-    { id: 'workflows', label: 'Munkafolyamatok', icon: <Workflow className="h-3.5 w-3.5" /> },
-    { id: 'webhooks', label: 'Webhookok', icon: <Webhook className="h-3.5 w-3.5" /> },
-    { id: 'rss', label: 'RSS & Briefing', icon: <Rss className="h-3.5 w-3.5" /> },
-    { id: 'email', label: 'Email IMAP/SMTP', icon: <Mail className="h-3.5 w-3.5" /> },
-    { id: 'calendar', label: 'Naptár & ICS', icon: <Calendar className="h-3.5 w-3.5" /> },
-    { id: 'smarthome', label: 'Okosotthon HA/MQTT', icon: <Home className="h-3.5 w-3.5" /> },
-    { id: 'repos', label: 'GitHub Figyelő', icon: <GitBranch className="h-3.5 w-3.5" /> },
-    { id: 'watchdog_media', label: 'Oldalfigyelő & Média', icon: <Eye className="h-3.5 w-3.5" /> },
-    { id: 'journal', label: 'Napi Napló', icon: <BookOpen className="h-3.5 w-3.5" /> },
-    { id: 'lists_subs', label: 'Listák & Előfizetések', icon: <ListChecks className="h-3.5 w-3.5" /> },
-    { id: 'habits', label: 'Szokások & Fókusz', icon: <Timer className="h-3.5 w-3.5" /> },
-    { id: 'expenses', label: 'Pénzügyek & CSV', icon: <Wallet className="h-3.5 w-3.5" /> },
-    { id: 'life_portal', label: 'CRM, Csomagok & Deviza', icon: <Package className="h-3.5 w-3.5" /> },
-    { id: 'life_os_b4', label: 'Élet-OS, XP & Széf (B4)', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
-    { id: 'bundle', label: 'Csomag Export/Import', icon: <Download className="h-3.5 w-3.5" /> },
+  const tabs: Array<{ id: EcoTab; label: string; icon: React.ReactNode; hint: string }> = [
+    { id: 'workflows', label: 'Automatizmusok', icon: <Workflow className="h-3.5 w-3.5" />, hint: '„Ha ez történik, akkor csináld azt” szabályok: időzítőre vagy eseményre automatikus feladatok indítása.' },
+    { id: 'webhooks', label: 'Külső Értesítők', icon: <Webhook className="h-3.5 w-3.5" />, hint: 'Egyedi webcímek (webhookok), amelyeken külső appok értesíteni tudják a rendszeredet.' },
+    { id: 'rss', label: 'Hírek & Briefing', icon: <Rss className="h-3.5 w-3.5" />, hint: 'Kedvenc híroldalaid követése és napi összefoglaló készítése a friss cikkekből.' },
+    { id: 'email', label: 'Email Postafiók', icon: <Mail className="h-3.5 w-3.5" />, hint: 'Bejövő levelek olvasása és válaszok küldése a saját IMAP/SMTP postafiókodon keresztül.' },
+    { id: 'calendar', label: 'Naptár', icon: <Calendar className="h-3.5 w-3.5" />, hint: 'Események, határidők és emlékeztetők kezelése vagy .ics naptárfájl beolvasása.' },
+    { id: 'smarthome', label: 'Okosotthon', icon: <Home className="h-3.5 w-3.5" />, hint: 'Home Assistant és MQTT eszközök (lámpák, szenzorok, kapcsolók) állapotának lekérdezése és vezérlése.' },
+    { id: 'repos', label: 'Kódfigyelő', icon: <GitBranch className="h-3.5 w-3.5" />, hint: 'GitHub projektek követése, hogy azonnal lásd az új változtatásokat.' },
+    { id: 'watchdog_media', label: 'Weboldal-figyelő & Hang/YouTube', icon: <Eye className="h-3.5 w-3.5" />, hint: 'Weboldalak változásainak figyelése, hangjegyzetek szöveggé alakítása és YouTube videók összegzése.' },
+    { id: 'journal', label: 'Napi Napló', icon: <BookOpen className="h-3.5 w-3.5" />, hint: 'Hangulat, energiaszint és napi gondolatok feljegyzése.' },
+    { id: 'lists_subs', label: 'Bevásárlólista & Előfizetések', icon: <ListChecks className="h-3.5 w-3.5" />, hint: 'Közös listák (pl. bevásárlás) és havi előfizetések, lejárati határidők nyomon követése.' },
+    { id: 'habits', label: 'Szokások & Fókusz', icon: <Timer className="h-3.5 w-3.5" />, hint: 'Napi jó szokások pipálása és fókuszidőzítő (Pomodoro) elindítása.' },
+    { id: 'expenses', label: 'Kiadások & CSV', icon: <Wallet className="h-3.5 w-3.5" />, hint: 'Napi költések rögzítése vagy banki CSV kivonat gyors összesítése.' },
+    { id: 'life_portal', label: 'Ismerősök, Csomagok & Valuta', icon: <Package className="h-3.5 w-3.5" />, hint: 'Személyes névjegyek, csomagkövetés, heti étrend, devizaváltó és nyilvános megosztási linkek.' },
+    { id: 'life_os_b4', label: 'Okmányszéf, Árfigyelő & Receptek', icon: <CheckCircle2 className="h-3.5 w-3.5" />, hint: 'Garanciák és iratok lejárati figyelője, webshop árfigyelés, otthoni hozzávalókból receptötletek és céltervező.' },
+    { id: 'bundle', label: 'Adatmentés Export/Import', icon: <Download className="h-3.5 w-3.5" />, hint: 'Beállítások és adatok biztonságos (jelszavak és kulcsok nélküli) mentése vagy áttöltése fájlba.' },
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-1.5 bg-white border border-slate-200 rounded-xl p-2">
         {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => {
-              setTab(t.id);
-              setStatusMsg(null);
-              if (t.id === 'lists_subs') {
-                void loadSubSummary();
-              }
-            }}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-              tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {t.icon}
-            {t.label}
-          </button>
+          <div key={t.id} className="inline-flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setTab(t.id);
+                setStatusMsg(null);
+                if (t.id === 'lists_subs') {
+                  void loadSubSummary();
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
+                tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+            <InfoHint theme="light" label={t.label} description={t.hint} />
+          </div>
         ))}
       </div>
 
@@ -1651,7 +1654,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       )}
 
       {tab === 'life_os_b4' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Élet-OS, XP & Széf (B4) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Okmányszéf &amp; Életmód betöltése...</div>}>
           <Batch4LifeAndAutopilotPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}

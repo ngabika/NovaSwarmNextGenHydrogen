@@ -631,7 +631,7 @@ export const McpSkillsView: React.FC<Props> = ({
 
             {/* Ú60: GitHub Skill Import + Static Security Scan */}
             <div className="pt-2 border-t border-slate-200 space-y-2">
-              <div className="text-xs font-semibold text-slate-700">GitHub Skill Biztonsági Audit & Import (Ú60)</div>
+              <div className="text-xs font-semibold text-slate-700">GitHub Képesség Biztonsági Ellenőrzés &amp; Import</div>
               <div className="flex gap-2">
                 <input
                   type="url"

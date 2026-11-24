@@ -12,6 +12,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { ClusterNode, NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 export const Batch3InfraClusterPanel: React.FC<{
   state?: NovaSwarmState;
@@ -42,7 +43,11 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Power className="h-4 w-4" />
-          Wake-on-LAN (UDP) & WireGuard X25519 (Ú120, Ú121)
+          <span>Távoli Gép Ébresztő (WOL) &amp; WireGuard VPN</span>
+          <InfoHint
+            label="Ébresztő és WireGuard"
+            text="Helyi hálózaton keresztül felébreszti az alvó számítógépedet, vagy biztonságos WireGuard kulcspárt és QR kódot készít telefonhoz."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <input type="text" value={wolName} onChange={(e) => setWolName(e.target.value)} placeholder="Eszköz név" className="w-32 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -86,7 +91,13 @@ export const Batch3InfraClusterPanel: React.FC<{
               <pre className="flex-1 p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[10px] font-mono overflow-x-auto">
                 {wgBundle.configText}
               </pre>
-              <div className="border border-slate-200 rounded p-1 bg-white" dangerouslySetInnerHTML={{ __html: wgBundle.qrSvg }} />
+              <div className="border border-slate-200 rounded p-1 bg-white">
+                <img
+                  src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(wgBundle.qrSvg)}`}
+                  alt="WireGuard QR"
+                  className="w-36 h-36"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -95,7 +106,11 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Wifi className="h-4 w-4" />
-          LAN ARP, Sebességteszt & OSINT Domain Ellenőrző (Ú122, Ú128, Ú130)
+          <span>Helyi Hálózati Eszközök, Sebességteszt &amp; Domain Ellenőrző</span>
+          <InfoHint
+            label="Hálózati eszközök"
+            text="Kilistázza az otthoni router által látott eszközöket, leméri az internet sebességét és ellenőrzi egy domain tanúsítványát."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <button
@@ -157,7 +172,11 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Server className="h-4 w-4" />
-          Többgépes Fürt & Távoli GPU Ollama Csomópontok (Ú152, Ú153)
+          <span>Többgépes Fürt &amp; Távoli AI Gépek</span>
+          <InfoHint
+            label="Többgépes fürt"
+            text="Ha van otthon másik erős géped vagy GPU-s szervered, itt adhatod hozzá, hogy az asszisztens megoszthassa velük a munkát."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <input type="text" value={nodeName} onChange={(e) => setNodeName(e.target.value)} className="w-28 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -214,7 +233,11 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Database className="h-4 w-4" />
-          SQLite WAL, SHA-256 Audit Lánc & Phoenix Mentés (M61, M117, Ú160)
+          <span>Adatbázis Állapot, Audit Hitelesítés &amp; Mentés</span>
+          <InfoHint
+            label="Adatbázis és mentés"
+            text="Ellenőrzi a helyi SQLite adatbázist, a hamisításbiztos audit naplót, és teljes mentési pillanatképet készít."
+          />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
           <button

@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import type { McpAuthType, McpServer, McpTransport } from '../../shared/types';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
+import { assertHostPermission } from '../security/permissionGate';
 import {
   appendAuditLog,
   getMcpCredentialSecret,
@@ -96,10 +98,20 @@ async function invokeStdioJsonRpc(
   params: Record<string, unknown>,
   envOverrides?: Record<string, string>
 ): Promise<{ result?: unknown; error?: { message?: string } }> {
+  assertHostPermission(`mcp:stdio:${command}`);
+  if (!/^[a-zA-Z0-9_./-]+$/.test(command.trim())) {
+    throw new Error(`Érvénytelen vagy tiltott MCP stdio parancsnév: ${command}`);
+  }
+  const safeBaseEnv: Record<string, string> = {
+    PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+    HOME: process.env.HOME || '/tmp',
+    LANG: process.env.LANG || 'C.UTF-8',
+    NODE_ENV: process.env.NODE_ENV || 'production',
+  };
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(command.trim(), args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...(envOverrides || {}) },
+      env: { ...safeBaseEnv, ...(envOverrides || {}) },
     });
 
     let stdoutBuf = '';
@@ -255,6 +267,10 @@ export async function testMcpConnection(mcpId: string): Promise<McpServer> {
     const timer = setTimeout(() => controller.abort(), 5000);
 
     try {
+      const urlCheck = validateSafeOutboundUrl(srv.endpointUrl);
+      if (!urlCheck.ok) {
+        throw new Error(urlCheck.reason || 'Tiltott MCP célpont URL.');
+      }
       const res = await fetch(srv.endpointUrl, {
         method: 'GET',
         headers,
@@ -300,6 +316,10 @@ export async function testMcpConnection(mcpId: string): Promise<McpServer> {
 }
 
 export async function fetchExternalCatalog(catalogUrl: string): Promise<CatalogTemplate[]> {
+  const urlCheck = validateSafeOutboundUrl(catalogUrl);
+  if (!urlCheck.ok) {
+    throw new Error(urlCheck.reason || 'Tiltott katalógus URL (SSRF védelem).');
+  }
   const res = await fetch(catalogUrl, { signal: AbortSignal.timeout(6000) });
   if (!res.ok) {
     throw new Error(`Külső katalógus lekérése sikertelen: HTTP ${res.status}`);
@@ -386,6 +406,10 @@ export async function listMcpTools(
     return { mcpId: srv.id, mcpName: srv.name, tools: Array.isArray(tools) ? tools : [], raw: data };
   }
 
+  const urlCheck = validateSafeOutboundUrl(srv.endpointUrl);
+  if (!urlCheck.ok) {
+    throw new Error(urlCheck.reason || 'Tiltott MCP HTTP URL (SSRF védelem).');
+  }
   const headers = buildMcpAuthHeaders(srv, creds);
   const res = await fetchImpl(srv.endpointUrl, {
     method: 'POST',
@@ -444,6 +468,10 @@ export async function callMcpTool(
       creds || undefined
     )) as typeof data;
   } else {
+    const urlCheck = validateSafeOutboundUrl(srv.endpointUrl);
+    if (!urlCheck.ok) {
+      throw new Error(urlCheck.reason || 'Tiltott MCP HTTP URL (SSRF védelem).');
+    }
     const headers = buildMcpAuthHeaders(srv, creds);
     const res = await fetchImpl(srv.endpointUrl, {
       method: 'POST',

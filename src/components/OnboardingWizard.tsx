@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, ShieldAlert, ShieldCheck, Terminal } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, KeyRound, ShieldAlert, ShieldCheck, Terminal } from 'lucide-react';
 import type { LanguageCode, ProviderId } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 import { getLanguageDir, SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
 interface Archetype {
@@ -81,8 +82,9 @@ export const OnboardingWizard: React.FC<Props> = ({
   const [agentRole, setAgentRole] = useState(ARCHETYPES[0].role);
   const [agentPrompt, setAgentPrompt] = useState(ARCHETYPES[0].systemPrompt);
 
-  // Step 6: Host Permissions
-  const [hostPermissionsGranted, setHostPermissionsGranted] = useState(true);
+  // Step 6: Host Permissions & Operator Password
+  const [hostPermissionsGranted, setHostPermissionsGranted] = useState(false);
+  const [operatorPassword, setOperatorPassword] = useState('');
 
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -158,6 +160,7 @@ export const OnboardingWizard: React.FC<Props> = ({
             hostExecutionEnabled: hostPermissionsGranted,
           },
           hostPermissionsGranted,
+          operatorPassword: operatorPassword.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -226,7 +229,14 @@ export const OnboardingWizard: React.FC<Props> = ({
 
           {step === 2 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step2Title')}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step2Title')}</h2>
+                <InfoHint
+                  theme="light"
+                  label="AI Szolgáltatók"
+                  description="Az AI válaszokhoz kell egy felhős kulcs (pl. ingyenes Gemini API) vagy egy a gépeden futó helyi Ollama. Ezt bármikor módosíthatod."
+                />
+              </div>
               <p className="text-sm text-slate-600">{tr(language, 'step2Desc')}</p>
               <p className="text-xs text-slate-500">{tr(language, 'step2MultiKeyNote')}</p>
 
@@ -312,7 +322,14 @@ export const OnboardingWizard: React.FC<Props> = ({
 
           {step === 3 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step3Title')}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step3Title')}</h2>
+                <InfoHint
+                  theme="light"
+                  label="Telegram összekötés"
+                  description="Ha megadod a Telegram bot tokened és a saját Chat ID-dat, telefonról is tudsz írni vagy hangüzenetet küldeni a rendszernek. Idegen Chat ID-k alapból tiltva vannak."
+                />
+              </div>
               <p className="text-sm text-slate-600">{tr(language, 'step3Desc')}</p>
               <div className="space-y-3 pt-2">
                 <div>
@@ -440,9 +457,34 @@ export const OnboardingWizard: React.FC<Props> = ({
 
           {step === 6 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step6Title')}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step6Title')}</h2>
+                <InfoHint
+                  theme="light"
+                  label="Biztonsági beállítások"
+                  description="Alapértelmezésben a géphez (fájlokhoz, parancssorhoz) való hozzáférés biztonságosan ki van kapcsolva. Csak akkor engedélyezd, ha tényleg rendszerfelügyeletre használod."
+                />
+              </div>
               <p className="text-sm text-slate-600">{tr(language, 'step6Desc')}</p>
               <div className="space-y-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setHostPermissionsGranted(false)}
+                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
+                    !hostPermissionsGranted
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-sm font-semibold">{tr(language, 'step6Restrict')} (Ajánlott induláshoz)</div>
+                    <div className="text-xs opacity-80 mt-0.5">
+                      Biztonságos mód: az AI segít beszélgetni, tervezni és kutatni, de nem tud közvetlenül fájlokat törölni vagy terminálparancsokat futtatni a gépeden.
+                    </div>
+                  </div>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setHostPermissionsGranted(true)}
@@ -456,32 +498,30 @@ export const OnboardingWizard: React.FC<Props> = ({
                   <div>
                     <div className="text-sm font-semibold">{tr(language, 'step6Allow')}</div>
                     <div className="text-xs opacity-80 mt-0.5">
-                      node-pty terminal, host file operations, package installation, hardware telemetry. 100% Autonomous Mode active by default: zero permission prompts, zero LAN/guardrail friction for personal Telegram + local network use.
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setHostPermissionsGranted(false)}
-                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
-                    !hostPermissionsGranted
-                      ? 'border-slate-900 bg-slate-900 text-white'
-                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
-                  }`}
-                >
-                  <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-sm font-semibold">{tr(language, 'step6Restrict')}</div>
-                    <div className="text-xs opacity-80 mt-0.5">
-                      Optional restricted mode: blocks all terminal sessions, host command execution, and file writes.
+                      Engedélyezi a beépített terminált, fájlkezelést és hardver-diagnosztikát. Veszélyes parancsok előtt továbbra is jóváhagyást kér a rendszer.
                     </div>
                   </div>
                 </button>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-500 pt-2">
+
+              <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                <label htmlFor="wiz-op-pass" className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Operátori belépési jelszó (ajánlott hálózati védelemhez, min. 8 karakter)
+                </label>
+                <input
+                  id="wiz-op-pass"
+                  type="password"
+                  value={operatorPassword}
+                  onChange={(e) => setOperatorPassword(e.target.value)}
+                  placeholder="Hagyd üresen, ha később állítod be a Beállításokban..."
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-slate-500 pt-1">
                 <Terminal className="h-4 w-4" />
-                <span>Clean launch: Zero security barriers by default · 100% autonomous execution · 1 user agent + 1 Supervisor.</span>
+                <span>Biztonságos alapértelmezések: jóváhagyásos végrehajtás · védett hálózat · 1 aktív segítő ágens + 1 Felügyelő.</span>
               </div>
             </div>
           )}

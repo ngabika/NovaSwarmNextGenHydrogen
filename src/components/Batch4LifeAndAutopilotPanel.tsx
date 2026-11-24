@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 interface Props {
   state: NovaSwarmState;
@@ -52,7 +53,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
           <div className="space-y-1">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-emerald-600" />
-              Autopilot 24/7 Főagy & Produktivitási RPG Profil (Ú237, Ú260)
+              <span>Önálló Állapot, Szint &amp; Mentési Csomag</span>
+              <InfoHint
+                label="Önálló állapot és szint"
+                text="Itt látod a gyűjtött pontjaidat, és egy kattintással letöltheted a teljes mentési csomagot másik gépre költözéshez."
+              />
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300">
               Autonóm Mód: <b>{state.settings.fullAutonomousMode ? '100% AKTÍV' : 'Kikérdezős'}</b> ·
@@ -84,7 +89,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Search className="h-4 w-4" />
-          Mindent-Kereső Omnisearch (SQLite FTS5 + Memória + Kanban + CRM + Chat) (Ú259)
+          <span>Mindenben Kereső (Memória, Feladatok, Névjegyek, Chat)</span>
+          <InfoHint
+            label="Mindenben kereső"
+            text="Egyetlen kulcsszóval átkutathatod az összes elmentett emléket, beszélgetést, teendőt és névjegyet."
+          />
         </h3>
         <div className="flex gap-2">
           <input
@@ -125,7 +134,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FileWarning className="h-4 w-4 text-amber-600" />
-            Garancia-, Szerződés- & Okmányszéf (Ú209)
+            <span>Garancia-, Szerződés- &amp; Okmányszéf</span>
+            <InfoHint
+              label="Okmányszéf"
+              text="Felírhatod a garanciák, biztosítások és igazolványok lejáratát, hogy időben szóljon a megújításról."
+            />
           </h3>
           <div className="grid grid-cols-3 gap-2">
             <input
@@ -196,7 +209,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Tag className="h-4 w-4 text-emerald-600" />
-            Webshop Árfigyelő & Akcióvadász (Ú210)
+            <span>Webshop Árfigyelő &amp; Akcióvadász</span>
+            <InfoHint
+              label="Webshop árfigyelő"
+              text="Megadhatsz egy termék linket és egy célárat; gombnyomásra leellenőrzi, csökkent-e már az ár."
+            />
           </h3>
           <input
             type="text"
@@ -276,7 +293,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <ChefHat className="h-4 w-4 text-orange-600" />
-              „Mi van a hűtőben?” Recept Párosító (Ú212)
+              <span>„Mi van a hűtőben?” Recept Párosító</span>
+              <InfoHint
+                label="Recept párosító"
+                text="A közös listáid és otthoni hozzávalóid alapján ajánl gyorsan elkészíthető ételeket."
+              />
             </h3>
             <button
               type="button"
@@ -309,7 +330,11 @@ export const Batch4LifeAndAutopilotPanel: React.FC<Props> = ({ state, onRefreshS
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Compass className="h-4 w-4 text-indigo-600" />
-            Élet-Iránytű OKR → Automatikus Kanban Kártyák (Ú254)
+            <span>Célkitűző → Automatikus Feladatkártyák</span>
+            <InfoHint
+              label="Célkitűző"
+              text="Egy nagyobb negyedéves célból automatikusan apró, követhető teendő kártyákat készít a táblára."
+            />
           </h3>
           <div className="flex gap-2">
             <input

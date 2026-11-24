@@ -467,12 +467,23 @@ export function printDocumentViaCups(input: {
     args.push('-d', safePrinter);
   }
   if (input.filePath?.trim()) {
-    const resolved = path.resolve(process.cwd(), input.filePath.trim());
-    const cwdPrefix = process.cwd().endsWith(path.sep) ? process.cwd() : `${process.cwd()}${path.sep}`;
-    if (!resolved.startsWith(cwdPrefix) || !fs.existsSync(resolved)) {
+    const cwdReal = fs.realpathSync(process.cwd());
+    const candidate = path.resolve(cwdReal, input.filePath.trim());
+    if (!fs.existsSync(candidate)) {
       throw new Error('A megadott nyomtatandó fájl nem található a munkakönyvtárban.');
     }
-    args.push(resolved);
+    const resolved = fs.realpathSync(candidate);
+    const cwdPrefix = cwdReal.endsWith(path.sep) ? cwdReal : `${cwdReal}${path.sep}`;
+    const base = path.basename(resolved);
+    if (
+      !resolved.startsWith(cwdPrefix) ||
+      base.startsWith('.env') ||
+      base.startsWith('.secrets') ||
+      base.startsWith('.state.json')
+    ) {
+      throw new Error('A megadott nyomtatandó fájl nem engedélyezett.');
+    }
+    args.push('--', resolved);
     const out = execFileSync(lp, args, { encoding: 'utf8', timeout: 8000 }).trim();
     return { ok: true, message: out || 'Nyomtatási feladat elküldve a CUPS sornak.' };
   }

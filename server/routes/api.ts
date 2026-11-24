@@ -67,6 +67,7 @@ import {
   removeFederationPeer,
   sendFederationMessage,
   syncSharedMemoriesWithPeers,
+  verifyFederationInboundAuth,
 } from '../federation/bridge';
 import { createVirtualKey, revokeVirtualKey } from '../gateway/openaiProxy';
 import {
@@ -288,9 +289,11 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   // LAN Operator Auth endpoints
   router.get('/auth/status', (req, res) => {
     const s = getState().settings;
+    const hasPw = hasWebAuthPassword();
     res.json({
       webAuthEnabled: s.webAuthEnabled,
-      webAuthHasPassword: hasWebAuthPassword(),
+      webAuthHasPassword: hasPw,
+      authClaimRequired: Boolean(s.webAuthEnabled && !hasPw),
       authenticated: isRequestAuthorized(req.headers),
     });
   });
@@ -317,10 +320,17 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   });
 
   router.post('/auth/password', (req, res) => {
+    const alreadyHasPw = hasWebAuthPassword();
+    if (alreadyHasPw && !isRequestAuthorized(req.headers)) {
+      return res.status(401).json({
+        error: 'A jelszó módosításához vagy a zár átkapcsolásához meglévő operátori bejelentkezés szükséges.',
+        code: 'WEB_AUTH_REQUIRED',
+      });
+    }
     const { password, enable } = req.body as { password?: string; enable?: boolean };
     if (typeof password === 'string' && password.trim().length > 0) {
-      if (password.trim().length < 4) {
-        return res.status(400).json({ error: 'A jelszónak legalább 4 karakterből kell állnia.' });
+      if (password.trim().length < 8) {
+        return res.status(400).json({ error: 'A jelszónak legalább 8 karakterből kell állnia.' });
       }
       setWebAuthPassword(password.trim());
     }
@@ -332,9 +342,10 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       s.settings.webAuthHasPassword = hasPw;
       if (typeof enable === 'boolean') {
         s.settings.webAuthEnabled = enable && hasPw;
+      } else if (hasPw && !alreadyHasPw) {
+        s.settings.webAuthEnabled = true;
       }
     });
-    // Issue a valid cookie for the current operator so enabling lock doesn't log themselves out immediately
     if (hasPw) {
       res.cookie(WEB_SESSION_COOKIE_NAME, issueSessionToken(), {
         httpOnly: true,
@@ -364,9 +375,17 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     });
   });
 
-  // 6-step Setup Wizard completion
+  // 6-step Setup Wizard completion (one-time only unless already authenticated)
   router.post('/onboarding/complete', async (req, res) => {
     try {
+      const currentState = getState();
+      if (currentState.settings.onboardingCompleted) {
+        return res.status(403).json({
+          error: 'A kezdeti telepítő varázsló már lezárult; a beállítások a Beállítások menüben módosíthatók.',
+          code: 'ONBOARDING_ALREADY_COMPLETED',
+        });
+      }
+
       const body = req.body as {
         language: Settings['language'];
         ollamaOnlyMode: boolean;
@@ -374,6 +393,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         apiKeys?: Partial<Record<ProviderId, string>>;
         telegramToken?: string;
         telegramChatId?: string;
+        operatorPassword?: string;
         userProfile: string;
         firstAgent: {
           name: string;
@@ -385,12 +405,20 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
           webSearchEnabled?: boolean;
           hostExecutionEnabled?: boolean;
         };
-        hostPermissionsGranted: boolean;
+        hostPermissionsGranted?: boolean;
       };
 
       if (!body.firstAgent?.name?.trim()) {
         return res.status(400).json({ error: 'Az első ágens neve kötelező.' });
       }
+      if (body.operatorPassword && body.operatorPassword.trim().length > 0 && body.operatorPassword.trim().length < 8) {
+        return res.status(400).json({ error: 'Az operátori jelszónak legalább 8 karakterből kell állnia.' });
+      }
+
+      if (body.operatorPassword && body.operatorPassword.trim().length >= 8) {
+        setWebAuthPassword(body.operatorPassword.trim());
+      }
+      const hasPw = hasWebAuthPassword();
 
       updateState((s) => {
         s.settings.language = body.language || 'hu';
@@ -399,15 +427,14 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
           ? 'ollama'
           : body.primaryProvider || 'gemini';
         s.settings.userProfile = (body.userProfile || '').trim();
-        s.settings.hostPermissionsGranted = body.hostPermissionsGranted ?? true;
-        s.settings.fullAutonomousMode = true;
-        s.settings.guardrailsEnabled = false;
-        s.settings.guardrailBlockPii = false;
-        s.settings.guardrailBlockSecrets = false;
-        s.settings.guardrailBlockPromptInjection = false;
-        s.settings.channelPairingRequired = false;
-        s.settings.webAuthEnabled = false;
+        s.settings.hostPermissionsGranted = Boolean(body.hostPermissionsGranted);
+        s.settings.webAuthHasPassword = hasPw;
+        s.settings.webAuthEnabled = hasPw ? true : s.settings.webAuthEnabled;
         s.settings.telegramChatId = (body.telegramChatId || '').trim();
+        const allowed = s.settings.telegramAllowedChatIds || [];
+        if (s.settings.telegramChatId && !allowed.includes(s.settings.telegramChatId)) {
+          s.settings.telegramAllowedChatIds = [...allowed, s.settings.telegramChatId];
+        }
         if (body.telegramToken?.trim()) {
           setTelegramTokenSecret(body.telegramToken.trim());
           s.settings.telegramHasToken = true;
@@ -441,8 +468,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         modelId: body.firstAgent.modelId,
         webSearchEnabled: body.firstAgent.webSearchEnabled ?? true,
         hostExecutionEnabled:
-          (body.hostPermissionsGranted ?? true) &&
-          (body.firstAgent.hostExecutionEnabled ?? true),
+          Boolean(body.hostPermissionsGranted) &&
+          (body.firstAgent.hostExecutionEnabled ?? false),
       });
 
       if (body.userProfile?.trim()) {
@@ -456,6 +483,15 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         });
       }
 
+      if (hasPw) {
+        res.cookie(WEB_SESSION_COOKIE_NAME, issueSessionToken(), {
+          httpOnly: true,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+      }
+
       void discoverModels().catch(() => {});
       broadcastEvent('state:updated');
       res.json({ ok: true, state: getState() });
@@ -466,29 +502,28 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/onboarding/autostart', (_req, res) => {
     const state = getState();
-    if (!state.settings.onboardingCompleted) {
-      updateState((s) => {
-        s.settings.onboardingCompleted = true;
-        s.settings.hostPermissionsGranted = true;
-        s.settings.fullAutonomousMode = true;
-        s.settings.guardrailsEnabled = false;
-        s.settings.channelPairingRequired = false;
-        s.settings.webAuthEnabled = false;
-        s.settings.ollamaOnlyMode = s.settings.providerKeys.gemini.length === 0;
-        if (!s.settings.userProfile) {
-          s.settings.userProfile = 'Rendszermérnök felhasználó, tömör technikai válaszokat preferál.';
-        }
+    if (state.settings.onboardingCompleted) {
+      return res.status(403).json({
+        error: 'A kezdeti telepítő varázsló már lezárult.',
+        code: 'ONBOARDING_ALREADY_COMPLETED',
       });
-      if (state.agents.filter((a) => !a.isSupervisor).length === 0) {
-        createAgent({
-          name: 'Központi Asszisztens',
-          role: 'Általános Asszisztens',
-          systemPrompt: 'Teljesen autonóm, kezdeményező és precíz személyi AI ágens.',
-          hostExecutionEnabled: true,
-        });
-      }
-      broadcastEvent('state:updated');
     }
+    updateState((s) => {
+      s.settings.onboardingCompleted = true;
+      s.settings.ollamaOnlyMode = s.settings.providerKeys.gemini.length === 0;
+      if (!s.settings.userProfile) {
+        s.settings.userProfile = 'Rendszermérnök felhasználó, tömör technikai válaszokat preferál.';
+      }
+    });
+    if (getState().agents.filter((a) => !a.isSupervisor).length === 0) {
+      createAgent({
+        name: 'Központi Asszisztens',
+        role: 'Általános Asszisztens',
+        systemPrompt: 'Precíz személyi AI ágens a jóváhagyási szabályok és biztonsági korlátok betartásával.',
+        hostExecutionEnabled: false,
+      });
+    }
+    broadcastEvent('state:updated');
     res.json({ ok: true, state: getState() });
   });
 
@@ -2001,6 +2036,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/federation/inbound', async (req, res) => {
     try {
+      const auth = verifyFederationInboundAuth(req.headers.authorization);
+      if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
       const { fromNode, fromAgent, targetAgent, content } = req.body as {
         fromNode: string;
         fromAgent: string;
@@ -2033,6 +2070,8 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/federation/handoff-inbound', (req, res) => {
     try {
+      const auth = verifyFederationInboundAuth(req.headers.authorization);
+      if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
       const result = receiveKanbanHandoff(req.body);
       broadcastEvent('state:updated');
       res.json(result);
@@ -2048,11 +2087,14 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   });
 
   router.post('/federation/memory-sync-inbound', (req, res) => {
-    const { fromNode, entries } = req.body as {
+    const auth = verifyFederationInboundAuth(req.headers.authorization);
+    if (!auth.ok) return res.status(403).json({ ok: false, error: auth.error });
+    const { fromNode, entries, memories } = req.body as {
       fromNode: string;
-      entries: Array<{ content: string; entity: string; tags: string[] }>;
+      entries?: Array<{ content: string; entity: string; tags: string[] }>;
+      memories?: Array<{ content: string; entity: string; tags: string[] }>;
     };
-    const outcome = receiveSharedMemories(fromNode || 'remote', entries || []);
+    const outcome = receiveSharedMemories(fromNode || 'remote', memories || entries || []);
     broadcastEvent('state:updated');
     res.json(outcome);
   });

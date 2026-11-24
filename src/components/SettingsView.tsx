@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, OctagonAlert, Save } from 'lucide-react';
 import type { ExecutionPreset, LanguageCode, Settings } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
 
 interface Props {
@@ -118,8 +119,9 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label htmlFor="set-lang" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Felület és Hangkimenet Nyelve (11 nyelv)
+            <label htmlFor="set-lang" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <span>Felület és Hangkimenet Nyelve</span>
+              <InfoHint theme="light" label="Nyelv" description="A felület gombjai, értesítései és a felolvasó hang is ezen a nyelven szólal meg." />
             </label>
             <select
               id="set-lang"
@@ -186,8 +188,9 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-budget" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Globális Napi Költséglimit (USD)
+            <label htmlFor="set-budget" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <span>Globális Napi Költséglimit (USD)</span>
+              <InfoHint theme="light" label="Napi költséglimit" description="Maximális napi dollárkeret fizetős AI modellekre. Ha eléri, automatikusan átvált ingyenes vagy helyi modellre." />
             </label>
             <input
               id="set-budget"
@@ -351,8 +354,9 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-wake-phrase" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Ébresztőszó (Wake Word · Ú45)
+            <label htmlFor="set-wake-phrase" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <span>Ébresztőszó (Hangvezérléshez)</span>
+              <InfoHint theme="light" label="Ébresztőszó" description="Ha bekapcsolod a folyamatos figyelést, erre a szóra indul el a hangfelismerés." />
             </label>
             <input
               id="set-wake-phrase"
@@ -364,14 +368,39 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div>
-            <label htmlFor="set-tg-chat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Telegram Chat / Csoport ID
+            <label htmlFor="set-tg-chat" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <span>Fő Telegram Chat ID</span>
+              <InfoHint theme="light" label="Telegram Chat ID" description="A saját Telegram fiókod vagy csoportod azonosítója. Biztonsági okból csak az itt megadott azonosítók vezérelhetik a botot." />
             </label>
             <input
               id="set-tg-chat"
               type="text"
               value={form.telegramChatId}
               onChange={(e) => setForm({ ...form, telegramChatId: e.target.value })}
+              placeholder="pl. 582910394"
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="set-tg-allowed" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <span>Engedélyezett Telegram Chat ID-k (vesszővel)</span>
+              <InfoHint theme="light" label="Telegram Engedélylista" description="Ha több embernek vagy csoportnak is engedélyeznéd a bot használatát, írd be ide az azonosítóikat vesszővel elválasztva. Üres listánál a bot minden idegent elutasít." />
+            </label>
+            <input
+              id="set-tg-allowed"
+              type="text"
+              value={(form.telegramAllowedChatIds || []).join(', ')}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  telegramAllowedChatIds: e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="pl. 582910394, -1001234567"
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
@@ -619,14 +648,20 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
         </div>
 
         <div className="space-y-2.5 pt-2 border-t border-slate-200">
-          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.hostPermissionsGranted}
-              onChange={(e) => setForm({ ...form, hostPermissionsGranted: e.target.checked })}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.hostPermissionsGranted}
+                onChange={(e) => setForm({ ...form, hostPermissionsGranted: e.target.checked })}
+              />
+              <span>Géphez való hozzáférés engedélyezése (fájlok, parancsok, terminál)</span>
+            </label>
+            <InfoHint
+              label="Géphez való hozzáférés"
+              text="Ha bekapcsolod, az asszisztens képes fájlokat olvasni/írni és parancsokat futtatni ezen a gépen. Alapból biztonsági okból ki van kapcsolva."
             />
-            <span>Gazdagép-jogosultsági kapu engedélyezve (fájlok, parancsok, PTY terminál)</span>
-          </label>
+          </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
               type="checkbox"
@@ -635,21 +670,27 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             />
             <span>Globális napi költséglimit aktív</span>
           </label>
-          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.telegramEnabled}
-              onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.telegramEnabled}
+                onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
+              />
+              <span>Kétirányú Telegram gateway aktív</span>
+            </label>
+            <InfoHint
+              label="Telegram gateway"
+              text="Telefonról is tudsz parancsokat küldeni és értesítéseket kapni. Csak a fent megadott Telegram Chat ID-kről fogad el üzenetet."
             />
-            <span>Kétirányú Telegram gateway aktív</span>
-          </label>
+          </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
               type="checkbox"
               checked={form.heartbeatEnabled}
               onChange={(e) => setForm({ ...form, heartbeatEnabled: e.target.checked })}
             />
-            <span>Autonóm Heartbeat (Kanban elakadás + Uptime monitoring) aktív</span>
+            <span>Automatikus állapotfigyelés (elakadt feladatok és szerver elérhetőség figyelése)</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -657,7 +698,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={Boolean(form.autonomousKanbanWorkerEnabled)}
               onChange={(e) => setForm({ ...form, autonomousKanbanWorkerEnabled: e.target.checked })}
             />
-            <span>Autonóm Kanban Backlog Munkás (üresjáratban automatikusan dolgozik a ToDo kártyákon)</span>
+            <span>Önálló feladat-végrehajtó (üresjáratban automatikusan dolgozik a várólistás kártyákon)</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -665,23 +706,29 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={Boolean(form.autoUpdateEnabled)}
               onChange={(e) => setForm({ ...form, autoUpdateEnabled: e.target.checked })}
             />
-            <span>GitHub OTA Automatikus Frissítés engedélyezve (git pull + build + rollback védelem)</span>
+            <span>GitHub Automatikus Frissítés engedélyezve (biztonsági mentéssel és visszaállítással)</span>
           </label>
-          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.channelPairingRequired}
-              onChange={(e) => setForm({ ...form, channelPairingRequired: e.target.checked })}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.channelPairingRequired}
+                onChange={(e) => setForm({ ...form, channelPairingRequired: e.target.checked })}
+              />
+              <span>Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
+            </label>
+            <InfoHint
+              label="Csatorna párosítási kapu"
+              text="Idegen feladó nem tudja használni a botot, amíg a hatjegyű párosító kódot jóvá nem hagyod."
             />
-            <span>Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
-          </label>
+          </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
               type="checkbox"
               checked={form.federationEnabled}
               onChange={(e) => setForm({ ...form, federationEnabled: e.target.checked })}
             />
-            <span>P2P Föderáció engedélyezve</span>
+            <span>Több gépes összekapcsolás (P2P Föderáció) engedélyezve</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -697,7 +744,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={Boolean(form.continuousVoiceMode)}
               onChange={(e) => setForm({ ...form, continuousVoiceMode: e.target.checked })}
             />
-            <span>Folyamatos kézmentes hangmód alapértelmezett (TTS után automatikus hallgatás)</span>
+            <span>Folyamatos kézmentes hangmód alapértelmezett (felolvasás után automatikus hallgatás)</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -705,7 +752,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={form.ttsHostSpeakerEnabled}
               onChange={(e) => setForm({ ...form, ttsHostSpeakerEnabled: e.target.checked })}
             />
-            <span>Gazdagép hangszóró TTS (Piper neurális / espeak-ng)</span>
+            <span>Gazdagép hangszóró felolvasás (Piper / espeak-ng)</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -713,19 +760,25 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               checked={Boolean(form.wakeWordEnabled)}
               onChange={(e) => setForm({ ...form, wakeWordEnabled: e.target.checked })}
             />
-            <span>Kézmentes Ébresztőszó Figyelés aktív a Raj Chatben (Wake Word)</span>
+            <span>Kézmentes ébresztőszó figyelés aktív a chatben</span>
           </label>
         </div>
 
-        {/* Batch 3: Zero-Friction Full Autonomy, Theme, Privacy & Night Shift */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            100% Autonómia, Megjelenés & Megőrzés (Batch 3)
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Önállóság, Megjelenés &amp; Adatvédelem
+            </h3>
+            <InfoHint
+              label="Önállóság és megjelenés"
+              text="Itt állíthatod be a felület kinézetét, az adatvédelmi maszkot, valamint azt, hogy az asszisztens mennyire önállóan cselekedjen jóváhagyás nélkül."
+            />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
-              <label htmlFor="set-theme-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Megjelenési Téma (M159)
+              <label htmlFor="set-theme-mode" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <span>Megjelenési Téma</span>
+                <InfoHint label="Megjelenési téma" text="Világos, sötét vagy nagy kontrasztú megjelenés választása." />
               </label>
               <select
                 id="set-theme-mode"
@@ -739,25 +792,26 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               </select>
             </div>
             <div>
-              <label htmlFor="set-sup-strict" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Felügyelő Szigorúság (M118)
+              <label htmlFor="set-sup-strict" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <span>Felügyelő Szigorúság</span>
+                <InfoHint label="Felügyelő szigorúság" text="Mennyire szigorúan ellenőrizze a rendszer a kockázatos műveleteket." />
               </label>
               <select
                 id="set-sup-strict"
-                value={form.supervisorStrictness || 'permissive'}
+                value={form.supervisorStrictness || 'balanced'}
                 onChange={(e) =>
                   setForm({ ...form, supervisorStrictness: e.target.value as Settings['supervisorStrictness'] })
                 }
                 className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               >
-                <option value="permissive">Megengedő (Privát Autonóm)</option>
-                <option value="balanced">Kiegyensúlyozott</option>
+                <option value="permissive">Megengedő</option>
+                <option value="balanced">Kiegyensúlyozott (Ajánlott)</option>
                 <option value="paranoid">Szigorú</option>
               </select>
             </div>
             <div>
               <label htmlFor="set-currency" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Alapértelmezett Pénznem (Ú147)
+                Alapértelmezett Pénznem
               </label>
               <select
                 id="set-currency"
@@ -772,7 +826,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </div>
             <div>
               <label htmlFor="set-ns-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Éjszakai Műszak Intervallum (perc · Ú61)
+                Éjszakai Műszak Gyakorisága (perc)
               </label>
               <input
                 id="set-ns-int"
@@ -785,7 +839,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </div>
             <div>
               <label htmlFor="set-retention" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Napló/Vágólap Megőrzés (nap · M156)
+                Napló &amp; Vágólap Megőrzés (nap)
               </label>
               <input
                 id="set-retention"
@@ -799,71 +853,100 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
 
           <div className="space-y-2.5">
-            <label className="flex items-center gap-2.5 text-sm font-medium cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.fullAutonomousMode !== false}
-                onChange={(e) => setForm({ ...form, fullAutonomousMode: e.target.checked })}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2.5 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.fullAutonomousMode)}
+                  onChange={(e) => setForm({ ...form, fullAutonomousMode: e.target.checked })}
+                />
+                <span>Teljesen Önálló Mód — jóváhagyás kérése nélkül hajtsa végre a feladatokat (haladó, alapból KI)</span>
+              </label>
+              <InfoHint
+                label="Teljesen önálló mód"
+                text="Alapértelmezés szerint kikapcsolva van a biztonságod érdekében. Csak akkor kapcsold be, ha teljesen elszigetelt tesztkörnyezetben futtatod."
               />
-              <span>100% Autonóm Végrehajtás — sose kérdezze az engedélyt, minden parancsot és feladatot azonnal hajtson végre</span>
-            </label>
-            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(form.privacyMaskEnabled)}
-                onChange={(e) => setForm({ ...form, privacyMaskEnabled: e.target.checked })}
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.privacyMaskEnabled)}
+                  onChange={(e) => setForm({ ...form, privacyMaskEnabled: e.target.checked })}
+                />
+                <span>Kávézó Mód (Privacy Mask) — költések és érzékeny összegek elrejtése a képernyőn</span>
+              </label>
+              <InfoHint
+                label="Kávézó mód"
+                text="Ha nyilvános helyen dolgozol vagy képernyőt osztasz meg, elhomályosítja az érzékeny összegeket és adatokat."
               />
-              <span>Kávézó Mód (Privacy Mask) — költések és érzékeny összegek elmosása a felületen (Ú158)</span>
-            </label>
-            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.nightShiftEnabled !== false}
-                onChange={(e) => setForm({ ...form, nightShiftEnabled: e.target.checked })}
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.nightShiftEnabled)}
+                  onChange={(e) => setForm({ ...form, nightShiftEnabled: e.target.checked })}
+                />
+                <span>Éjszakai Automata Műszak engedélyezve (alapból KI)</span>
+              </label>
+              <InfoHint
+                label="Éjszakai műszak"
+                text="Ha bekapcsolod, az asszisztens éjszaka automatikusan átnézi a várólistát és jelentést készít."
               />
-              <span>Éjszakai Autonóm Műszak (Night Shift Coder) engedélyezve (Ú61)</span>
-            </label>
+            </div>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.softDowngradeOnBudget !== false}
                 onChange={(e) => setForm({ ...form, softDowngradeOnBudget: e.target.checked })}
               />
-              <span>Költséglimitnél automatikus helyi Ollama fallback leállás helyett (M84)</span>
+              <span>Költséglimitnél automatikus váltás ingyenes helyi Ollama modellre leállás helyett</span>
             </label>
-            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={Boolean(form.guardrailsEnabled)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    guardrailsEnabled: e.target.checked,
-                    guardrailBlockPii: e.target.checked,
-                    guardrailBlockSecrets: e.target.checked,
-                    guardrailBlockPromptInjection: e.target.checked,
-                  })
-                }
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.guardrailsEnabled !== false}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      guardrailsEnabled: e.target.checked,
+                      guardrailBlockPii: e.target.checked,
+                      guardrailBlockSecrets: e.target.checked,
+                      guardrailBlockPromptInjection: e.target.checked,
+                    })
+                  }
+                />
+                <span>Biztonsági Védőkorlátok (személyes adatok, jelszavak és injekciók szűrése — ajánlott: BE)</span>
+              </label>
+              <InfoHint
+                label="Biztonsági védőkorlátok"
+                text="Megakadályozza, hogy véletlenül jelszavak vagy titkos kulcsok szivárogjanak ki az AI válaszokban, és szűri a gyanús utasításokat."
               />
-              <span>Biztonsági Guardrail szűrések (alapértelmezés szerint KI — privát LAN/Telegram módhoz)</span>
-            </label>
+            </div>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.telegramInlineButtons !== false}
                 onChange={(e) => setForm({ ...form, telegramInlineButtons: e.target.checked })}
               />
-              <span>Telegram gyorsgombok (Inline Keyboard) a válaszokban</span>
+              <span>Telegram gyorsgombok megjelenítése a válaszokban</span>
             </label>
           </div>
         </div>
 
-        {/* Batch 5: Hardware-Adaptive Optimization & Proactive Second Self */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Hardver-Adaptív Optimalizáló, Pi Védelem & Proaktív Második Én (Batch 5)
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Hardver-Optimalizáló, Pi Védelem &amp; Napi Összefoglalók
+              </h3>
+              <InfoHint
+                label="Hardver és napi összefoglalók"
+                text="Automatikusan figyeli a gép memóriáját (különösen Raspberry Pi-n), valamint reggeli és esti rövid áttekintést küld."
+              />
+            </div>
             <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
               Profil: {form.detectedHardwareTier || 'auto'}
             </span>
@@ -973,10 +1056,10 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
         </div>
 
-        {/* Batch 6: Apex LAN Sentinel, Docker Watchtower & Swarm Mesh Offload */}
+        {/* LAN Sentinel, Docker Auto-Heal & Mesh Offload */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Apex Hálózat-Őrszem, Docker Watchtower & Mesh Offload (Batch 6)
+            Hálózat-Őrszem, Konténer-újraindító &amp; Gép-megosztás
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -1022,10 +1105,10 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
         </div>
 
-        {/* Batch 7: Univerzális OS, Helyi LLM Tuning & UI Sűrűség */}
+        {/* Universal OS, Local LLM Tuning & UI Density */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Univerzális OS, Helyi LLM Tuning & UI Sűrűség (Batch 7)
+            Üzemmódok, Helyi AI Hangolás &amp; Felület Sűrűsége
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
@@ -1115,10 +1198,10 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             </label>
           </div>
 
-          {/* Batch 8: Omni-Ágens Személyre Szabás & Viselkedés */}
+          {/* Agent Personalization & Behavior */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
             <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Omni-Ágens Személyre Szabás &amp; Kognitív Viselkedés (Batch 8)
+              Ágens Személyre Szabás &amp; Válaszstílus
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
@@ -1245,7 +1328,8 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-slate-700" />
-            <h3 className="text-base font-semibold text-slate-900">LAN Operátori Jelszó Zár</h3>
+            <h3 className="text-base font-semibold text-slate-900">Hálózati Operátori Jelszó Zár</h3>
+            <InfoHint theme="light" label="Operátori jelszó zár" description="Ha helyi hálózaton (LAN) vagy internetről is elérhető a gép, ez a jelszó védi meg a teljes vezérlőpultot idegenektől." />
           </div>
           <span
             className={`text-xs font-mono font-semibold ${
@@ -1256,7 +1340,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </span>
         </div>
         <p className="text-xs text-slate-600">
-          HttpOnly HMAC munkamenet-sütivel védi a Web UI és API végpontokat (a webhook és OpenAI /v1/* proxy kulcsos végpontok továbbra is működnek).
+          Titkosított munkamenet-sütivel védi a felületet és minden API-hívást (min. 8 karakteres jelszó ajánlott).
         </p>
         {authMsg && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800">
@@ -1271,7 +1355,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
             placeholder={
               settings.webAuthHasPassword
                 ? 'Új operátori jelszó (vagy hagyd üresen a kapcsoláshoz)...'
-                : 'Új operátori jelszó (min. 4 karakter)...'
+                : 'Új operátori jelszó (min. 8 karakter)...'
             }
             aria-label="New operator password"
             className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-slate-300 rounded-lg"
@@ -1296,9 +1380,12 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
       </div>
 
       {/* Emergency Kill Switch */}
-      <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between bg-slate-50">
-        <div className="text-xs text-slate-600">
-          <span className="font-semibold text-slate-800">{tr(language, 'killSwitchTitle')}</span> — vészhelyzetben minden ágens-folyamat és MCP szerver azonnali leállítása (Telegram: <span className="font-mono">/stop</span>).
+      <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-2 bg-slate-50">
+        <div className="text-xs text-slate-600 flex items-center gap-2">
+          <span>
+            <span className="font-semibold text-slate-800">{tr(language, 'killSwitchTitle')}</span> — vészhelyzetben minden AI folyamat azonnali leállítása (Telegramról: <span className="font-mono">/stop</span>).
+          </span>
+          <InfoHint theme="light" label="Vészleállító" description="Egyetlen gombnyomással megállítja az összes háttérben futó ágenst és automatikus műveletet." />
         </div>
         <button
           type="button"

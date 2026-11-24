@@ -51,26 +51,28 @@ import {
   verifyAuditLogChain,
 } from '../server/state/store';
 
-test('Batch 3 Security & Autonomy Defaults: Zero security enabled + 100% autonomous mode by default', () => {
+test('Batch 3 Security & Autonomy Defaults: Secure-by-default auth, guardrails & manual approval enabled', () => {
   const defaults = createDefaultSettings();
-  assert.equal(defaults.webAuthEnabled, false);
-  assert.equal(defaults.hostPermissionsGranted, true);
-  assert.equal(defaults.guardrailsEnabled, false);
-  assert.equal(defaults.guardrailBlockSecrets, false);
-  assert.equal(defaults.guardrailBlockPromptInjection, false);
+  assert.equal(defaults.webAuthEnabled, true);
+  assert.equal(defaults.hostPermissionsGranted, false);
+  assert.equal(defaults.guardrailsEnabled, true);
+  assert.equal(defaults.guardrailBlockSecrets, true);
+  assert.equal(defaults.guardrailBlockPromptInjection, true);
   assert.equal(defaults.guardrailBlockPii, false);
-  assert.equal(defaults.channelPairingRequired, false);
-  assert.equal(defaults.supervisorStrictness, 'permissive');
-  assert.equal(defaults.fullAutonomousMode, true);
+  assert.equal(defaults.channelPairingRequired, true);
+  assert.equal(defaults.supervisorStrictness, 'balanced');
+  assert.equal(defaults.fullAutonomousMode, false);
   assert.equal(defaults.totpEnabled, false);
+  assert.equal(defaults.autonomousKanbanWorkerEnabled, false);
+  assert.equal(defaults.nightShiftEnabled, false);
 
   const state = createInitialState();
   resetInMemoryStateForTests(state);
-  assert.equal(shouldRequireApproval(state), false);
-
-  // When user explicitly disables fullAutonomousMode, approval gate engages
-  state.settings.fullAutonomousMode = false;
   assert.equal(shouldRequireApproval(state), true);
+
+  // When user explicitly enables fullAutonomousMode, approval gate relaxes
+  state.settings.fullAutonomousMode = true;
+  assert.equal(shouldRequireApproval(state), false);
 });
 
 test('M61: SQLite WAL audit synchronization, querying & status reporting', () => {

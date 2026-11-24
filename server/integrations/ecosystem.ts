@@ -9,6 +9,7 @@ import type {
   RssFeedItem,
 } from '../../shared/types';
 import { invokeWithFailover } from '../providers/router';
+import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { requireDestructiveApproval } from '../security/permissionGate';
 import { appendAuditLog, getNamedSecret, getState, setNamedSecret, updateState } from '../state/store';
 
@@ -63,6 +64,8 @@ export async function refreshAllRssFeeds(fetchImpl: typeof fetch = fetch): Promi
 
   for (const feed of feeds) {
     try {
+      const urlCheck = validateSafeOutboundUrl(feed.url);
+      if (!urlCheck.ok) throw new Error(urlCheck.reason || 'Tiltott RSS URL.');
       const res = await fetchImpl(feed.url, {
         headers: { 'User-Agent': 'NovaSwarm-RSS/2.0', Accept: 'application/xml, application/atom+xml, text/xml' },
         signal: AbortSignal.timeout(6000),

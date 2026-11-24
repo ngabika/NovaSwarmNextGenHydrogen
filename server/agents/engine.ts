@@ -207,15 +207,49 @@ export function executeHostCommandForAgent(
   }
 }
 
+const AGENT_BLOCKED_PATH_RE = /(^|\/)(\.env(\..*)?|\.secrets(\.[^/]+)?|\.state\.json.*|\.config\.json|novaswarm\.sqlite.*|\.git(\/|$)|backups(\/|$))/i;
+
+function resolveAgentSafePath(filePath: string): string {
+  const rootReal = fs.realpathSync(process.cwd());
+  const abs = path.resolve(rootReal, filePath);
+  const rel = path.relative(rootReal, abs).replace(/\\/g, '/');
+  if (!rel || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) {
+    throw new Error(`Hozzáférés megtagadva: a munkakönyvtáron kívüli útvonal nem érhető el (${filePath}).`);
+  }
+  if (AGENT_BLOCKED_PATH_RE.test(rel)) {
+    throw new Error(`Védett titkos vagy rendszerfájl nem érhető el ágens által: ${rel}`);
+  }
+  if (fs.existsSync(abs)) {
+    const realTarget = fs.realpathSync(abs);
+    if (realTarget !== rootReal && !realTarget.startsWith(rootReal + path.sep)) {
+      throw new Error(`Symlink kilépés blokkolva: ${filePath}`);
+    }
+  } else {
+    let probe = path.dirname(abs);
+    while (probe && !fs.existsSync(probe)) {
+      const parent = path.dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+    if (fs.existsSync(probe)) {
+      const realParent = fs.realpathSync(probe);
+      if (realParent !== rootReal && !realParent.startsWith(rootReal + path.sep)) {
+        throw new Error(`Symlink kilépés blokkolva a szülőkönyvtárban: ${filePath}`);
+      }
+    }
+  }
+  return abs;
+}
+
 export function hostReadFileForAgent(agentId: string, filePath: string): string {
   assertHostPermission(`read_file:${filePath}`, agentId);
-  const abs = path.resolve(process.cwd(), filePath);
+  const abs = resolveAgentSafePath(filePath);
   return fs.readFileSync(abs, 'utf8');
 }
 
 export function hostWriteFileForAgent(agentId: string, filePath: string, content: string): void {
   assertHostPermission(`write_file:${filePath}`, agentId);
-  const abs = path.resolve(process.cwd(), filePath);
+  const abs = resolveAgentSafePath(filePath);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, content, 'utf8');
   appendAuditLog({

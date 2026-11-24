@@ -1,7 +1,30 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
 import net from 'node:net';
 import type { NotaryRecord } from '../../shared/types';
 import { getState, updateState } from '../state/store';
+
+function isBlockedMetadataOrUnspecifiedIp(ipRaw: string): boolean {
+  let ip = ipRaw.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+  if (ip.startsWith('::ffff:')) {
+    const rest = ip.slice('::ffff:'.length);
+    if (rest.includes('.')) {
+      ip = rest;
+    } else {
+      const hexParts = rest.split(':');
+      if (hexParts.length === 2 && /^[0-9a-f]{1,4}$/.test(hexParts[0]) && /^[0-9a-f]{1,4}$/.test(hexParts[1])) {
+        const hi = parseInt(hexParts[0], 16);
+        const lo = parseInt(hexParts[1], 16);
+        ip = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      }
+    }
+  }
+  if (ip === '0.0.0.0' || ip === '::' || ip === '::0' || ip.startsWith('169.254.') || ip === '100.100.100.200') {
+    return true;
+  }
+  if (/^fe[89ab][0-9a-f]:/i.test(ip)) return true;
+  return false;
+}
 
 /**
  * M114: SSRF / Cloud Metadata Egress Guard
@@ -17,22 +40,45 @@ export function validateSafeOutboundUrl(
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
       return { ok: false, safe: false, reason: `Tiltott protokoll: ${u.protocol}` };
     }
-    const host = u.hostname.toLowerCase();
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (
-      host === '169.254.169.254' ||
       host === 'metadata.google.internal' ||
       host === 'metadata.goog' ||
-      host.startsWith('169.254.') ||
-      host === '0.0.0.0'
+      host === 'metadata.azure.internal' ||
+      isBlockedMetadataOrUnspecifiedIp(host)
     ) {
       return { ok: false, safe: false, reason: `Blokkolt cloud metadata célpont (SSRF védelem): ${host}` };
-    }
-    if (net.isIPv6(host) && (host === '::' || host.toLowerCase().startsWith('fe80:'))) {
-      return { ok: false, safe: false, reason: `Blokkolt link-local IPv6 célpont: ${host}` };
     }
     return { ok: true, safe: true };
   } catch {
     return { ok: false, safe: false, reason: 'Érvénytelen URL formátum.' };
+  }
+}
+
+export async function validateSafeOutboundUrlAsync(
+  rawUrl: string,
+  lookupFn: (hostname: string) => Promise<Array<{ address: string }>> = (h) => dns.lookup(h, { all: true })
+): Promise<{ ok: boolean; safe: boolean; reason?: string }> {
+  const syncCheck = validateSafeOutboundUrl(rawUrl);
+  if (!syncCheck.ok) return syncCheck;
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (net.isIP(host) === 0 && host !== 'localhost') {
+      const records = await lookupFn(host);
+      for (const rec of records) {
+        if (isBlockedMetadataOrUnspecifiedIp(rec.address)) {
+          return {
+            ok: false,
+            safe: false,
+            reason: `DNS rebinding / SSRF védelem: "${host}" tiltott címre (${rec.address}) mutat.`,
+          };
+        }
+      }
+    }
+    return { ok: true, safe: true };
+  } catch {
+    return { ok: true, safe: true };
   }
 }
 

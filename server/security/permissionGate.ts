@@ -82,13 +82,18 @@ const DESTRUCTIVE_PATTERNS: Array<{ type: DestructiveActionType; regex: RegExp; 
   },
   {
     type: 'partition_disk',
-    regex: /\b(fdisk|parted|gdisk|mkfs(\.\w+)?|wipefs|lvremove|vgremove)\b/i,
-    title: 'Lemezparticionálás vagy fájlrendszer-formázás',
+    regex: /\b(fdisk|parted|gdisk|mkfs(\.\w+)?|wipefs|lvremove|vgremove|dd\s+if=)\b/i,
+    title: 'Lemezparticionálás, formázás vagy nyers blokkírás',
   },
   {
     type: 'firewall_modify',
     regex: /\b(ufw\s+|iptables\s+|nft\s+|firewall-cmd\s+)\b/i,
     title: 'Tűzfalszabály módosítása',
+  },
+  {
+    type: 'destructive_shell',
+    regex: /(\brm\s+-[a-z]*[rf]{2}|\brm\s+--no-preserve-root|\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b|\bchmod\s+(-R\s+)?777\b|\bnc\s+(-e|-c)\b|\.ssh\/authorized_keys)/i,
+    title: 'Kritikus vagy visszafordíthatatlan rendszerparancs (törlés / távoli szkript / SSH)',
   },
 ];
 

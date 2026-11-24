@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 interface Props {
   state: NovaSwarmState;
@@ -58,8 +59,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <AppWindow className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              App Builder — Önálló Mini-Alkalmazás Hosztoló (Ú206)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Mini-Alkalmazás Készítő &amp; Tárhely</span>
+              <InfoHint
+                label="Mini-alkalmazás készítő"
+                text="Pár sor leírásból önálló, elkülönített (sandboxed) webes mini-eszközt hoz létre a saját szervereden."
+              />
             </h3>
           </div>
           <div className="space-y-2">
@@ -134,8 +139,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Pillanatnyi API Mock Szerver (/mock/:slug) (Ú218)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Gyors Próba-API Szerver (/mock/:slug)</span>
+              <InfoHint
+                label="Próba API szerver"
+                text="Pillanatok alatt létrehoz egy teszt JSON végpontot, ha webes vagy mobil alkalmazást fejlesztesz."
+              />
             </h3>
           </div>
           <div className="flex gap-2">
@@ -203,8 +212,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Scale className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Ágens-Vita Színház — Pro / Kontra / Bíró (Ú226)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Többoldalú Vita Színház — Pro / Kontra / Bíró</span>
+              <InfoHint
+                label="Vita színház"
+                text="Három AI nézőpont ütköztet egy témát mellette és ellene érvekkel, majd a bíró összegzi a döntést."
+              />
             </h3>
           </div>
           <div className="flex gap-2">
@@ -255,8 +268,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Függvényrajzoló & SVG Logó Generátor (Ú232, Ú234)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Függvényrajzoló &amp; Vektor Logó Készítő</span>
+              <InfoHint
+                label="Függvényrajzoló és logó"
+                text="Matematikai képletekből koordinátarendszert rajzol, vagy szövegből letölthető vektoros logót készít."
+              />
             </h3>
           </div>
           <div className="flex gap-2">
@@ -327,8 +344,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Banki CSV Kategorizáló & Döntési Mátrix (Ú207, Ú208)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Banki CSV Elemző &amp; Súlyozott Döntési Tábla</span>
+              <InfoHint
+                label="Banki elemző és döntési tábla"
+                text="Kategóriákra bontja a banki kivonat-sorokat, vagy súlyozott szempontok alapján segít választani opciók közül."
+              />
             </h3>
           </div>
           <textarea
@@ -396,8 +417,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 text-amber-600" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Égő Cetli (Once-Time Secret) & Prezentáció (Ú238, Ú244)
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>Egyszer Megtekinthető Üzenet &amp; Prezentáció Készítő</span>
+              <InfoHint
+                label="Egyszer használatos cetli"
+                text="Olyan titkos linket hoz létre, ami az első megnyitás után azonnal megsemmisül. Alul gyors HTML diavetítőt is exportálhatsz."
+              />
             </h3>
           </div>
           <div className="flex gap-2">

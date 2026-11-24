@@ -9,6 +9,7 @@ import {
   type OpenAiToolDefinition,
   type RouterDependencies,
 } from '../providers/router';
+import { isRequestAuthorized } from '../security/auth';
 import { appendAuditLog, getState, maskSecret, updateState } from '../state/store';
 
 const rpmWindows = new Map<string, number[]>();
@@ -105,14 +106,22 @@ export function isIpAllowedByList(clientIp: string | undefined, allowedIps?: str
 export function authenticateVirtualKey(
   authHeader: string | undefined,
   requestedModel?: string,
-  clientIp?: string
+  clientIp?: string,
+  cookieHeader?: string
 ): { ok: true; key: VirtualKey | null } | { ok: false; status: number; error: string } {
   const state = getState();
-  // If no virtual keys exist and no bearer is provided, allow local operator bypass only on localhost unless keys are configured
   const token = authHeader?.replace(/^Bearer\s+/i, '').trim() || '';
 
   if (state.virtualKeys.length === 0 && !token) {
-    return { ok: true, key: null };
+    // Fail closed for unauthenticated LAN clients; permit only if webAuthEnabled is explicitly off OR valid operator session cookie is sent
+    if (!state.settings.webAuthEnabled || isRequestAuthorized({ cookie: cookieHeader })) {
+      return { ok: true, key: null };
+    }
+    return {
+      ok: false,
+      status: 401,
+      error: 'AI Gateway hitelesítés szükséges: hozz létre egy Virtuális Kulcsot vagy jelentkezz be operátorként.',
+    };
   }
 
   if (!token) {
@@ -147,6 +156,7 @@ export function authenticateVirtualKey(
     requestedModel &&
     requestedModel !== 'auto' &&
     match.allowedModels.length > 0 &&
+    !match.allowedModels.includes('*') &&
     !match.allowedModels.includes(requestedModel)
   ) {
     return {
@@ -235,7 +245,7 @@ export function createOpenAiProxyRouter(
   const router = express.Router();
 
   router.get('/models', (req, res) => {
-    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip);
+    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip, req.headers.cookie);
     if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
     const state = getState();
@@ -264,7 +274,7 @@ export function createOpenAiProxyRouter(
         tool_choice?: unknown;
       };
       const requestedModel = body.model || 'auto';
-      const auth = authenticateVirtualKey(req.headers.authorization, requestedModel, req.ip);
+      const auth = authenticateVirtualKey(req.headers.authorization, requestedModel, req.ip, req.headers.cookie);
       if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
       const msgs = body.messages || [];
@@ -424,7 +434,7 @@ export function createOpenAiProxyRouter(
   });
 
   router.post('/embeddings', (req, res) => {
-    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip);
+    const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip, req.headers.cookie);
     if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
     const body = req.body as { input?: string | string[]; model?: string };

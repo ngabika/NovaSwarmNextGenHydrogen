@@ -28,6 +28,7 @@ import type {
   NovaSwarmState,
   ProviderId,
 } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 const Batch3DevOpsPanel = lazy(() =>
   import('./Batch3DevOpsPanel').then((m) => ({ default: m.Batch3DevOpsPanel }))
@@ -147,37 +148,39 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
     (c) => Date.parse(c.nextReviewAt) <= Date.now()
   );
 
-  const tabs: Array<{ id: WorkbenchTab; label: string; icon: React.ReactNode }> = [
-    { id: 'missions', label: `Küldetések (${(state.missions || []).length})`, icon: <Rocket className="h-3.5 w-3.5" /> },
-    { id: 'tools', label: `Dinamikus Eszközök (${(state.dynamicTools || []).length})`, icon: <Wrench className="h-3.5 w-3.5" /> },
-    { id: 'research', label: `Mélykutatás (${(state.researchReports || []).length})`, icon: <Globe className="h-3.5 w-3.5" /> },
-    { id: 'api_sql', label: 'API & SQL Stúdió', icon: <Database className="h-3.5 w-3.5" /> },
-    { id: 'diff_review', label: 'Kód Diff & PR Audit', icon: <GitCompare className="h-3.5 w-3.5" /> },
-    { id: 'lang_learn', label: `Nyelv, SM-2 (${dueCards.length}) & Riport`, icon: <Languages className="h-3.5 w-3.5" /> },
-    { id: 'arena', label: 'Prompt Aréna', icon: <Scale className="h-3.5 w-3.5" /> },
-    { id: 'devops', label: 'DevOps & CVE', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
-    { id: 'data_creative', label: 'Adat, QR & Közjegyző', icon: <Sparkles className="h-3.5 w-3.5" /> },
-    { id: 'omni_b4', label: 'Omni Stúdió (B4)', icon: <Flame className="h-3.5 w-3.5" /> },
+  const tabs: Array<{ id: WorkbenchTab; label: string; icon: React.ReactNode; hint: string }> = [
+    { id: 'missions', label: `Küldetések (${(state.missions || []).length})`, icon: <Rocket className="h-3.5 w-3.5" />, hint: 'Nagyobb, több lépésből álló célok megadása, amelyeket az AI önállóan megtervez és lépésről lépésre végrehajt.' },
+    { id: 'tools', label: `Saját Eszközök (${(state.dynamicTools || []).length})`, icon: <Wrench className="h-3.5 w-3.5" />, hint: 'Itt készíthetsz saját gyorsműveleteket (például egy adott API lekérdezését), amiket az ágensek később használni tudnak.' },
+    { id: 'research', label: `Mélykutatás (${(state.researchReports || []).length})`, icon: <Globe className="h-3.5 w-3.5" />, hint: 'Átfogó webes kutatás indítása egy témáról, amely forrásokkal alátámasztott összefoglalót készít.' },
+    { id: 'api_sql', label: 'API & Adatbázis', icon: <Database className="h-3.5 w-3.5" />, hint: 'Külső webcímek (API-k) tesztelése és helyi SQLite adatbázisok biztonságos, csak olvasható lekérdezése.' },
+    { id: 'diff_review', label: 'Kód-összehasonlító', icon: <GitCompare className="h-3.5 w-3.5" />, hint: 'Két szöveg- vagy kódváltozat különbségeinek megmutatása és átnézése hibák szempontjából.' },
+    { id: 'lang_learn', label: `Nyelv & Tanulókártyák (${dueCards.length})`, icon: <Languages className="h-3.5 w-3.5" />, hint: 'Fordítás, ismétlésen alapuló tanulókártyák (SM-2) és formázott riportok készítése.' },
+    { id: 'arena', label: 'Modell-összehasonlító', icon: <Scale className="h-3.5 w-3.5" />, hint: 'Ugyanazt a kérdést egyszerre több AI modellnek is felteheted, hogy lásd, melyik ad jobb választ.' },
+    { id: 'devops', label: 'Fejlesztői Ellenőrző', icon: <ShieldCheck className="h-3.5 w-3.5" />, hint: 'Kódbázis áttekintő, sebezhetőség-kereső, regex/ütemező tesztelő és terheléspróba.' },
+    { id: 'data_creative', label: 'Adat, QR & Képek', icon: <Sparkles className="h-3.5 w-3.5" />, hint: 'Táblázat-kezelés, grafikonrajzolás, offline QR kód generálás és képek GPS/EXIF adatainak törlése.' },
+    { id: 'omni_b4', label: 'Kreatív & Okos Eszközök', icon: <Flame className="h-3.5 w-3.5" />, hint: 'További kreatív, írói, tervező és kísérleti eszközök gyűjteménye.' },
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-2">
         {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => {
-              setSubTab(t.id);
-              setStatusMsg(null);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-              subTab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {t.icon}
-            {t.label}
-          </button>
+          <div key={t.id} className="inline-flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab(t.id);
+                setStatusMsg(null);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
+                subTab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+            <InfoHint theme="light" label={t.label} description={t.hint} />
+          </div>
         ))}
       </div>
 
@@ -1250,7 +1253,7 @@ export const WorkbenchView: React.FC<Props> = ({ state, onRefreshState }) => {
       )}
 
       {subTab === 'omni_b4' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Omni Stúdió (B4) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Kreatív &amp; Okos Eszközök betöltése...</div>}>
           <Batch4OmniWorkbenchPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}

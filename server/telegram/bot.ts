@@ -16,7 +16,7 @@ import {
   runAutonomousMission,
 } from '../power/universalSuite';
 import { invokeWithFailover } from '../providers/router';
-import { activateKillSwitch, resolveApproval } from '../security/permissionGate';
+import { activateKillSwitch, assertHostPermission, resolveApproval } from '../security/permissionGate';
 import {
   collectPiHardwareDeepStatus,
   checkSystemPackageUpdates,
@@ -752,12 +752,15 @@ export async function processTelegramInput(
     const parts = text.trim().split(/\s+/);
     const op = parts[1];
     const pin = Number(parts[2]);
-    if (op === 'read' && Number.isInteger(pin)) {
+    if (!Number.isInteger(pin) || pin < 0 || pin > 53) {
+      return 'Érvénytelen GPIO lábszám (engedélyezett tartomány: 0..53).';
+    }
+    if (op === 'read') {
       const r = readOrWriteGpioPin('read', pin);
       return r.message;
     }
-    if (op === 'set' && Number.isInteger(pin)) {
-      const val = Number(parts[3]) === 1 ? 1 : 0;
+    if (op === 'set' && (parts[3] === '0' || parts[3] === '1')) {
+      const val = parts[3] === '1' ? 1 : 0;
       const r = readOrWriteGpioPin('set', pin, val);
       return r.message;
     }
@@ -766,7 +769,8 @@ export async function processTelegramInput(
 
   if (text.startsWith('/print ')) {
     const content = text.replace(/^\/print\s+/i, '').trim();
-    const pr = printDocumentViaCups({ textContent: content });
+    if (!content) return 'Nyomtatandó szöveg megadása kötelező.';
+    const pr = printDocumentViaCups({ textContent: content.slice(0, 8000) });
     return pr.message;
   }
 
@@ -777,12 +781,29 @@ export async function processTelegramInput(
   }
 
   if (text.startsWith('/getfile ')) {
+    assertHostPermission('telegram:getfile');
     const rel = text.replace(/^\/getfile\s+/i, '').trim();
-    const cwd = process.cwd();
-    const resolved = path.resolve(cwd, rel);
+    const cwd = fs.realpathSync(process.cwd());
+    const candidate = path.resolve(cwd, rel);
+    if (!fs.existsSync(candidate)) {
+      return `Fájl nem található: ${rel}`;
+    }
+    const resolved = fs.realpathSync(candidate);
     const prefix = cwd.endsWith(path.sep) ? cwd : `${cwd}${path.sep}`;
-    if (!resolved.startsWith(prefix) || !fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
-      return `Fájl nem található vagy munkakönyvtáron kívül van: ${rel}`;
+    const base = path.basename(resolved);
+    const blockedSecret =
+      base === '.env' ||
+      base.startsWith('.env.') ||
+      base.startsWith('.secrets') ||
+      base.startsWith('.state.json') ||
+      base.startsWith('novaswarm.sqlite') ||
+      base.endsWith('.pem') ||
+      base.endsWith('.key') ||
+      base === 'id_rsa' ||
+      base === 'id_ed25519' ||
+      resolved.startsWith(path.join(cwd, 'backups') + path.sep);
+    if (!resolved.startsWith(prefix) || blockedSecret || fs.statSync(resolved).isDirectory()) {
+      return `Hozzáférés megtagadva (védett titokfájl, szimlink vagy munkakönyvtáron kívüli útvonal): ${rel}`;
     }
     const buf = fs.readFileSync(resolved);
     if (buf.length > 15 * 1024 * 1024) return 'A fájl meghaladja a 15 MB Telegram küldési korlátot.';
@@ -1167,8 +1188,7 @@ async function pollSingleBot(botKey: string, token: string, forcedAgentId?: stri
       botOffsets.set(botKey, Math.max(botOffsets.get(botKey) ?? 0, upd.update_id));
       const chatId = upd.message?.chat?.id ?? upd.callback_query?.message?.chat?.id;
       const chatStr = chatId ? String(chatId) : undefined;
-      const allowList = getState().settings.telegramAllowedChatIds || [];
-      if (allowList.length > 0 && (!chatStr || !allowList.includes(chatStr))) {
+      if (!isTelegramChatAllowed(chatStr)) {
         continue;
       }
 
@@ -1327,6 +1347,18 @@ export function startTelegramPolling(): void {
   };
 
   setTimeout(poll, 2000);
+}
+
+/** Fail-closed Telegram chat ID allowlist check: denies all incoming updates when allowlist & primary chatId are empty */
+export function isTelegramChatAllowed(chatId?: string | number): boolean {
+  const s = getState().settings;
+  const allow = (s.telegramAllowedChatIds || []).map((id) => String(id).trim()).filter(Boolean);
+  const primary = (s.telegramChatId || '').trim();
+  const effective = allow.length > 0 ? allow : primary ? [primary] : [];
+  if (effective.length === 0 || chatId === undefined || chatId === null) {
+    return false;
+  }
+  return effective.includes(String(chatId).trim());
 }
 
 export function stopTelegramPolling(): void {

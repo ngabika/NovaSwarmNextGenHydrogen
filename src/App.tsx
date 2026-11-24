@@ -6,10 +6,10 @@ import {
   Brain,
   Command,
   Cpu,
-  Download,
   Eye,
   EyeOff,
   HelpCircle,
+  KeyRound,
   Layers,
   LayoutDashboard,
   Lock,
@@ -18,7 +18,6 @@ import {
   MessageSquare,
   Moon,
   Plug,
-  RefreshCw,
   Send,
   Settings as SettingsIcon,
   Shield,
@@ -29,8 +28,9 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import type { HardwareMetrics, NovaSwarmState, OtaVersionStatus } from '../shared/types';
+import type { HardwareMetrics, NovaSwarmState } from '../shared/types';
 import { CommandPalette } from './components/CommandPalette';
+import { InfoHint } from './components/InfoHint';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { PWAControls } from './components/PWAControls';
@@ -108,19 +108,18 @@ export default function App() {
 
   // LAN Operator Auth Gate
   const [authLocked, setAuthLocked] = useState(false);
+  const [authSetupRequired, setAuthSetupRequired] = useState(false);
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState(false);
-
-  // Sidebar Menu GitHub OTA Status & Actions
-  const [otaStatus, setOtaStatus] = useState<OtaVersionStatus | null>(null);
-  const [otaBusy, setOtaBusy] = useState(false);
-  const [otaActionMsg, setOtaActionMsg] = useState<string | null>(null);
+  const [passwordBannerDismissed, setPasswordBannerDismissed] = useState(false);
 
   const tryFetchState = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch('/api/state');
       if (res.status === 401) {
+        const errBody = (await res.json().catch(() => ({}))) as { code?: string };
+        setAuthSetupRequired(errBody.code === 'AUTH_SETUP_REQUIRED');
         setAuthLocked(true);
         setLoadError(null);
         return true;
@@ -137,6 +136,7 @@ export default function App() {
         sandboxBackend?: string;
       };
       setAuthLocked(false);
+      setAuthSetupRequired(false);
       setState(data.state);
       setHardware(data.hardware);
       setTerminalSessions(data.terminalSessions || []);
@@ -153,36 +153,6 @@ export default function App() {
   const fetchState = useCallback(async (): Promise<void> => {
     await tryFetchState();
   }, [tryFetchState]);
-
-  const checkOta = useCallback(async () => {
-    setOtaBusy(true);
-    try {
-      const res = await fetch('/api/system/ota');
-      if (res.ok) {
-        setOtaStatus((await res.json()) as OtaVersionStatus);
-      }
-    } catch {
-      // ignore offline OTA probe error
-    } finally {
-      setOtaBusy(false);
-    }
-  }, []);
-
-  const handleMenuApplyOta = async () => {
-    setOtaBusy(true);
-    setOtaActionMsg(null);
-    try {
-      const res = await fetch('/api/system/ota/apply', { method: 'POST' });
-      const data = (await res.json()) as { ok?: boolean; message?: string };
-      setOtaActionMsg(data.message || (data.ok ? 'Frissítve.' : 'Frissítés sikertelen.'));
-      await checkOta();
-      await fetchState();
-    } catch (err) {
-      setOtaActionMsg(err instanceof Error ? err.message : 'Hálózati hiba');
-    } finally {
-      setOtaBusy(false);
-    }
-  };
 
   useEffect(() => {
     const mode = state?.settings.themeMode || 'light';
@@ -257,7 +227,7 @@ export default function App() {
   }, [state?.sharedScratchpad]);
 
   useEffect(() => {
-    if (authLocked) return;
+    if (authLocked || !state) return;
     let active = true;
     const measurePing = async () => {
       const t0 = performance.now();
@@ -276,7 +246,7 @@ export default function App() {
       active = false;
       clearInterval(timer);
     };
-  }, [authLocked]);
+  }, [authLocked, state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,13 +278,7 @@ export default function App() {
   }, [tryFetchState]);
 
   useEffect(() => {
-    if (state && !otaStatus) {
-      void checkOta();
-    }
-  }, [state, otaStatus, checkOta]);
-
-  useEffect(() => {
-    if (authLocked) return;
+    if (authLocked || !state) return;
     let ws: WebSocket | null = null;
     try {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -353,7 +317,7 @@ export default function App() {
       ws?.close();
       clearInterval(poll);
     };
-  }, [fetchState, authLocked]);
+  }, [fetchState, authLocked, state]);
 
   const handleOperatorLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -393,7 +357,7 @@ export default function App() {
     } else if (actionId === 'run_audit') {
       await fetch('/api/supervisor/audit', { method: 'POST' });
     } else if (actionId === 'check_ota') {
-      await checkOta();
+      await fetch('/api/system/ota');
     } else if (actionId === 'create_backup') {
       await fetch('/api/system/backup', { method: 'POST' });
     } else if (actionId === 'warm_ollama') {
@@ -418,7 +382,9 @@ export default function App() {
             <h1 className="text-base font-bold">NovaSwarm LAN Operátori Zár</h1>
           </div>
           <p className="text-xs text-slate-600">
-            Add meg a beállított operátori jelszót a vezérlőpult feloldásához.
+            {authSetupRequired
+              ? 'Első indítás: még nincs beállítva operátori jelszó. Nyisd meg a vezérlőpultot helyi (localhost) címről a kezdő jelszó megadásához.'
+              : 'Add meg a beállított operátori jelszót a vezérlőpult feloldásához.'}
           </p>
           {authError && (
             <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
@@ -481,21 +447,103 @@ export default function App() {
     );
   }
 
-  const navItems: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
-    { id: 'overview', label: tr(lang, 'navOverview'), icon: <LayoutDashboard className="h-4 w-4" /> },
-    { id: 'swarm', label: tr(lang, 'navSwarm'), icon: <MessageSquare className="h-4 w-4" /> },
-    { id: 'workbench', label: tr(lang, 'navWorkbench'), icon: <Wrench className="h-4 w-4" /> },
-    { id: 'agents', label: tr(lang, 'navAgents'), icon: <Bot className="h-4 w-4" /> },
-    { id: 'memory', label: tr(lang, 'navMemory'), icon: <Brain className="h-4 w-4" /> },
-    { id: 'models', label: tr(lang, 'navModels'), icon: <Cpu className="h-4 w-4" /> },
-    { id: 'mcp', label: tr(lang, 'navMcp'), icon: <Plug className="h-4 w-4" /> },
-    { id: 'ecosystem', label: tr(lang, 'navEcosystem'), icon: <Layers className="h-4 w-4" /> },
-    { id: 'terminal', label: tr(lang, 'navTerminal'), icon: <TerminalIcon className="h-4 w-4" /> },
-    { id: 'system', label: tr(lang, 'navSystem'), icon: <Activity className="h-4 w-4" /> },
-    { id: 'settings', label: tr(lang, 'navSettings'), icon: <SettingsIcon className="h-4 w-4" /> },
+  const isDarkTheme = state.settings.themeMode === 'dark' || state.settings.themeMode === 'high_contrast';
+  const hintTheme: 'dark' | 'light' = isDarkTheme ? 'dark' : 'light';
+
+  const navGroups: Array<{
+    groupLabel: string;
+    items: Array<{ id: TabId; label: string; icon: React.ReactNode; hint: string }>;
+  }> = [
+    {
+      groupLabel: 'Napi munka',
+      items: [
+        {
+          id: 'overview',
+          label: tr(lang, 'navOverview'),
+          icon: <LayoutDashboard className="h-4 w-4 shrink-0" />,
+          hint: 'Egy helyen mutatja a gép terhelését, a mai AI-költést, az aktív teendőket, az időjárást és a gyors keresőt.',
+        },
+        {
+          id: 'swarm',
+          label: tr(lang, 'navSwarm'),
+          icon: <MessageSquare className="h-4 w-4 shrink-0" />,
+          hint: 'Itt tudsz beszélgetni a digitális segítőiddel, feladatot adni nekik és követni a táblán, mi készült el.',
+        },
+        {
+          id: 'workbench',
+          label: tr(lang, 'navWorkbench'),
+          icon: <Wrench className="h-4 w-4 shrink-0" />,
+          hint: 'Speciális műhely eszközök: kód-összehasonlító, API/adatbázis tesztelő, nyelvtanulás, kutatás és diagramok.',
+        },
+        {
+          id: 'terminal',
+          label: tr(lang, 'navTerminal'),
+          icon: <TerminalIcon className="h-4 w-4 shrink-0" />,
+          hint: 'Valódi Linux parancssor közvetlenül a böngészőben. Biztonsági okból csak akkor aktív, ha engedélyezed a Beállításokban.',
+        },
+      ],
+    },
+    {
+      groupLabel: 'Tudás & AI',
+      items: [
+        {
+          id: 'agents',
+          label: tr(lang, 'navAgents'),
+          icon: <Bot className="h-4 w-4 shrink-0" />,
+          hint: 'Itt hozhatsz létre új AI munkatársakat különböző szerepkörökre (pl. fejlesztő, rendszergazda), és szabályozhatod a jogaikat.',
+        },
+        {
+          id: 'memory',
+          label: tr(lang, 'navMemory'),
+          icon: <Brain className="h-4 w-4 shrink-0" />,
+          hint: 'Minden megjegyzett tudás rólad és a projektjeidről, plusz a saját jegyzet-tudástárad és az éjszakai összefoglalók.',
+        },
+        {
+          id: 'models',
+          label: tr(lang, 'navModels'),
+          icon: <Cpu className="h-4 w-4 shrink-0" />,
+          hint: 'AI kulcsok kezelése (Gemini, OpenAI, helyi Ollama), havi költségbecslés, virtuális kulcsok és tartalék modell-láncok.',
+        },
+        {
+          id: 'mcp',
+          label: tr(lang, 'navMcp'),
+          icon: <Plug className="h-4 w-4 shrink-0" />,
+          hint: 'Külső bővítmények (MCP), saját mini-skillek, Telegram/Discord összekapcsolás, böngészős kutatás és párosítás.',
+        },
+      ],
+    },
+    {
+      groupLabel: 'Mindennapok & Otthon',
+      items: [
+        {
+          id: 'ecosystem',
+          label: tr(lang, 'navEcosystem'),
+          icon: <Layers className="h-4 w-4 shrink-0" />,
+          hint: 'Napi szokások, e-mail, naptár, okosotthon, költségkövető, okmányszéf, árfigyelő, receptötletek és automatizmusok.',
+        },
+      ],
+    },
+    {
+      groupLabel: 'Rendszer',
+      items: [
+        {
+          id: 'system',
+          label: tr(lang, 'navSystem'),
+          icon: <Activity className="h-4 w-4 shrink-0" />,
+          hint: 'Biztonsági mentések, teljes gép-költöztetés másik gépre SSH-n, frissítések, szerver-diagnosztika és jóváhagyások.',
+        },
+        {
+          id: 'settings',
+          label: tr(lang, 'navSettings'),
+          icon: <SettingsIcon className="h-4 w-4 shrink-0" />,
+          hint: 'Nyelv, világos/sötét téma, jelszózár, Telegram engedélylista, költséghatárok, önállósági szint és vészleállító.',
+        },
+      ],
+    },
   ];
 
-  const activeNavLabel = navItems.find((n) => n.id === activeTab)?.label || '';
+  const allNavItems = navGroups.flatMap((g) => g.items);
+  const activeNavLabel = allNavItems.find((n) => n.id === activeTab)?.label || '';
 
   return (
     <div dir={getLanguageDir(lang)} className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
@@ -505,14 +553,14 @@ export default function App() {
           mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="overflow-y-auto">
+        <div className="overflow-y-auto flex-1">
           <div className="h-14 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap">
               {tr(lang, 'appName')}
             </span>
             <button
               type="button"
-              aria-label="Close navigation"
+              aria-label="Navigáció bezárása"
               onClick={() => setMobileNavOpen(false)}
               className="lg:hidden p-1 text-slate-500 dark:text-slate-400"
             >
@@ -520,152 +568,107 @@ export default function App() {
             </button>
           </div>
 
-          <div className="px-3 pt-3">
+          <div className="px-3 pt-3 flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
+              className="flex-1 flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
             >
               <span className="inline-flex items-center gap-1.5">
                 <Command className="h-3.5 w-3.5" />
-                Parancspaletta...
+                Gyorskereső...
               </span>
               <span className="font-mono text-[10px] text-slate-400">Ctrl+K</span>
             </button>
+            <InfoHint
+              theme={hintTheme}
+              align="right"
+              label="Gyorskereső (Ctrl+K)"
+              description="Bárhonnan megnyitható ugrómenü: egyetlen gombnyomással válthatsz oldalt, vagy indíthatsz gyors műveletet."
+            />
           </div>
 
-          <nav className="p-3 space-y-1" aria-label="Main Navigation">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setMobileNavOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                  activeTab === item.id
-                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </button>
+          <nav className="p-3 space-y-4" aria-label="Fő navigáció">
+            {navGroups.map((group) => (
+              <div key={group.groupLabel} className="space-y-1">
+                <div className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {group.groupLabel}
+                </div>
+                {group.items.map((item) => (
+                  <div key={item.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setMobileNavOpen(false);
+                      }}
+                      className={`flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] font-medium rounded-lg transition-colors text-left ${
+                        activeTab === item.id
+                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {item.icon}
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                    <InfoHint theme={hintTheme} align="right" label={item.label} description={item.hint} />
+                  </div>
+                ))}
+              </div>
             ))}
           </nav>
-
-          {/* Menu-level GitHub OTA Auto-Update Control */}
-          <div className="mx-3 mt-2 p-3 border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50/70 dark:bg-slate-800/60 space-y-2">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 truncate">
-                GitHub Frissítés (OTA)
-              </span>
-              <span
-                className={`text-[10px] font-mono font-semibold ${
-                  otaStatus?.updateAvailable ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'
-                }`}
-              >
-                {otaStatus
-                  ? otaStatus.updateAvailable
-                    ? 'ÚJ VERZIÓ'
-                    : 'Naprakész'
-                  : 'Várakozik'}
-              </span>
-            </div>
-            <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
-              {state.settings.otaRepoSlug || 'ngabika/NovaSwarmNextGenHydrogen'}
-            </div>
-            <div className="text-[10px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
-              <span>
-                Helyi: {otaStatus?.localCommit || otaStatus?.currentVersion || '1.0.0'}
-              </span>
-              <span>
-                Auto: {state.settings.autoUpdateEnabled ? 'BE' : 'KI'}
-              </span>
-            </div>
-            <div className="flex gap-1.5">
-              <button
-                type="button"
-                disabled={otaBusy}
-                onClick={() => void checkOta()}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 disabled:opacity-50"
-              >
-                <RefreshCw className="h-3 w-3" />
-                Ellenőrzés
-              </button>
-              <button
-                type="button"
-                disabled={otaBusy}
-                onClick={() => void handleMenuApplyOta()}
-                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded hover:bg-slate-800 disabled:opacity-50"
-              >
-                <Download className="h-3 w-3" />
-                Frissítés
-              </button>
-            </div>
-            {otaActionMsg && (
-              <div className="text-[10px] font-mono text-slate-700 dark:text-slate-300 leading-snug break-words">
-                {otaActionMsg}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Permanent Always-Visible Supervisor/Auditor Panel */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/70 dark:bg-slate-900">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5 text-slate-700 dark:text-slate-300" />
+        {/* Compact Status Footer */}
+        <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50/70 dark:bg-slate-900">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Shield className="h-3.5 w-3.5 text-slate-700 dark:text-slate-300 shrink-0" />
+              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                 {tr(lang, 'supervisorPanelTitle')}
               </span>
-              <span
-                className={`text-[11px] font-semibold ${
-                  state.supervisor.status === 'nominal'
-                    ? 'text-emerald-700 dark:text-emerald-400'
-                    : state.supervisor.status === 'warning'
-                    ? 'text-amber-700 dark:text-amber-400'
-                    : 'text-red-700 dark:text-red-400'
-                }`}
-              >
-                {state.supervisor.status === 'nominal'
-                  ? tr(lang, 'supervisorNominal')
+              <InfoHint
+                theme={hintTheme}
+                align="right"
+                label="Rendszerfelügyelő"
+                description="A háttérben figyeli, hogy az adatok, a memória és a beépített védelmek rendben vannak-e."
+              />
+            </div>
+            <span
+              className={`text-[11px] font-semibold shrink-0 ${
+                state.supervisor.status === 'nominal'
+                  ? 'text-emerald-700 dark:text-emerald-400'
                   : state.supervisor.status === 'warning'
-                  ? tr(lang, 'supervisorWarning')
-                  : tr(lang, 'supervisorAlert')}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">{state.supervisor.lastSummary}</p>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums space-y-0.5">
-              <div>
-                {tr(lang, 'supervisorDiscrepancies')}: {state.supervisor.discrepanciesFound} · {tr(lang, 'supervisorSandboxTests')}: {state.supervisor.sandboxTestsPassed}
-              </div>
-              {state.supervisor.lastAuditAt && (
-                <div>
-                  {tr(lang, 'supervisorLastCheck')}: {new Date(state.supervisor.lastAuditAt).toLocaleTimeString()}
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={async () => {
-                await fetch('/api/supervisor/audit', { method: 'POST' });
-                await fetchState();
-              }}
-              className="w-full mt-1 px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-red-700 dark:text-red-400'
+              }`}
             >
-              {tr(lang, 'supervisorRunAudit')}
-            </button>
+              {state.supervisor.status === 'nominal'
+                ? tr(lang, 'supervisorNominal')
+                : state.supervisor.status === 'warning'
+                ? tr(lang, 'supervisorWarning')
+                : tr(lang, 'supervisorAlert')}
+            </span>
           </div>
 
           {hardware && (
-            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-400 flex justify-between">
+            <div className="text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-400 flex justify-between">
               <span>CPU {hardware.cpuLoadPercent}%</span>
               <span>RAM {hardware.ramPercent}%</span>
               <span>{hardware.temperatureCelsius !== null ? `${hardware.temperatureCelsius}°C` : 'Linux'}</span>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={async () => {
+              await fetch('/api/supervisor/audit', { method: 'POST' });
+              await fetchState();
+            }}
+            className="w-full px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
+          >
+            Gyors állapot-ellenőrzés
+          </button>
         </div>
       </aside>
 
@@ -796,6 +799,32 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {state.settings.webAuthEnabled && !state.settings.webAuthHasPassword && !passwordBannerDismissed && (
+          <div className="bg-sky-50 dark:bg-sky-950/50 border-b border-sky-200 dark:border-sky-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-sky-900 dark:text-sky-100">
+            <span className="inline-flex items-center gap-2 font-medium">
+              <KeyRound className="h-3.5 w-3.5 shrink-0" />
+              Ajánlott beállítás: adj meg egy belépési jelszót, hogy hálózatról se férhessen hozzá idegen a vezérlőpulthoz.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                className="px-2.5 py-1 text-[11px] font-semibold bg-sky-700 text-white rounded hover:bg-sky-800"
+              >
+                Jelszó beállítása
+              </button>
+              <button
+                type="button"
+                aria-label="Értesítés bezárása"
+                onClick={() => setPasswordBannerDismissed(true)}
+                className="text-sky-700 dark:text-sky-300 hover:opacity-80"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {reminderBanner && (
           <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900">
@@ -929,17 +958,17 @@ export default function App() {
         </main>
       </div>
 
-      {/* M60: Mobile Sticky Bottom Nav Bar (compact <= 56px = 6.6% of 844px mobile viewport) */}
+      {/* Compact Mobile Bottom Nav Bar */}
       <nav
-        aria-label="Mobile Quick Navigation"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-20 h-14 bg-white border-t border-slate-200 px-1 flex items-center justify-around"
+        aria-label="Mobil gyorsnavigáció"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-20 h-14 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-1 flex items-center justify-around"
       >
         {(
           [
             { id: 'overview', label: 'Főoldal', icon: <LayoutDashboard className="h-4 w-4" /> },
-            { id: 'swarm', label: 'Raj', icon: <MessageSquare className="h-4 w-4" /> },
-            { id: 'workbench', label: 'Stúdió', icon: <Wrench className="h-4 w-4" /> },
-            { id: 'ecosystem', label: 'Hub', icon: <Layers className="h-4 w-4" /> },
+            { id: 'swarm', label: 'Chat', icon: <MessageSquare className="h-4 w-4" /> },
+            { id: 'workbench', label: 'Munkapad', icon: <Wrench className="h-4 w-4" /> },
+            { id: 'ecosystem', label: 'Életvitel', icon: <Layers className="h-4 w-4" /> },
             { id: 'system', label: 'Rendszer', icon: <Activity className="h-4 w-4" /> },
           ] as const
         ).map((item) => (
@@ -1047,21 +1076,21 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold">Billentyűparancsok (M158, M230)</h2>
+              <h2 className="text-sm font-bold">Billentyűparancsok</h2>
               <button type="button" onClick={() => setShortcutsOpen(false)} className="text-slate-400 hover:text-slate-700">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="space-y-1.5 text-xs font-mono">
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Ctrl+K / Cmd+K</span><span>Parancspaletta</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Ctrl+K / Cmd+K</span><span>Gyorskereső</span></div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Alt+N</span><span>Gyors Jegyzetfiók</span></div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>?</span><span>Súgóablak</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>Áttekintő (Overview)</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Raj Chat &amp; Kanban</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>Univerzális Stúdió</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Szervezet &amp; Ágensek</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória &amp; Álmodás</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → r</span><span>Rendszer &amp; Diagnosztika</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>Áttekintő</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Csapat Chat &amp; Feladatok</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>Munkapad &amp; Eszközök</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Ágensek &amp; Csapat</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória &amp; Jegyzetek</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → r</span><span>Rendszer &amp; Költöztetés</span></div>
               <div className="flex justify-between py-1"><span>g → s</span><span>Beállítások</span></div>
             </div>
           </div>

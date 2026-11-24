@@ -16,8 +16,11 @@ export const FORBIDDEN_MODIFICATION_ZONES: RegExp[] = [
   /^server\/selfmod(\/|$)/i,
   /^\.env($|\.)/i,
   /^\.config\.json$/i,
-  /^\.state\.json$/i,
-  /^\.secrets\.vault\.json$/i,
+  /^\.state\.json/i,
+  /^\.secrets/i,
+  /^novaswarm\.sqlite/i,
+  /^backups(\/|$)/i,
+  /^\.migrated-away$/i,
   /\.service$/i,
   /systemd/i,
   /^\.gitignore$/i,
@@ -196,15 +199,20 @@ export function applyGuardedSelfModification(opts: SelfModOptions): SelfModResul
   let testFailed = false;
   let testErr = '';
   if (!opts.verifyCommand && verify.status === 0 && fs.existsSync(path.join(repoRoot, 'tests'))) {
-    const testRun = spawnSync('./node_modules/.bin/tsx', ['--test', '--test-force-exit', 'tests/*.test.ts'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      timeout: 60000,
-      shell: true,
-    });
-    if (testRun.status !== 0) {
-      testFailed = true;
-      testErr = testRun.stderr || testRun.stdout || 'Egységtesztek elbuktak';
+    const testFiles = fs
+      .readdirSync(path.join(repoRoot, 'tests'))
+      .filter((f) => f.endsWith('.test.ts'))
+      .map((f) => path.join('tests', f));
+    if (testFiles.length > 0) {
+      const testRun = spawnSync('./node_modules/.bin/tsx', ['--test', '--test-force-exit', ...testFiles], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 60000,
+      });
+      if (testRun.status !== 0) {
+        testFailed = true;
+        testErr = testRun.stderr || testRun.stdout || 'Egységtesztek elbuktak';
+      }
     }
   }
 

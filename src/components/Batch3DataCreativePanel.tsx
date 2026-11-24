@@ -9,6 +9,7 @@ import {
   Table2,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 export const Batch3DataCreativePanel: React.FC<{
   state: NovaSwarmState;
@@ -44,7 +45,11 @@ export const Batch3DataCreativePanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Table2 className="h-4 w-4" />
-          CSV / JSON Data Wrangler & SVG Diagram (Ú83, Ú131)
+          <span>Táblázat Elemző &amp; SVG Grafikon Rajzoló</span>
+          <InfoHint
+            label="Táblázat elemző"
+            text="CSV vagy JSON táblázatos adatokat csoportosít és készít belőlük tiszta oszlop-, vonal- vagy kördiagramot."
+          />
         </h3>
         <textarea
           rows={3}
@@ -112,14 +117,24 @@ export const Batch3DataCreativePanel: React.FC<{
         </div>
         {wrangleOut && <pre className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono max-h-28 overflow-auto">{wrangleOut}</pre>}
         {chartSvg && (
-          <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white overflow-hidden" dangerouslySetInnerHTML={{ __html: chartSvg }} />
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white overflow-hidden">
+            <img
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(chartSvg)}`}
+              alt={chartTitle || 'Grafikon'}
+              className="w-full h-auto"
+            />
+          </div>
         )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <QrCode className="h-4 w-4" />
-          Offline QR Generátor & Kép EXIF Eltávolító (Ú87, Ú88)
+          <span>Offline QR Kód Készítő &amp; Kép-Metaadat Tisztító</span>
+          <InfoHint
+            label="QR kód és metaadat tisztító"
+            text="Bármilyen linkből helyben QR kódot csinál, a feltöltött fotókból pedig törli a rejtett GPS és kameraadatokat."
+          />
         </h3>
         <div className="flex gap-2 text-xs">
           <input
@@ -146,11 +161,19 @@ export const Batch3DataCreativePanel: React.FC<{
             QR Generálás
           </button>
         </div>
-        {qrSvg && <div className="inline-block border border-slate-200 rounded p-2 bg-white" dangerouslySetInnerHTML={{ __html: qrSvg }} />}
+        {qrSvg && (
+          <div className="inline-block border border-slate-200 rounded p-2 bg-white">
+            <img
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(qrSvg)}`}
+              alt="Generált QR kód"
+              className="w-[180px] h-[180px]"
+            />
+          </div>
+        )}
 
         <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 text-xs">
           <label className="block font-medium text-slate-700 dark:text-slate-300">
-            JPEG / PNG EXIF & GPS Metaadat Eltávolítása (Ú87):
+            JPEG / PNG rejtett helyadatok (EXIF & GPS) törlése:
           </label>
           <input
             type="file"
@@ -183,7 +206,11 @@ export const Batch3DataCreativePanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Clipboard className="h-4 w-4" />
-          Okos Szöveg / JSON / SQL / JWT Transzformátor & Vágólap (Ú90)
+          <span>Szöveg, JSON, SQL &amp; JWT Átalakító</span>
+          <InfoHint
+            label="Szöveg átalakító"
+            text="Egy kattintással szépen formázza a JSON/SQL szövegeket, dekódolja a tokeneket és elmenti a vágólap-előzménybe."
+          />
         </h3>
         <textarea
           rows={3}
@@ -233,7 +260,11 @@ export const Batch3DataCreativePanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Palette className="h-4 w-4" />
-          WCAG Kontraszt & SHA-256 Dokumentum Közjegyző (Ú136, Ú150)
+          <span>Színkontraszt Ellenőrző &amp; Digitális Hitelesítő</span>
+          <InfoHint
+            label="Kontraszt és hitelesítő"
+            text="Ellenőrzi, hogy két szín jól olvasható-e egymáson, alul pedig egyedi ujjlenyomatot (SHA-256) készít fontos szövegekről."
+          />
         </h3>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <input type="color" value={fgHex} onChange={(e) => setFgHex(e.target.value)} aria-label="Foreground color" />
@@ -264,7 +295,7 @@ export const Batch3DataCreativePanel: React.FC<{
         <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 text-xs">
           <div className="flex items-center gap-1.5 font-medium">
             <FileCheck2 className="h-3.5 w-3.5" />
-            Dokumentum Közjegyzői Lenyomat (Ú150)
+            Dokumentum Ujjlenyomat Rögzítése
           </div>
           <div className="flex gap-2">
             <input

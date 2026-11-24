@@ -22,6 +22,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { DashboardWidgetConfig, HardwareMetrics, NovaSwarmState } from '../../shared/types';
+import { InfoHint } from './InfoHint';
 
 interface Props {
   state: NovaSwarmState;
@@ -154,22 +155,30 @@ export const OverviewDashboard: React.FC<Props> = ({
             <Rocket className="h-3.5 w-3.5" />
             Küldetés Indítása
           </button>
-          <button
-            type="button"
-            disabled={doctorBusy}
-            onClick={() => void handleRunDoctor()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 disabled:opacity-50"
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            {doctorBusy ? 'Javítás...' : 'Swarm Auto-Doctor'}
-          </button>
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              disabled={doctorBusy}
+              onClick={() => void handleRunDoctor()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0 disabled:opacity-50"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              {doctorBusy ? 'Javítás...' : 'Rendszer Gyorsjavító'}
+            </button>
+            <InfoHint
+              theme="light"
+              align="right"
+              label="Rendszer Gyorsjavító"
+              description="Átnézi a mentéseket, a fájlokat és a beállításokat, és egy kattintással kijavítja az alapvető hibákat."
+            />
+          </div>
           <button
             type="button"
             onClick={() => setConfiguring((v) => !v)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             {configuring ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            Widgetek testreszabása
+            Kártyák ki/bekapcsolása
           </button>
         </div>
       </div>
@@ -246,8 +255,8 @@ export const OverviewDashboard: React.FC<Props> = ({
               type="text"
               value={omniQuery}
               onChange={(e) => setOmniQuery(e.target.value)}
-              placeholder="Globális Omnisearch (Memória, Kanban, Okmányok, Chat, FTS5)..."
-              aria-label="Globális Omnisearch"
+              placeholder="Mindent-kereső (memória, feladatok, okmányok, beszélgetések)..."
+              aria-label="Mindent-kereső"
               className="flex-1 min-w-0 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950"
             />
             <button
@@ -257,6 +266,12 @@ export const OverviewDashboard: React.FC<Props> = ({
             >
               {omniBusy ? 'Keresés...' : 'Keresés'}
             </button>
+            <InfoHint
+              theme="light"
+              align="right"
+              label="Mindent-kereső"
+              description="Egyszerre keres végig a jegyzeteidben, az AI emlékeiben, a feladatokban, az okmányaidban és a korábbi beszélgetésekben."
+            />
           </div>
           {omniRan && (
             <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
@@ -286,7 +301,12 @@ export const OverviewDashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-slate-600" />
-                Gazdagép Telemetria
+                Gép Állapota
+                <InfoHint
+                  theme="light"
+                  label="Gép Állapota"
+                  description="Megmutatja, mennyire van leterhelve a processzor, mennyi memória fogyott, mennyi hely maradt a lemezen és hány fokos a gép."
+                />
               </h2>
               <button
                 type="button"
@@ -332,7 +352,12 @@ export const OverviewDashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Költségkeret & Havi Projekció
+                AI Költségkeret
+                <InfoHint
+                  theme="light"
+                  label="AI Költségkeret"
+                  description="Követi, mennyibe kerültek ma a fizetős AI hívások, és mennyire számíthatsz a hónap végén. A napi limit megvéd a túlköltekezéstől."
+                />
               </h2>
               <button
                 type="button"
@@ -371,7 +396,12 @@ export const OverviewDashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <Bot className="h-4 w-4 text-slate-600" />
-                Raj & Kanban Állapot
+                Feladatok Állapota
+                <InfoHint
+                  theme="light"
+                  label="Feladatok Állapota"
+                  description="Megmutatja, hány feladat vár elvégzésre, mennyi van folyamatban, és hány készült már el."
+                />
               </h2>
               <button
                 type="button"
@@ -527,7 +557,12 @@ export const OverviewDashboard: React.FC<Props> = ({
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <CloudSun className="h-4 w-4 text-slate-600 dark:text-slate-400 shrink-0" />
-              Helyi Időjárás & Hardening
+              Helyi Időjárás &amp; Védelem
+              <InfoHint
+                theme="light"
+                label="Időjárás és Biztonsági Pontszám"
+                description="Kiírja a beállított város időjárását, valamint egy 0-100-as biztonsági pontszámot, ami jelzi, mennyire van védve a rendszer."
+              />
             </h2>
             {hardening && (
               <button
@@ -600,7 +635,12 @@ export const OverviewDashboard: React.FC<Props> = ({
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Rocket className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Heti Időkapszula & Éjszakai Műszak (Ú61, Ú157)
+              Heti Összefoglaló &amp; Éjszakai Munka
+              <InfoHint
+                theme="light"
+                label="Heti Időkapszula és Éjszakai Műszak"
+                description="Összefoglalja az elmúlt hét legfontosabb eseményeit, vagy elindítja az éjszakai háttérfeldolgozást."
+              />
             </h2>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -612,7 +652,7 @@ export const OverviewDashboard: React.FC<Props> = ({
               }}
               className="px-3 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg font-medium whitespace-nowrap shrink-0"
             >
-              Időkapszula Generálás
+              Időkapszula Készítése
             </button>
             <button
               type="button"
@@ -622,7 +662,7 @@ export const OverviewDashboard: React.FC<Props> = ({
               }}
               className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg font-medium hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              Éjszakai Műszak Indítása
+              Éjszakai Munka Indítása
             </button>
           </div>
           {state.timeCapsules?.[0] ? (
@@ -639,12 +679,17 @@ export const OverviewDashboard: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Ú258: Custom Dynamic Widgets */}
+        {/* Custom Dynamic Widgets */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2 min-w-0">
               <LayoutGrid className="h-4 w-4 text-slate-600 dark:text-slate-400 shrink-0" />
-              <span>Egyedi Dinamikus Widgetek (Ú258)</span>
+              <span>Saját Állapotdobozok</span>
+              <InfoHint
+                theme="light"
+                label="Saját Állapotdobozok"
+                description="Olyan egyedi kártyák, amelyeket te állítottál be a Rendszer fülön (például egy szerver vagy API állapotának gyors ellenőrzésére)."
+              />
             </h2>
             <div className="flex items-center gap-2 shrink-0">
               <button
@@ -675,7 +720,7 @@ export const OverviewDashboard: React.FC<Props> = ({
           </div>
           {(state.customWidgets || []).length === 0 ? (
             <p className="text-xs text-slate-500">
-              Még nincs egyedi widget. Hozz létre egyet a Rendszerműveletek → Pi Hardver &amp; Fájlok (B4) fülön!
+              Még nincs saját dobozod. A Rendszer &amp; Költöztetés fül Hardver &amp; Fájlok részén hozhatsz létre újat.
             </p>
           ) : (
             <div className="space-y-2 text-xs">

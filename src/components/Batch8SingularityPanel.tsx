@@ -24,6 +24,7 @@ import {
   UserCheck,
   Wand2,
 } from 'lucide-react';
+import { InfoHint } from './InfoHint';
 import type {
   AgentPersonaProfile,
   ArchitectureBlueprint,
@@ -245,7 +246,11 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Cpu className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              Omni-Ágens &amp; Szingularitás Stúdió (Batch 8 · Ú361–Ú560)
+              <span>Személyre Szabott Asszisztens &amp; Képesség Stúdió</span>
+              <InfoHint
+                label="Képesség Stúdió"
+                text="Itt állíthatod be az AI stílusát (Persona), összerakhatsz tanulási és időbeosztási terveket, vagy átnézheted az összes elérhető képességet."
+              />
             </h2>
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
               <span>Aktív Persona: {personas.find((p) => p.id === state?.settings.activePersonaId)?.name || 'Alapértelmezett'}</span>
@@ -261,24 +266,42 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
           <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
             {(
               [
-                { id: 'persona_style', label: 'Persona, Kontextus & Stúdió' },
-                { id: 'cognitive', label: 'Kognitív Tervező & Döntés' },
-                { id: 'studio_dev', label: 'Meeting, Tanulás & Kód Copilot' },
-                { id: 'analytics_catalog', label: 'Analitika, Élet-OS & 200+ Katalógus' },
+                {
+                  id: 'persona_style',
+                  label: 'Stílus & Személyiség',
+                  hint: 'Beállíthatod, milyen hangnemben beszéljen az asszisztens, és milyen munka/otthoni helyzetben segítsen.',
+                },
+                {
+                  id: 'cognitive',
+                  label: 'Tervező & Döntéstámogató',
+                  hint: 'Nagyobb célok lebontása lépésekre és pro/kontra döntési táblázatok készítése.',
+                },
+                {
+                  id: 'studio_dev',
+                  label: 'Megbeszélés, Tanulás & Kód',
+                  hint: 'Megbeszélések összefoglalása, tanulási kártyák és fejlesztői ellenőrző eszközök.',
+                },
+                {
+                  id: 'analytics_catalog',
+                  label: 'Statisztika & Képességlista',
+                  hint: 'Részletes használati adatok és a teljes kereshető funkció-katalógus.',
+                },
               ] as const
             ).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  tab === item.id
-                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {item.label}
-              </button>
+              <div key={item.id} className="inline-flex items-center gap-0.5 pr-1">
+                <button
+                  type="button"
+                  onClick={() => setTab(item.id)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    tab === item.id
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+                <InfoHint label={item.label} text={item.hint} />
+              </div>
             ))}
           </div>
         </div>
@@ -1782,7 +1805,11 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <CheckSquare className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Teljes 200+ Képesség Katalógus (Ú361–Ú560)
+                  <span>Teljes Képesség Katalógus</span>
+                  <InfoHint
+                    label="Képesség katalógus"
+                    text="Kereshető lista arról, milyen beépített eszközöket és végpontokat tud kezelni az asszisztens."
+                  />
                 </h3>
                 <div className="text-xs text-slate-500 tabular-nums mt-0.5">
                   Összes regisztrált képesség: {catalogData?.totalCount ?? 200} · Találatok: {catalogData?.items.length ?? 0}

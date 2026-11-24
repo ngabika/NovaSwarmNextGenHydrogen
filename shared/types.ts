@@ -378,7 +378,8 @@ export type DestructiveActionType =
   | 'sensitive_selfmod'
   | 'docker_control'
   | 'systemd_control'
-  | 'email_send';
+  | 'email_send'
+  | 'destructive_shell';
 
 export interface ApprovalRequest {
   id: string;
@@ -1174,6 +1175,7 @@ export interface NovaSwarmState {
   wellnessLogs?: WellnessCheckinItem[];
   smartChecklists?: SmartChecklistTemplate[];
   timeBlocks?: TimeBlockSlot[];
+  auditChainAnchor?: { prevHash: string; prunedCount: number };
   lastActivityAt: string;
   activeExplicitTaskAgentId: string | null;
 }

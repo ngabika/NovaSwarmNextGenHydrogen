@@ -151,6 +151,7 @@ function runWithAskpassOrSshpass(
   return new Promise((resolve) => {
     const useSshpass = hasBinary('sshpass');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-ssh-'));
+    fs.chmodSync(tmpDir, 0o700);
     const askpassPath = path.join(tmpDir, 'askpass.sh');
     fs.writeFileSync(askpassPath, '#!/bin/sh\nprintf "%s\\n" "$NOVASWARM_SSH_PW"\n', { mode: 0o700 });
 
@@ -248,6 +249,7 @@ export function createMigrationBundleArchive(destDir: string): string {
   const candidates = [
     '.state.json',
     '.config.json',
+    '.secrets.key',
     '.secrets.vault.json',
     '.env',
     'novaswarm.sqlite',
@@ -290,6 +292,7 @@ export function estimateMigrationDryRun(rootDir = process.cwd()): {
   const candidates = [
     '.state.json',
     '.config.json',
+    '.secrets.key',
     '.secrets.vault.json',
     '.env',
     'novaswarm.sqlite',
@@ -369,12 +372,19 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
   if sudo -n true 2>/dev/null; then
     SUDO="sudo"
   elif [ -n "${sudoPasswordB64 ? '1' : ''}" ]; then
-    ASKPASS_SH="/dev/shm/.ns-askpass-$$.sh"
-    cat > "$ASKPASS_SH" <<'ASK_EOF'
+    (
+      umask 077
+      ASKPASS_DIR="/dev/shm/.ns-askpass-$$"
+      mkdir -p "$ASKPASS_DIR"
+      chmod 700 "$ASKPASS_DIR"
+      ASKPASS_SH="$ASKPASS_DIR/askpass.sh"
+      cat > "$ASKPASS_SH" <<'ASK_EOF'
 #!/bin/sh
 echo '${sudoPasswordB64 || ''}' | base64 -d
 ASK_EOF
-    chmod 700 "$ASKPASS_SH"
+      chmod 700 "$ASKPASS_SH"
+    )
+    ASKPASS_SH="/dev/shm/.ns-askpass-$$/askpass.sh"
     export SUDO_ASKPASS="$ASKPASS_SH"
     SUDO="sudo -A"
   fi
@@ -386,8 +396,14 @@ if command -v apt-get >/dev/null 2>&1; then
   $SUDO apt-get install -y -qq curl git build-essential python3 make g++ espeak-ng ffmpeg sshpass pciutils bubblewrap iproute2 >/dev/null || true
 fi
 
-if ! command -v node >/dev/null 2>&1 || [ "$(node -v | sed 's/v\\([0-9]*\\).*/\\1/')" -lt 20 ]; then
-  echo "[STEP 1b] Node.js 22 LTS telepítése..."
+NODE_OK=0
+if command -v node >/dev/null 2>&1; then
+  if node -e "const [M,m]=process.versions.node.split('.').map(Number); process.exit(M>22||(M===22&&m>=5)?0:1)" 2>/dev/null; then
+    NODE_OK=1
+  fi
+fi
+if [ "$NODE_OK" -ne 1 ]; then
+  echo "[STEP 1b] Node.js 22.5+ LTS telepítése..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO bash - >/dev/null 2>&1 || true
   $SUDO apt-get install -y -qq nodejs >/dev/null 2>&1 || true
 fi
@@ -423,6 +439,8 @@ echo "[STEP 3/5] Kód és teljes élő állapot kicsomagolása..."
 mkdir -p "$TARGET_DIR"
 tar -xzf "$BUNDLE" -C "$TARGET_DIR"
 cd "$TARGET_DIR"
+chmod 600 .secrets.key .secrets.vault.json .state.json* .env 2>/dev/null || true
+chmod 700 backups 2>/dev/null || true
 
 if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi
 touch .env

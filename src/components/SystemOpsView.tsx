@@ -44,6 +44,7 @@ import type {
   UptimeTarget,
 } from '../../shared/types';
 import { tr } from '../locales/translations';
+import { InfoHint } from './InfoHint';
 
 const Batch3InfraClusterPanel = lazy(() =>
   import('./Batch3InfraClusterPanel').then((m) => ({ default: m.Batch3InfraClusterPanel }))
@@ -449,30 +450,32 @@ export const SystemOpsView: React.FC<Props> = ({
     <div className="space-y-6">
       {/* Sub-navigation bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+        <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-slate-200/70 rounded-lg">
           {(
             [
-              { id: 'ops', label: 'Felügyelet, Uptime, SSL & Mentés' },
-              { id: 'selfmod', label: 'Önfejlesztés, Git Diff & OTA' },
-              { id: 'infra', label: 'Infra: Docker · Systemd · SSH · LAN/VPN' },
-              { id: 'pi_hw_b4', label: 'Pi Hardver & Fájlok (B4)' },
-              { id: 'b5_migrate', label: 'Költöztető & Auto-Opt (B5)' },
-              { id: 'b6_apex', label: 'Apex Labor & Hálózat (B6)' },
-              { id: 'b7_universe', label: 'Univerzális OS & Élet (B7)' },
-              { id: 'b8_omni', label: 'Omni-Ágens Stúdió (B8)' },
-              { id: 'diagnostics', label: 'Diagnosztika · .env · Cron · Audit Export' },
+              { id: 'ops', label: 'Üzemeltetés & Mentés', hint: 'Jóváhagyásra váró műveletek, uptime és SSL figyelés, valamint teljes biztonsági mentések és visszaállítás.' },
+              { id: 'selfmod', label: 'Önfejlesztés & Frissítés', hint: 'A program önmódosító előzményei és hivatalos GitHub frissítések ellenőrzése vagy telepítése.' },
+              { id: 'infra', label: 'Szerver & Konténerek', hint: 'Docker konténerek, Linux szolgáltatások (systemd), helyi eszközök, VPN és távoli SSH gépek kezelése.' },
+              { id: 'pi_hw_b4', label: 'Hardver & Fájlok', hint: 'Hőmérséklet, Raspberry Pi szenzorok, behatolás-szűrő, okosmérő, fájlböngésző és saját állapotdobozok.' },
+              { id: 'b5_migrate', label: 'Költöztető & Önhangolás', hint: 'Egygombos átköltöztetés másik Linux gépre SSH-n keresztül, és hardverhez igazított teljesítmény-optimalizálás.' },
+              { id: 'b6_apex', label: 'Hálózat & Tartalék', hint: 'Haladó hálózati eszközök, tartalék csomópontok és megbízhatósági ellenőrzések.' },
+              { id: 'b7_universe', label: 'Életvitel & Automaták', hint: 'Napi rutinokat segítő gyors automaták, árfolyam- és üzemmód-vezérlők.' },
+              { id: 'b8_omni', label: 'Tudás & Tervező Stúdió', hint: 'Személyiségek (personák), ténybank, döntési mátrixok, célfák és további segédeszközök.' },
+              { id: 'diagnostics', label: 'Diagnosztika & Naplók', hint: 'Biztonsági pontszám, környezeti változók, ütemezett feladatok, hibakereső és aláírt auditnapló export.' },
             ] as const
           ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setSubTab(t.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                subTab === t.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {t.label}
-            </button>
+            <div key={t.id} className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setSubTab(t.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  subTab === t.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {t.label}
+              </button>
+              <InfoHint theme="light" label={t.label} description={t.hint} />
+            </div>
           ))}
         </div>
       </div>
@@ -873,7 +876,7 @@ export const SystemOpsView: React.FC<Props> = ({
 
           {otaCommits.length > 0 && (
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
-              <div className="font-semibold text-slate-800">OTA Commit Verzió-előzmények & Visszaállás (M52)</div>
+              <div className="font-semibold text-slate-800">Frissítési Verzió-előzmények &amp; Visszaállás</div>
               <div className="space-y-1 max-h-36 overflow-y-auto">
                 {otaCommits.map((c) => (
                   <div key={c.hash} className="flex items-center justify-between gap-2 font-mono text-[11px] bg-white border border-slate-200 px-2.5 py-1.5 rounded">
@@ -1546,7 +1549,11 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <FileCode2 className="h-4 w-4 text-slate-700" />
-                Docker Compose Stack Generátor (Ú57)
+                <span>Docker Compose Sablon Generátor</span>
+                <InfoHint
+                  label="Docker Compose generátor"
+                  text="Kész konfigurációs fájlokat állít elő népszerű otthoni szerver programok (pl. kereső, MQTT, adatbázis) gyors indításához."
+                />
               </h3>
               <div className="flex gap-2">
                 <select value={composeStack} onChange={(e) => setComposeStack(e.target.value as typeof composeStack)} className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white">
@@ -1617,7 +1624,11 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                   <HeartPulse className="h-4 w-4 text-slate-700" />
-                  Raj Auto-Doktor & Öngyógyítás (B3)
+                  <span>Rendszer Gyorsjavító &amp; Öngyógyítás</span>
+                  <InfoHint
+                    label="Rendszer gyorsjavító"
+                    text="Egy kattintással ellenőrzi az adatbázist, a kulcsok állapotát és elhárítja a kisebb elakadásokat."
+                  />
                 </h3>
                 <button
                   type="button"
@@ -1854,27 +1865,27 @@ export const SystemOpsView: React.FC<Props> = ({
         </div>
       )}
       {subTab === 'pi_hw_b4' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Pi Hardver & Fájlok (B4) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Hardver &amp; Fájlok betöltése...</div>}>
           <Batch4HardwareNetPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b5_migrate' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Költöztető & Auto-Optimalizáló (B5) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Költöztető &amp; Optimalizáló betöltése...</div>}>
           <Batch5MigrationAndAutoPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b6_apex' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Apex Labor & Hálózat (B6) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Labor &amp; Hálózat betöltése...</div>}>
           <Batch6ApexLabPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b7_universe' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Univerzális OS &amp; Élet-központ (B7) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Eszköztár &amp; Készségek betöltése...</div>}>
           <Batch7UniverseLabPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b8_omni' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Omni-Ágens Stúdió (B8) betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Képesség Stúdió betöltése...</div>}>
           <Batch8SingularityPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}

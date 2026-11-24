@@ -171,13 +171,29 @@ test('AI Gateway: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Keys (R
     });
     assert.equal(r3.status, 429);
 
-    // Embeddings endpoint works with valid key
+    // Revoking key causes fail-closed 401 when webAuthEnabled is true
     assert.equal(revokeVirtualKey(key.id), true);
+    const rUnauth = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: [{ role: 'user', content: 'Blocked' }] }),
+    });
+    assert.equal(rUnauth.status, 401);
+
+    const { rawKey: streamKey } = createVirtualKey({
+      name: 'SSE & Emb Key',
+      maxBudgetUsd: 5.0,
+      rpmLimit: 20,
+      allowedModels: [],
+    });
 
     // SSE stream=true verification
     const rStream = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${streamKey}`,
+      },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         stream: true,
@@ -192,7 +208,10 @@ test('AI Gateway: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Keys (R
 
     const rEmb = await fetch(`${baseUrl}/v1/embeddings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${streamKey}`,
+      },
       body: JSON.stringify({ input: 'test embedding vector' }),
     });
     assert.equal(rEmb.status, 200);
