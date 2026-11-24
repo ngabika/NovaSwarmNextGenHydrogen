@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { appendAuditLog, createApprovalRequest, getState, updateState } from '../state/store';
 import type { ApprovalRequest, DestructiveActionType, NovaSwarmState } from '../../shared/types';
 
@@ -100,6 +102,148 @@ const DESTRUCTIVE_PATTERNS: Array<{ type: DestructiveActionType; regex: RegExp; 
 export function shouldRequireApproval(stateOverride?: NovaSwarmState): boolean {
   const s = stateOverride ?? getState();
   return s.settings.fullAutonomousMode === false;
+}
+
+/**
+ * Shell / host execution approval gate.
+ * Notice: fullAutonomousMode NEVER disables shell execution approval — only the explicit
+ * opt-in "Veszélyes Zóna" toggle (`dangerousExecAutoApprove: true`) can disable it.
+ */
+export function shouldRequireDangerousExecApproval(stateOverride?: NovaSwarmState): boolean {
+  const s = stateOverride ?? getState();
+  return s.settings.dangerousExecAutoApprove !== true;
+}
+
+const SHELL_METACHAR_RE = /[;|&$`><\n\r\0(){}*?~\\!'"]/;
+const SAFE_EXEC_BINARIES = new Set(['ls', 'cat', 'df', 'uptime', 'uname', 'pwd', 'date']);
+const PROTECTED_WORKSPACE_PATH_RE =
+  /(^|\/)(\.env(\..*)?|\.secrets(\.[^/]+)?|\.state\.json.*|\.config\.json|novaswarm\.sqlite.*|\.novaswarm-setup\.log|\.git(\/|$)|backups(\/|$))/i;
+
+function resolveWorkspacePathForAllowlist(rawPath: string): { ok: true; rel: string } | { ok: false; reason: string } {
+  const trimmed = rawPath.trim();
+  if (!trimmed || trimmed.includes('..') || path.isAbsolute(trimmed)) {
+    return { ok: false, reason: `Tiltott vagy relatív munkakönyvtáron kívüli útvonal: ${rawPath}` };
+  }
+  const rootReal = fs.realpathSync(process.cwd());
+  const abs = path.resolve(rootReal, trimmed);
+  const rel = path.relative(rootReal, abs).replace(/\\/g, '/');
+  if (rel === '..' || rel.startsWith('../') || path.isAbsolute(rel)) {
+    return { ok: false, reason: `A munkakönyvtáron kívüli útvonal tiltva van: ${rawPath}` };
+  }
+  if (rel && PROTECTED_WORKSPACE_PATH_RE.test(rel)) {
+    return { ok: false, reason: `Védett rendszer- vagy titokfájl nem olvasható parancssorból: ${rel}` };
+  }
+  if (fs.existsSync(abs)) {
+    const realTarget = fs.realpathSync(abs);
+    if (realTarget !== rootReal && !realTarget.startsWith(rootReal + path.sep)) {
+      return { ok: false, reason: `Symlink kilépés blokkolva: ${rawPath}` };
+    }
+  }
+  return { ok: true, rel: rel || '.' };
+}
+
+export type AllowlistedHostCommandResult =
+  | { allowed: true; bin: string; args: string[] }
+  | { allowed: false; reason: string };
+
+/**
+ * Strict argument-array allowlist for read-only diagnostics executed with shell: false.
+ * Blocks all shell metacharacters, traversal (../), protected credential/state files,
+ * and arbitrary binaries. Anything rejected here must go through explicit approval.
+ */
+export function parseSafeAllowlistedHostCommand(command: string): AllowlistedHostCommandResult {
+  const trimmed = String(command || '').trim();
+  if (!trimmed) {
+    return { allowed: false, reason: 'Üres parancs.' };
+  }
+  if (SHELL_METACHAR_RE.test(trimmed)) {
+    return { allowed: false, reason: 'Héj metakarakterek (; | & $ ` > < () {} * ? ~ \\ \' ") tiltva vannak.' };
+  }
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 9) {
+    return { allowed: false, reason: 'Érvénytelen vagy túl sok parancsargumentum.' };
+  }
+
+  const [bin, ...rawArgs] = tokens;
+  if (!SAFE_EXEC_BINARIES.has(bin)) {
+    return {
+      allowed: false,
+      reason: `A "${bin}" parancs nem szerepel az engedélyezett jóváhagyásmentes listán (ls, cat, df, uptime, uname, pwd, date).`,
+    };
+  }
+
+  const normalizedArgs: string[] = [];
+  if (bin === 'pwd' || bin === 'uptime' || bin === 'date') {
+    for (const a of rawArgs) {
+      if (!/^-[a-zA-Z]{1,4}$/.test(a)) {
+        return { allowed: false, reason: `A "${bin}" parancshoz nem engedélyezett argumentum: ${a}` };
+      }
+      normalizedArgs.push(a);
+    }
+    return { allowed: true, bin, args: normalizedArgs };
+  }
+
+  if (bin === 'uname') {
+    for (const a of rawArgs) {
+      if (!/^-[asnrvmpio]{1,5}$/.test(a)) {
+        return { allowed: false, reason: `Érvénytelen uname kapcsoló: ${a}` };
+      }
+      normalizedArgs.push(a);
+    }
+    return { allowed: true, bin, args: normalizedArgs };
+  }
+
+  if (bin === 'df') {
+    for (const a of rawArgs) {
+      if (/^-[hHTPkmi]{1,4}$/.test(a)) {
+        normalizedArgs.push(a);
+        continue;
+      }
+      const checked = resolveWorkspacePathForAllowlist(a);
+      if (!checked.ok) return { allowed: false, reason: checked.reason };
+      normalizedArgs.push(checked.rel);
+    }
+    return { allowed: true, bin, args: normalizedArgs };
+  }
+
+  if (bin === 'ls') {
+    for (const a of rawArgs) {
+      if (/^-[lahtrS1d]{1,6}$/.test(a)) {
+        normalizedArgs.push(a);
+        continue;
+      }
+      if (a.startsWith('-')) {
+        return { allowed: false, reason: `Nem engedélyezett ls kapcsoló: ${a}` };
+      }
+      const checked = resolveWorkspacePathForAllowlist(a);
+      if (!checked.ok) return { allowed: false, reason: checked.reason };
+      normalizedArgs.push(checked.rel);
+    }
+    return { allowed: true, bin, args: normalizedArgs };
+  }
+
+  // bin === 'cat'
+  let fileArgCount = 0;
+  for (const a of rawArgs) {
+    if (/^-[nbs]{1,3}$/.test(a)) {
+      normalizedArgs.push(a);
+      continue;
+    }
+    if (a.startsWith('-')) {
+      return { allowed: false, reason: `Nem engedélyezett cat kapcsoló: ${a}` };
+    }
+    const checked = resolveWorkspacePathForAllowlist(a);
+    if (!checked.ok) return { allowed: false, reason: checked.reason };
+    if (checked.rel === '.') {
+      return { allowed: false, reason: 'A cat parancs konkrét fájlt igényel a munkakönyvtáron belül.' };
+    }
+    fileArgCount += 1;
+    normalizedArgs.push(checked.rel);
+  }
+  if (fileArgCount === 0) {
+    return { allowed: false, reason: 'A cat parancshoz legalább egy munkakönyvtáron belüli fájl szükséges.' };
+  }
+  return { allowed: true, bin, args: normalizedArgs };
 }
 
 /** M120: Action risk scoring (1-10) */

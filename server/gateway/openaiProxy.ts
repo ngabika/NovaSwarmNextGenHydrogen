@@ -9,7 +9,8 @@ import {
   type OpenAiToolDefinition,
   type RouterDependencies,
 } from '../providers/router';
-import { isRequestAuthorized } from '../security/auth';
+import { isRequestAuthorized, requireAllowedHostMiddleware } from '../security/auth';
+import { constantTimeEqual } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, maskSecret, updateState } from '../state/store';
 
 const rpmWindows = new Map<string, number[]>();
@@ -129,7 +130,7 @@ export function authenticateVirtualKey(
   }
 
   const hash = hashVirtualKey(token);
-  const match = state.virtualKeys.find((k) => k.keyHash === hash);
+  const match = state.virtualKeys.find((k) => constantTimeEqual(k.keyHash, hash));
   if (!match) {
     return { ok: false, status: 401, error: 'Invalid virtual API key.' };
   }
@@ -243,6 +244,7 @@ export function createOpenAiProxyRouter(
   routerDeps: RouterDependencies = {}
 ): express.Router {
   const router = express.Router();
+  router.use(requireAllowedHostMiddleware);
 
   router.get('/models', (req, res) => {
     const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip, req.headers.cookie);

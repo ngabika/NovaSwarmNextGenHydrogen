@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,9 +24,10 @@ import {
 import {
   assertHostPermission,
   detectDestructiveOperation,
+  parseSafeAllowlistedHostCommand,
   PROMPT_INJECTION_DEFENSE_RULE,
   requireDestructiveApproval,
-  shouldRequireApproval,
+  shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
 import { buildProgressiveSkillsIndex } from '../skills/loader';
 import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../state/store';
@@ -168,29 +169,73 @@ export function executeHostCommandForAgent(
 ): { executed: boolean; pendingApproval?: boolean; approvalId?: string; stdout: string; stderr: string } {
   assertHostPermission(`exec:${command}`, agent.id);
 
+  const safeCmd = parseSafeAllowlistedHostCommand(command);
+  if (safeCmd.allowed) {
+    try {
+      const out = execFileSync(safeCmd.bin, safeCmd.args, {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 15000,
+        shell: false,
+      });
+      appendAuditLog({
+        type: 'action',
+        sourceAgentId: agent.id,
+        sourceAgentName: agent.name,
+        message: `Parancs (allowlist, shell:false) végrehajtva: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
+        verifiedExecution: true,
+      });
+      return { executed: true, stdout: out, stderr: '' };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendAuditLog({
+        type: 'action',
+        sourceAgentId: agent.id,
+        sourceAgentName: agent.name,
+        message: `Parancs sikertelen (${command}): ${msg}`,
+        verifiedExecution: true,
+      });
+      return { executed: false, stdout: '', stderr: msg };
+    }
+  }
+
   const destructive = detectDestructiveOperation(command);
-  if (destructive.isDestructive && destructive.type && destructive.title && shouldRequireApproval()) {
-    const req = requireDestructiveApproval(destructive.type, destructive.title, command, agent.name);
+  if (shouldRequireDangerousExecApproval()) {
+    const actionType = destructive.type || 'destructive_shell';
+    const actionTitle = destructive.title || `Nem engedélylistás parancs futtatása (${safeCmd.reason})`;
+    const req = requireDestructiveApproval(actionType, actionTitle, command, agent.name);
+    void import('../telegram/bot')
+      .then((m) => m.notifyApprovalToTelegram(req))
+      .catch(() => {});
     return {
       executed: false,
       pendingApproval: true,
       approvalId: req.id,
       stdout: '',
-      stderr: `Jóváhagyás szükséges a destruktív művelethez (${destructive.title}). Jóváhagyási azonosító: ${req.id}`,
+      stderr: `Jóváhagyás szükséges a parancs futtatása előtt (${actionTitle}). Jóváhagyási azonosító: ${req.id}`,
     };
   }
 
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: agent.id,
+    sourceAgentName: agent.name,
+    message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli parancsvégrehajtás: ${command}`,
+    verifiedExecution: true,
+  });
+
   try {
-    const out = execSync(command, {
+    const out = execFileSync('sh', ['-c', command], {
       cwd: process.cwd(),
       encoding: 'utf8',
       timeout: 15000,
+      shell: false,
     });
     appendAuditLog({
       type: 'action',
       sourceAgentId: agent.id,
       sourceAgentName: agent.name,
-      message: `Parancs végrehajtva: ${command}`,
+      message: `Parancs (Veszélyes Zóna) végrehajtva: ${command}`,
       verifiedExecution: true,
     });
     return { executed: true, stdout: out, stderr: '' };

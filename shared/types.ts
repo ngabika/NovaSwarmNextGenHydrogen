@@ -878,6 +878,11 @@ export interface Settings {
   autoExtractActionItems?: boolean;
   agentSelfCritiquePass?: boolean;
   defaultResponseTone?: 'professional' | 'friendly' | 'direct' | 'socratic';
+  /** Veszélyes Zóna: host shell exec jóváhagyás nélküli engedélyezése (alapból false, fullAutonomousMode NEM kapcsolja be!) */
+  dangerousExecAutoApprove?: boolean;
+  /** Külső audit-lánc horgony: napi fej-hash küldése Telegramra */
+  sendAuditAnchorToTelegram?: boolean;
+  lastAuditAnchorSentDate?: string | null;
 }
 
 /** Ú31: Deep Research Report */
@@ -1039,6 +1044,8 @@ export interface OtaVersionStatus {
   remoteCommit?: string | null;
   commitsBehind?: number;
   autoUpdatedAt?: string | null;
+  signatureVerificationActive?: boolean;
+  signatureWarning?: string | null;
   error?: string;
 }
 

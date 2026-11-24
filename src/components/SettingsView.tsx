@@ -16,6 +16,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
   const [braveSearchKey, setBraveSearchKey] = useState('');
   const [homeAssistantToken, setHomeAssistantToken] = useState('');
   const [operatorPassword, setOperatorPassword] = useState('');
+  const [setupCode, setSetupCode] = useState('');
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         password: operatorPassword.trim() || undefined,
+        setupCode: setupCode.trim() || undefined,
         enable: enableFlag,
       }),
     });
@@ -83,6 +85,7 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
       return;
     }
     setOperatorPassword('');
+    setSetupCode('');
     setForm((prev) => ({
       ...prev,
       webAuthEnabled: Boolean(data.webAuthEnabled),
@@ -864,7 +867,37 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
               </label>
               <InfoHint
                 label="Teljesen önálló mód"
-                text="Alapértelmezés szerint kikapcsolva van a biztonságod érdekében. Csak akkor kapcsold be, ha teljesen elszigetelt tesztkörnyezetben futtatod."
+                text="Alapértelmezés szerint kikapcsolva van a biztonságod érdekében. A parancssori (shell) futtatások ettől függetlenül továbbra is jóváhagyást kérnek — azt csak a lenti Veszélyes Zóna kapcsolóval lehet feloldani."
+              />
+            </div>
+            <div className="p-3 rounded-lg border border-red-200 bg-red-50/70 dark:bg-red-950/30 dark:border-red-900 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2.5 text-sm font-semibold text-red-900 dark:text-red-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.dangerousExecAutoApprove)}
+                    onChange={(e) => setForm({ ...form, dangerousExecAutoApprove: e.target.checked })}
+                  />
+                  <span>Veszélyes Zóna: Parancssor jóváhagyás nélküli futtatása (alapból KI — szigorúan naplózva)</span>
+                </label>
+                <InfoHint
+                  label="Veszélyes Zóna (exec jóváhagyás nélkül)"
+                  text="Figyelem: ha bekapcsolod, az engedélylistán (ls, cat, df, uptime) kívüli rendszerparancsok is Telegram/UI jóváhagyás nélkül futhatnak, teljes biztonsági naplózás mellett. Éles gépen hagyd kikapcsolva!"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.sendAuditAnchorToTelegram)}
+                  onChange={(e) => setForm({ ...form, sendAuditAnchorToTelegram: e.target.checked })}
+                />
+                <span>Napi Audit Fej-Hash küldése Telegramra (külső hamisítás-horgony)</span>
+              </label>
+              <InfoHint
+                label="Külső audit horgony"
+                text="Naponta egyszer elküldi az audit napló HMAC-SHA256 zárólenyomatát Telegramra, így utólag sem módosíthatók észrevétlenül a helyi naplók."
               />
             </div>
             <div className="flex items-center gap-2">
@@ -1348,6 +1381,16 @@ export const SettingsView: React.FC<Props> = ({ language, settings, onRefreshSta
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          {!settings.webAuthHasPassword && (
+            <input
+              type="text"
+              value={setupCode}
+              onChange={(e) => setSetupCode(e.target.value)}
+              placeholder="Egyszeri Setup-Kód (konzol / .novaswarm-setup.log)"
+              aria-label="One-time setup code"
+              className="w-60 px-3 py-2 text-sm font-mono uppercase border border-amber-300 bg-amber-50 rounded-lg"
+            />
+          )}
           <input
             type="password"
             value={operatorPassword}

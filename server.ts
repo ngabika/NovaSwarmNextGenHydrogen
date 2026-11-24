@@ -22,7 +22,16 @@ import {
 import { checkWatchedPages } from './server/power/universalSuite';
 import { checkOllamaIdleUnload, discoverModels } from './server/providers/router';
 import { createApiRouter } from './server/routes/api';
-import { isWsUpgradeAuthorized } from './server/security/auth';
+import {
+  ensureOneTimeSetupCode,
+  getWsUpgradeDecision,
+  requireAllowedHostMiddleware,
+} from './server/security/auth';
+import {
+  createDefaultApiRateLimitMiddleware,
+  createPublicRouteRateLimitMiddleware,
+  createSelectiveJsonBodyMiddleware,
+} from './server/security/rateLimit';
 import { expireStaleApprovals } from './server/security/permissionGate';
 import { closeSqliteWal, runSqliteMaintenance } from './server/state/sqliteWal';
 import { getState, pruneRetentionData, updateState } from './server/state/store';
@@ -30,6 +39,7 @@ import {
   applyOtaUpdate,
   checkOtaUpdates,
   collectHardwareMetrics,
+  maybeSendDailyAuditAnchorToTelegram,
   runHeartbeatTick,
 } from './server/system/ops';
 import { sendTelegramMessage, startTelegramPolling } from './server/telegram/bot';
@@ -68,12 +78,16 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 async function bootstrap() {
   const app = express();
-  app.use(express.json({ limit: '16mb' }));
+  app.use(requireAllowedHostMiddleware);
+  app.use(createSelectiveJsonBodyMiddleware());
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+
+  const apiRateLimiter = createDefaultApiRateLimitMiddleware();
+  const publicRateLimiter = createPublicRouteRateLimitMiddleware();
 
   const server = http.createServer(app);
 
@@ -154,8 +168,10 @@ async function bootstrap() {
   });
 
   server.on('upgrade', (request, socket, head) => {
-    if (!isWsUpgradeAuthorized(request)) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    const decision = getWsUpgradeDecision(request);
+    if (!decision.authorized) {
+      const statusText = decision.statusCode === 403 ? 'Forbidden' : 'Unauthorized';
+      socket.write(`HTTP/1.1 ${decision.statusCode} ${statusText}\r\n\r\n`);
       socket.destroy();
       return;
     }
@@ -178,7 +194,7 @@ async function bootstrap() {
   });
 
   // Mount OpenAI-compatible AI Gateway Proxy (/v1/models, /v1/chat/completions, /v1/embeddings)
-  app.use('/v1', createOpenAiProxyRouter(broadcastEvent));
+  app.use('/v1', apiRateLimiter, createOpenAiProxyRouter(broadcastEvent));
 
   // Mount Custom Incoming Webhooks (/hooks/:slug)
   app.post('/hooks/:slug', async (req, res) => {
@@ -200,6 +216,9 @@ async function bootstrap() {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+
+  // Stricter rate limit on unauthenticated public share / portal / burn / drop / mock / app routes
+  app.use(['/share', '/apps', '/mock', '/burn', '/drop'], publicRateLimiter);
 
   // Ú100: Public read-only shared portal view
   app.get('/share/:token', (req, res) => {
@@ -258,7 +277,7 @@ async function bootstrap() {
   });
 
   // Mount NovaSwarm Control Plane API routes
-  app.use('/api', createApiRouter(broadcastEvent));
+  app.use('/api', apiRateLimiter, createApiRouter(broadcastEvent));
 
   // Mount Vite middleware in development, static dist/ in production
   if (!isProduction) {
@@ -288,6 +307,7 @@ async function bootstrap() {
   }
 
   getState();
+  ensureOneTimeSetupCode();
   try {
     applyHardwareAdaptiveOptimization(false);
   } catch {
@@ -519,6 +539,7 @@ async function bootstrap() {
     }
     pruneRetentionData();
     pruneExpiredEphemeralNotes();
+    void maybeSendDailyAuditAnchorToTelegram().catch(() => {});
     try {
       runSqliteMaintenance();
     } catch {

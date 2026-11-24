@@ -30,6 +30,7 @@ import type {
   WebhookReplayRecord,
 } from '../../shared/types';
 import { createAutonomyRule, createSmartReminder } from './batch6ApexEngine';
+import { constantTimeEqual } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
 const execFileAsync = promisify(execFile);
@@ -840,7 +841,7 @@ export function consumeDropShareToken(tokenStr: string): {
   };
 
   updateState((s) => {
-    const ref = (s.dropShareTokens || []).find((t) => t.token === tokenStr);
+    const ref = (s.dropShareTokens || []).find((t) => constantTimeEqual(t.token, tokenStr));
     if (!ref) {
       outcome = { ok: false, reason: 'Ismeretlen vagy törölt letöltési token.' };
       return;

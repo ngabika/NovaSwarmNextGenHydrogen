@@ -11,6 +11,7 @@ import { handleUserTurn } from '../agents/engine';
 import { queryHomeAssistantStates } from '../integrations/ecosystem';
 import { recordWebhookDelivery } from '../power/batch7UniverseEngine';
 import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
+import { constantTimeEqual } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, setNamedSecret, getNamedSecret, updateState } from '../state/store';
 import { sendTelegramMessage } from '../telegram/bot';
 import { performWebSearch } from '../web/searchAndBrowser';
@@ -336,7 +337,7 @@ export async function triggerCustomWebhook(
       if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) {
         return { ok: false, error: 'Érvénytelen HMAC-SHA256 webhook aláírás.' };
       }
-    } else if (expected !== (providedSecret || '').trim()) {
+    } else if (!constantTimeEqual(expected, (providedSecret || '').trim())) {
       return { ok: false, error: 'Érvénytelen webhook titkos kulcs.' };
     }
   }

@@ -38,7 +38,10 @@ test('LAN Operator Auth hashes password with scrypt, issues HMAC token, and prot
 
     let nextCalled = false;
     let statusSent = 0;
-    const reqDenied = { path: '/state', headers: {} } as unknown as express.Request;
+    const reqDenied = {
+      path: '/state',
+      headers: { host: 'localhost:3000' },
+    } as unknown as express.Request;
     const resDenied = {
       status(code: number) {
         statusSent = code;
@@ -56,7 +59,10 @@ test('LAN Operator Auth hashes password with scrypt, issues HMAC token, and prot
 
     // Webhook exemption check
     let webhookAllowed = false;
-    const reqWebhook = { path: '/channels/inbound/ch-1', headers: {} } as unknown as express.Request;
+    const reqWebhook = {
+      path: '/channels/inbound/ch-1',
+      headers: { host: 'localhost:3000' },
+    } as unknown as express.Request;
     requireWebAuthMiddleware(reqWebhook, resDenied, () => {
       webhookAllowed = true;
     });

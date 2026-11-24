@@ -2,13 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import type { DynamicToolDef, ProactiveRuleEvent, VisualWatchItem } from '../../shared/types';
 import { sendWakeOnLanPacket } from '../infra/networkAndCluster';
 import { addPersistentMemory } from '../memory/vectorStore';
 import { fetchOpenMeteoWeather } from '../power/universalSuite';
 import { invokeWithFailover } from '../providers/router';
+import { runInSupervisorSandbox } from '../sandbox/supervisorSandbox';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { assertHostPermission } from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -719,8 +719,72 @@ export async function runSelfHealingDaemonTick(): Promise<{
 }
 
 /**
- * Batch 5: Self-Testing & Self-Repairing Dynamic Tool Builder
+ * Biztonságos JS sandbox futtatás külön child processben (Docker/bwrap/unshare előnyben,
+ * --disallow-code-generation-from-strings, memóriakorlát, timeout+SIGKILL).
+ * Semmilyen host-realm objektum nem kerül át; csak structuredClone-kompatibilis adat és primitívek.
  */
+export function executeIsolatedJsInSubprocess(
+  code: string,
+  testInput?: Record<string, unknown>
+): unknown {
+  if (/\bimport\s*\(|\bimport\.meta\b/.test(code)) {
+    throw new Error('Dinamikus import() vagy import.meta használata tiltott a sandboxban.');
+  }
+  const clonedInput = structuredClone(testInput ?? { sample: 42 });
+  const inputJsonLiteral = JSON.stringify(clonedInput);
+
+  const runnerScript = `
+import fs from 'node:fs';
+const __stdoutWrite = process.stdout.write.bind(process.stdout);
+const __rawInput = JSON.parse(fs.readFileSync('./input.json', 'utf8'));
+for (const k of ['process', 'global', 'Buffer', 'setTimeout', 'setInterval', 'setImmediate', 'fetch', 'eval', 'Function']) {
+  try {
+    Object.defineProperty(globalThis, k, { value: undefined, writable: false, configurable: false });
+  } catch {}
+}
+let __value;
+{
+  const process = undefined;
+  const require = undefined;
+  const module = undefined;
+  const exports = undefined;
+  const global = undefined;
+  const globalThis = undefined;
+  const Buffer = undefined;
+  const Function = undefined;
+  __value = (function(input) {
+    "use strict";
+    ${code}
+  })(__rawInput);
+}
+__stdoutWrite('__SANDBOX_RESULT__' + JSON.stringify({ ok: true, value: __value ?? null, wasUndefined: __value === undefined }) + '\\n');
+`;
+
+  const sb = runInSupervisorSandbox({
+    scriptOrCommand: runnerScript,
+    isNodeScript: true,
+    nodeArgs: ['--disallow-code-generation-from-strings', '--max-old-space-size=64'],
+    seedFiles: { 'input.json': inputJsonLiteral },
+    timeoutMs: 1800,
+  });
+
+  if (!sb.passed) {
+    throw new Error((sb.stderr || sb.stdout || `Sandbox kilépési kód: ${sb.exitCode}`).trim());
+  }
+
+  const markerLine = sb.stdout
+    .split('\n')
+    .find((line) => line.startsWith('__SANDBOX_RESULT__'));
+  if (!markerLine) {
+    throw new Error('Sandbox nem adott vissza érvényes eredményt.');
+  }
+  const parsed = JSON.parse(markerLine.slice('__SANDBOX_RESULT__'.length)) as {
+    value: unknown;
+    wasUndefined?: boolean;
+  };
+  return parsed.wasUndefined ? undefined : parsed.value;
+}
+
 export async function createAndSelfTestDynamicTool(input: {
   name: string;
   description: string;
@@ -745,17 +809,7 @@ export async function createAndSelfTestDynamicTool(input: {
   let passed = false;
 
   if (input.kind === 'sandbox_js') {
-    const tryExecuteJs = (code: string) => {
-      const ctx = vm.createContext({
-        input: input.testInput || { sample: 42 },
-        Math,
-        JSON,
-        Date,
-        result: undefined as unknown,
-      });
-      const wrapped = `(function() { ${code} })()`;
-      return vm.runInContext(wrapped, ctx, { timeout: 600 });
-    };
+    const tryExecuteJs = (code: string) => executeIsolatedJsInSubprocess(code, input.testInput);
 
     try {
       const res = tryExecuteJs(codeOrTarget);

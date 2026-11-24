@@ -13,7 +13,7 @@ import type {
   VehicleMaintenanceItem,
 } from '../../shared/types';
 import { addSharedListItem } from './universalSuite';
-import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
+import { constantTimeEqual, validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
 /** Ú83: Universal CSV/JSON Data Wrangler */
@@ -570,7 +570,7 @@ export function resolveSharedPortalResource(token: string): {
   payload: unknown;
 } | null {
   const s = getState();
-  const link = s.sharedLinks.find((l) => l.token === token);
+  const link = s.sharedLinks.find((l) => constantTimeEqual(l.token, token));
   if (!link) return null;
   if (link.expiresAt && Date.parse(link.expiresAt) < Date.now()) return null;
 

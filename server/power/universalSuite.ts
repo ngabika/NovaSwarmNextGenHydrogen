@@ -1179,11 +1179,27 @@ export async function executeDynamicTool(
   }
 
   // sandbox_js
-  const argHeader = `const ARGS = ${JSON.stringify(args)};\n`;
+  if (/\bimport\s*\(|\bimport\.meta\b/.test(toolDef.targetOrCode)) {
+    return { ok: false, output: 'Dinamikus import() tiltott a sandboxban.' };
+  }
+  const clonedArgs = structuredClone(args || {});
+  const sandboxScript = `
+const ARGS = JSON.parse(${JSON.stringify(JSON.stringify(clonedArgs))});
+for (const k of ['process', 'global', 'Buffer', 'setTimeout', 'setInterval', 'setImmediate', 'fetch', 'eval', 'Function']) {
+  try {
+    Object.defineProperty(globalThis, k, { value: undefined, writable: false, configurable: false });
+  } catch {}
+}
+(function(process, require, module, exports, global, globalThis, Buffer, __fn) {
+  "use strict";
+  ${toolDef.targetOrCode}
+})();
+`;
   const sb = runInSupervisorSandbox({
-    scriptOrCommand: `${argHeader}${toolDef.targetOrCode}`,
+    scriptOrCommand: sandboxScript,
     isNodeScript: true,
-    timeoutMs: 6000,
+    nodeArgs: ['--disallow-code-generation-from-strings', '--max-old-space-size=64'],
+    timeoutMs: 3000,
   });
   return { ok: sb.passed, output: sb.passed ? sb.stdout || '(OK)' : sb.stderr || sb.stdout };
 }

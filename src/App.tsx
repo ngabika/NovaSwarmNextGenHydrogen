@@ -253,16 +253,23 @@ export default function App() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const init = async (attempt = 0) => {
+      let ok = await tryFetchState();
       try {
         const params = new URLSearchParams(window.location.search);
-        if (params.get('autostart') === '1') {
-          await fetch('/api/onboarding/autostart', { method: 'POST' }).catch(() => {});
+        if (ok && params.get('autostart') === '1') {
+          const stRes = await fetch('/api/state', { cache: 'no-store' });
+          if (stRes.ok) {
+            const stJson = (await stRes.json()) as { state?: NovaSwarmState };
+            if (stJson.state && !stJson.state.settings.onboardingCompleted) {
+              await fetch('/api/onboarding/autostart', { method: 'POST' }).catch(() => {});
+              ok = await tryFetchState();
+            }
+          }
         }
       } catch {
         // ignore
       }
 
-      const ok = await tryFetchState();
       if (!ok && !cancelled && attempt < 6) {
         retryTimer = setTimeout(() => {
           void init(attempt + 1);

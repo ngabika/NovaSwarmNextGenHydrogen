@@ -16,9 +16,9 @@ Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/
 | `node -v` | `v22.23.5` | Megfelel a `node:sqlite` által megkövetelt `22.5+` verziónak. |
 | `npm run lint` (`tsc --noEmit`) | Sikeres (0 hiba) | TypeScript típusellenőrzés hiba nélkül lefut. |
 | `npm run build` (`vite build`) | Sikeres | A kliens és PWA csomag hiba nélkül lefordul. |
-| `npm test` | **86 / 86 sikeres** | Eredeti 76 teszt + 10 új biztonsági regressziós teszt (`tests/security_audit_fixes.test.ts`). |
+| `npm test` | **92 / 92 sikeres** | Eredeti 76 teszt + 10 első körös (`tests/security_audit_fixes.test.ts`) + **6 második körös** regressziós teszt (`tests/security_audit_fixes_pass2.test.ts`). |
 | `npm audit` | 4 `moderate`, 0 `high`, 0 `critical` | Mind a 4 mérsékelt jelzés a `vite-plugin-pwa -> workbox-build -> glob / minimatch` dev/build láncból jön; `--force` főverzió-visszalépést (`vite-plugin-pwa@1.1.0`) okozna. |
-| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált környezetben nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok, az `audit/fixes` branch és a PR csak a felhasználó saját git-másolatában kezelhető. |
+| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), az `audit/fixes-2` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
 
 ---
 
@@ -38,18 +38,20 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | A1 | `server/state/store.ts:545` | **Kritikus** | Korábban `webAuthEnabled: false` volt az alapértelmezett, így bármely hálózati eszköz jelszó nélkül elérte a teljes vezérlőpultot és API-t. | Alapértelmezés átállítva `webAuthEnabled: true`-ra; LAN eléréshez cookie/Bearer munkamenet kötelező. Tesztelve: `Audit Fix 1`. | **javítva** |
-| A2 | `server/security/auth.ts:71-121, 164-222` | **Kritikus** | CSRF és DNS rebinding támadás `Origin` / `Referer` / `Host` ellenőrzés nélkül (pl. rosszindulatú weboldalról küldött `POST /api/settings` `http://localhost:3000`-re). **Repro:** küldj `PATCH /api/settings` kérést `Origin: https://evil.example` fejléccel. | `verifySameOriginRequest()` ellenőrzi az `Origin`/`Referer` és `Host` egyezést (loopback normalizálással: `localhost` / `127.0.0.1` / `::1` azonos porton), blokkolja az idegen eredetű mutációkat (`HTTP 403`), `requireWebAuthMiddleware` minden nem-publikus API-t véd. Tesztelve: `Audit Fix 3` és `Audit Fix 4`. | **javítva** |
-| A3 | `server/security/auth.ts:138-151`, `server.ts:302-320` | **Magas** | A `/ws/terminal` PTY WebSocket és `/api/events` SSE végpont autentikáció és Origin-ellenőrzés nélkül nyitható volt. | `isWsUpgradeAuthorized(req)` ellenőrzi a WebSocket upgrade során az `Origin`/`Host` egyezést és az aktív session sütit/Bearer tokent is; elutasítás esetén `401/403` és bontás. | **javítva** |
-| A4 | `server/routes/api.ts:275-335` | **Magas** | Az onboarding végpont (`POST /api/onboarding/complete`) korábban utólag is újra hívható volt, és gyenge (<8 karakteres) jelszó beállítását is engedhette. | Befejezett onboarding (`onboardingCompleted: true`) után `HTTP 403`; a `/api/auth/password` elutasítja a 8 karakternél rövidebb jelszavakat (`HTTP 400`), távoli IP-ről nem enged első kulcsfelvételt. Tesztelve: `Audit Fix 4`. | **javítva** |
-| A5 | `server/gateway/openaiProxy.ts:115-167` | **Magas** | `/v1/*` OpenAI-kompatibilis proxy üres `virtualKeys` mellett engedhette a hívásokat (`fail-open`). | Üres virtuális kulcstár esetén `webAuthEnabled !== false` mellett **fail-closed** (`HTTP 401`), vagy érvényes Bearer virtuális kulcs / mester auth kötelező. Tesztelve: `Audit Fix 4`. | **javítva** |
+| A2 | `server/security/auth.ts:319-419, 478-545`, `server.ts:81, 171`, `server/gateway/openaiProxy.ts:247` | **Közepes** | DNS rebinding és CSRF: pusztán az `Origin === Host` egyezés átengedte a támadó által visszakötött idegen `Host` neveket (pl. `Host: evil.example`). **Repro:** küldj `Host: evil.example` fejléces kérést HTTP-n, SSE-n, `/v1`-en vagy WS upgrade-en. | Szigorú **Host allowlist** (`isAllowedHostHeader()`): csak `localhost`, `127.0.0.1`, `::1`, privát LAN IP-k (`10/8`, `172.16/12`, `192.168/16`), helyi hálókártya IP-k, `*.local`, `APP_URL` és `NOVASWARM_ALLOWED_HOSTS` engedélyezett. Minden más `Host` **HTTP 403**-at kap HTTP/SSE/`/v1` végpontokon és WS upgrade-en is (`getWsUpgradeDecision`). Tesztelve: `Audit Fix 3`, `Audit Fix 4` és `Pass 2 Fix 5`. | **javítva** |
+| A3 | `server/security/auth.ts:436-466`, `server.ts:171-180` | **Magas** | A `/ws/terminal` PTY WebSocket és `/api/events` SSE végpont autentikáció és Host/Origin-ellenőrzés nélkül nyitható volt. | `getWsUpgradeDecision(req)` ellenőrzi a Host allowlistet, az `Origin`/`Host` egyezést és az aktív session sütit/Bearer tokent; idegen Hostnál `403 Forbidden`, hiányzó authnál `401 Unauthorized` és azonnali bontás. Tesztelve: `Pass 2 Fix 5`. | **javítva** |
+| A4 | `server/security/auth.ts:113-179`, `server/routes/api.ts:299-310, 369-445, 588-617`, `server.ts:310`, `src/components/OnboardingWizard.tsx`, `src/components/SettingsView.tsx` | **Közepes** | Első telepítésnél a `POST /api/auth/password` és `POST /api/onboarding/complete` hitelesítés nélkül hívható volt, így a LAN-on bárki elsőként lefoglalhatta a jelszót. | Induláskor kriptográfiai **egyszeri setup-kód** generálódik (`ensureOneTimeSetupCode()`), kiíródik a szerver konzoljára és `.novaswarm-setup.log` (`0600`) fájlba (API-n sosem szivárog ki). Az első jelszóbeállításhoz kötelező megadni (`setupCode`), és az első sikeres használat után azonnal érvénytelenné válik. Tesztelve: `Pass 2 Fix 3`. | **javítva** |
+| A5 | `server/security/auth.ts:55-111`, `server/routes/api.ts:313-366`, `server/security/egressAndCrypto.ts:162-176`, `server/gateway/openaiProxy.ts:133`, `server/automation/workflowsAndProductivity.ts:340`, `server/power/batch4OmniStudio.ts:1146`, `batch7UniverseEngine.ts:844`, `lifeAndFinanceStudio.ts:573` | **Közepes** | Login brute-force elleni védelem hiányzott a `POST /api/auth/login` végponton, és több token-/kulcsösszehasonlítás nem `timingSafeEqual`-lel futott. **Repro:** 6+ hibás jelszó beküldése `POST /api/auth/login`-ra. | IP-alapú brute-force védelem (`checkLoginRateLimit` / `recordLoginFailure`): 5 sikertelen kísérlet után 60 mp, majd exponenciálisan növekvő zár (`HTTP 429` + `Retry-After` fejléc) és kötelező `'security'` audit-naplózás. Minden titok-/token-összehasonlítás SHA-256 + `crypto.timingSafeEqual` alapú `constantTimeEqual()` függvényre állítva (TOTP, webhook, `/v1` virtual key, burn/drop/share tokenek). Tesztelve: `Pass 2 Fix 2`. | **javítva** |
+| A6 | `server/gateway/openaiProxy.ts:115-167, 247` | **Magas** | `/v1/*` OpenAI-kompatibilis proxy üres `virtualKeys` mellett engedhette a hívásokat (`fail-open`). | Üres virtuális kulcstár esetén `webAuthEnabled !== false` mellett **fail-closed** (`HTTP 401`), plusz `requireAllowedHostMiddleware` és rate limit védi. Tesztelve: `Audit Fix 4` és `Pass 2 Fix 5`. | **javítva** |
 
 ### 2.3. Shell, Exec, Sandbox, PTY és SSH Költöztető
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | S1 | `server/infra/sshHostMigrator.ts:59-196` | **Kritikus** | SSH költöztetés során parancssori argumentumban vagy héj-interpolációval adott jelszó/gazdagép parancs-injekciót okozhatott és kilátszhatott a `ps aux` folyamatlistában. **Repro:** `host: "192.168.1.5; id"` vagy `-p <jelszó>`. | `validateMigrationTarget()` szigorú IP/hostname/felhasználónév validáció; `execFile` (`shell: false`) argumentumtömb; `sshpass -e` környezeti változóval (`SSHPASS`) vagy `0700` jogosultságú ideiglenes `SSH_ASKPASS` segédszkript, amely a `finally` ágban azonnal törlődik; jelszó maszkolva a naplókban. | **javítva** |
 | S2 | `server/infra/batch4PiHardwareAndNet.ts:304-399` | **Magas** | Web File Commander tetszőleges fájlt olvashatott/írhatott `../` segítségével (`.secrets.key`, `.env`, `.state.json`). | `resolveSafeCommanderPath()` + `isProtectedPath()` tiltja a munkakönyvtáron kívüli és az összes kulcs-/állapotfájl elérését. Tesztelve: `Audit Fix 6`. | **javítva** |
-| S3 | `server/infra/hostAdmin.ts:14`, `server/infra/superAdmin.ts:14`, `server/sandbox/supervisorSandbox.ts:115-251` | **Közepes** | Gazdagép admin és homokozó futtatás. | `spawnSync` / `execFileSync` argumentumtömbbel (`shell: false`), `unshare -rn` / `bwrap` hálózat-elkülönítéssel. | **javítva** |
-| S4 | `server/agents/engine.ts:184`, `server/agents/tools.ts:208`, `server/infra/batch4PiHardwareAndNet.ts:524,660` | **Közepes** | Az AI ágens `exec_shell` eszköze, a Bash Copilot és a egyedi shell widgetek továbbra is `execSync(command)` / `execFileSync('sh', ['-c', ...])` hívást használnak, mivel általános Linux shell-parancsok (csővezetékek, átirányítások) futtatására szolgálnak. Védelmük `hostPermissionsGranted` + `isSandboxed` + `requireDestructiveApproval` rétegre támaszkodik. | Ajánlott hosszabb távon opcionális parancs-engedélylista (`allowlist` mód) bevezetése a szigorú (`strict`) felügyeleti szinthez. | **nyitva** *(szándékos opt-in képesség, kapuzva)* |
+| S3 | `server/infra/hostAdmin.ts:14`, `server/infra/superAdmin.ts:14`, `server/sandbox/supervisorSandbox.ts:112-255` | **Közepes** | Gazdagép admin és homokozó futtatás. | `spawnSync` / `execFileSync` argumentumtömbbel (`shell: false`), `docker --network=none` / `bwrap --unshare-net` / `unshare -rn` elkülönítéssel, `SIGKILL` időkorláttal és 512 KB kimeneti korláttal. | **javítva** |
+| S4 | `server/security/permissionGate.ts:110-240`, `server/agents/tools.ts:196-245`, `server/agents/engine.ts:166-235`, `server/system/ops.ts:371-415`, `server/infra/batch4PiHardwareAndNet.ts:509-550, 684-710`, `src/components/SettingsView.tsx:865-895` | **Közepes** | Korábban a tiltólistás destruktív-parancs szűrés kikerülhető volt, és `fullAutonomousMode` automatikusan átengedhetett héjparancsokat. **Repro:** `ls ; id`, `cat $(echo .env)`, `cat ../etc/passwd`. | A nyers shell-futtatás tiltólistája lecserélve: alapértelmezetten **minden** gazdagép-parancs jóváhagyást igényel (`shouldRequireDangerousExecApproval()`), kivéve a szigorú csak-olvasható **allowlistet** (`ls`, munkakönyvtárba kötött `cat`, `df`, `uptime`, `uname`, `pwd`, `date`), amely `execFileSync(..., { shell: false })` argumentumtömbként fut, és visszautasítja a `; | & $ \` > < () {} * ? ~ \ ' "` karaktereket és `../` útvonalat. A `fullAutonomousMode` sem kapcsolja ki a jóváhagyást — kizárólag a külön, audit-naplózott **„Veszélyes Zóna”** kapcsoló (`dangerousExecAutoApprove`). Tesztelve: `Pass 2 Fix 4`. | **javítva** |
+| S5 | `server/power/batch5AutonomyEngine.ts:726-787`, `server/power/universalSuite.ts:1155-1205`, `server/sandbox/supervisorSandbox.ts:112-194` | **Magas** | `sandbox_js` kitörés: `node:vm` nem biztonsági határ, és a host-realm `Math`/`JSON`/`Date` objektumok átadása lehetővé tette a `Math.constructor.constructor('return process')()` típusú RCE kitörést. **Repro:** `createAndSelfTestDynamicTool` vagy `executeDynamicTool` futtatása `Math.constructor.constructor('return process')()` kóddal. | `node:vm` teljesen eltávolítva. A `sandbox_js` kód külön izolált folyamatban fut (`docker` / `bwrap` / `unshare` előnyben, `--disallow-code-generation-from-strings`, `--max-old-space-size=64`, `timeout` + `SIGKILL`), kizárólag `structuredClone`-nal másolt adatokkal/primitívekkel, miközben `import()`, `import.meta`, `process`, `require`, `Function`, `eval`, `globalThis` és `Buffer` tiltva van. Tesztelve: `Pass 2 Fix 1`. | **javítva** |
 
 ### 2.4. Felhasználói HTML Kiszolgálása, XSS, CSP és Tokenek
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
@@ -72,14 +74,16 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 |---|---|---|---|---|---|
 | I1 | `install.sh:10, 40-59` | **Magas** | Hardkódolt felhasználói útvonal (`/home/ngabika`) törte volna a telepítést más felhasználóneveknél; régebbi Node verzió elutasítása hiányzott. | Dinamikus `NOVASWARM_DIR` feloldás a szkript helyéből; explicit `Node.js >= 22.5` ellenőrzés és frissítés. | **javítva** |
 | I2 | `update.sh:16-48` | **Magas** | Mentési mappa (`backups/`) és archívum jogosultságai túl lazák lehettek; csomagkezelő inkonzisztencia (`npm install` lockfile nélkül). | `chmod 700 backups`, `chmod 600` az archívumra és `.secrets*` fájlokra, `npm ci` előnyben részesítése, automatikus `git reset --hard` visszaállás hibás buildnél. | **javítva** |
-| I3 | `update.sh:26-29`, `server/system/ops.ts:640-690` | **Magas** | Aláíratlan kód futtatása: a GitHub OTA alapból fast-forward `git pull`-t futtat; bár a `NOVASWARM_VERIFY_TAG_SIG=1` opció már támogatja a `git verify-commit FETCH_HEAD` ellenőrzést (`update.sh:26`), alapértelmezésként ki van kapcsolva (mivel aláírt remote tagek nélkül eltörné a frissítést). | **Ajánlás:** Állíts be GPG aláírást a GitHub commitokra/tagekre, és kapcsold be a `NOVASWARM_VERIFY_TAG_SIG=1` környezeti változót a `systemd` unitban. | **részben javítva** |
+| I3 | `update.sh:26-42`, `server/system/ops.ts:423-490, 571-666`, `src/components/SystemOpsView.tsx:855-862`, `.env.example:22` | **Alacsony / Közepes** | Aláíratlan OTA frissítés: korábban `NOVASWARM_VERIFY_TAG_SIG` alapból ki volt kapcsolva figyelmeztetés nélkül. | A `NOVASWARM_VERIFY_TAG_SIG` alapértelmezése **`auto`**: automatikusan ellenőrzi a GPG-aláírt Git tageket (`git tag -v`), ha léteznek a tárolóban; aláíratlan csatorna esetén `signatureWarning` figyelmeztető sáv jelenik meg a Web UI-ban (`SystemOpsView`) és `update.sh` figyelmeztet. Tesztelve: `Pass 2 Fix 6`. | **javítva** |
 | I4 | `uninstall.sh:34-38` | **Alacsony** | `rm -rf` kockázatok ellenőrzése az eltávolítóban. | Interaktív megerősítéshez kötve, csak a `node_modules dist` mappákat törli a szkript saját könyvtárán belül. | **javítva** |
 
-### 2.7. Audit Hash-lánc (M117) és Hamisításbiztosság
+### 2.7. Audit Hash-lánc (M117), Rate Limiting és Csomagmetaadatok
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | C1 | `server/state/store.ts:81-83, 1286-1404` | **Közepes** | Sima SHA-256 hash-lánc egy egyszerű támadó által újraszámolható volt, illetve a régebbi bejegyzések vágása (retention pruning) megszakította a `prevHash` folytonosságát. | Átállva **kulcsolt HMAC-SHA256**-ra (a `.secrets.key` fájlhoz kötött HMAC kulccsal), valamint `auditChainAnchor` tárolja az utolsó kivágott bejegyzés hash-ét, így a lánc végig validálható (`verifyAuditLogChain()`). Tesztelve: `Audit Fix 9`. | **javítva** *(belső sértetlenség)* |
-| C2 | `server/state/store.ts:1318` | **Alacsony** | Külső, megváltoztathatatlan horgony (WORM / távoli syslog / blockchain-anchor) nincs bekötve: ha egy támadó megszerzi a hoston a `.secrets.key` fájlt és az írási jogot, a teljes HMAC-láncot helyben újra tudja számolni. | Opcionális külső audit-továbbító webhook vagy csak hozzáfűzhető (`chattr +a` / távoli rsyslog) naplósink bevezetése a jövőben. | **nyitva** *(architekturális korlát)* |
+| C2 | `server/system/ops.ts:938-985`, `server.ts:542`, `server/routes/api.ts:2577`, `src/components/SettingsView.tsx:890-900` | **Alacsony** | Külső, utólagos visszaírást észlelő audit-horgony hiányzott. | Beépítve az opcionális **napi Telegram audit fej-hash horgony** (`sendAuditAnchorToTelegram`), amely naponta egyszer (és manuális gombbal a `/api/audit/anchor-telegram`-ról) elküldi a HMAC-SHA256 lánc fej-hash-ét Telegramra. Tesztelve: `Pass 2 Fix 6`. | **javítva** |
+| L1 | `server/security/rateLimit.ts:95-150`, `server.ts:82-98` | **Alacsony** | Globális 25 MB JSON body limit és általános API/nyilvános végponti rate limit hiánya. | Globális `express.json` limit **1 MB**-ra csökkentve (`createSelectiveJsonBodyMiddleware()`), a **25 MB** limit csak a fájl-/RAG-/hang-/import végpontokra érvényes. Általános rate limit az `/api` és `/v1` útvonalakon (180 kérés/perc), szigorúbb limit a nyilvános `/share`, `/apps`, `/mock`, `/burn`, `/drop` útvonalakon (40 kérés/perc). Tesztelve: `Pass 2 Fix 6`. | **javítva** |
+| L2 | `package.json:2`, `.env.example`, `metadata.json` | **Alacsony** | AI Studio sablonmaradványok (`"name": "react-example"`, `.env.example` sablonkommentek). | `package.json` `name` átnevezve **`novaswarm`**-ra, `.env.example` megtisztítva a sablonkommentektől. *(Megjegyzés: a `metadata.json` a futtatókörnyezet technikai kényszere és az `sshHostMigrator.ts` hivatkozásai miatt szándékosan megmaradt.)* Tesztelve: `Pass 2 Fix 6`. | **javítva** |
 
 ### 2.8. SQLite / `node:sqlite`, WAL és FTS5
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
@@ -104,7 +108,7 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
 |---|---|---|---|---|---|
 | Q3 | `server/`, `src/`, `shared/` | **Alacsony** | Típusbiztonság (`: any`, `as any`, `@ts-ignore`, `@ts-expect-error`) ellenőrzése `grep`-pel. | **0 db** előfordulás a teljes kódbázisban; `npm run lint` (`tsc --noEmit`) teljesen tiszta. | **javítva** |
-| Q4 | `tests/security_audit_fixes.test.ts` + 15 további tesztfájl | **Közepes** | Korábbi tesztek nem fedték le az SSRF IPv6 hex bypass-t, a CSRF-et, a fail-closed Telegram/v1/föderációs védelmet és a biztonságos matek-kiértékelőt. | Létrehozva a 10 célzott biztonsági teszt; a teljes tesztcsomag **86 / 86** zöld eredménnyel fut le. | **javítva** |
+| Q4 | `tests/security_audit_fixes.test.ts`, `tests/security_audit_fixes_pass2.test.ts` + 15 további tesztfájl | **Közepes** | Regressziós tesztlefedettség az összes 1. és 2. körös biztonsági javításra (sandbox kitörés, brute-force 429, egyszeri setup-kód, allowlist shell + Veszélyes Zóna, DNS rebinding 403, body/rate limitek, OTA figyelmeztetés, audit horgony). | Létrehozva a 10 első körös + 6 második körös biztonsági regressziós teszt; a teljes tesztcsomag **92 / 92** zöld eredménnyel fut le. | **javítva** |
 
 ---
 
@@ -142,31 +146,39 @@ A korábbi iterációkban a README több mint ~560 elnevezett (`Mxxx`, `Úxxx`, 
 
 ## 5. Kézi Teendők (Amiket neked kell végrehajtanod GitHubon / saját szerveren)
 
-Mivel ebben a munkakörnyezetben nincs `.git` könyvtár és nincsenek meg a GitHub hozzáférési jogosultságaid, az alábbi lépéseket kézzel kell lefuttatnod a saját gépeden:
+Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár és nincsenek meg a GitHub hozzáférési jogosultságaid, az alábbi lépéseket kézzel kell lefuttatnod a saját gépeden:
 
-1. **Külön branch, `.gitignore` érvényesítése és Pull Request létrehozása:**
+1. **Külön `audit/fixes-2` branch, pontonkénti commitok és Pull Request létrehozása:**
    ```bash
-   git checkout -b audit/fixes
-   git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite*
+   git checkout -b audit/fixes-2
+   git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log
    git add -A
-   git commit -m "security: full audit fixes, secure-by-default posture, UI reorganization"
-   git push -u origin audit/fixes
-   # Ezután nyiss Pull Requestet GitHubon az audit/fixes -> main ágra!
+   # Ajánlott pontonként külön commitokat készíteni (pl. sandbox, brute-force/timingSafeEqual, setup-code, shell-allowlist, dns-rebinding, rate-limit/ota/audit-anchor, AUDIT.md)
+   git commit -m "security: pass 2 hardening fixes + regression tests"
+   git push -u origin audit/fixes-2
+   # Ezután nyiss Pull Requestet GitHubon az audit/fixes-2 -> main ágra!
    ```
 
-2. **Git History megtisztítása (ha korábbi commitba belekerült `.state.json*` vagy kulcs):**
+2. **Git History ellenőrzése (maradt-e titok korábbi commitokban — ne tisztítsd vaktában, előbb nézd meg):**
+   ```bash
+   git log --all --stat -- '.state.json*' '.secrets*' '.env*'
+   git log --all -p -S 'TELEGRAM_BOT_TOKEN' -- '.env*' '.state.json*'
+   ```
+   Ha a fenti parancs találatot ad korábbi commitokban, akkor a `git-filter-repo` futtatása előtt/után minden érintett titkot **kötelezően rotálni kell**:
    ```bash
    pip install git-filter-repo
    git filter-repo --invert-paths \
      --path .state.json --path .state.json.bak1 --path .state.json.bak2 --path .state.json.bak3 \
-     --path .secrets.key --path .secrets.vault.json --path .config.json --path dev-dist
+     --path .secrets.key --path .secrets.vault.json --path .config.json --path .env --path dev-dist
    git push --force --all
    ```
 
-3. **Kötelező kulcs- és token-rotáció (ha valaha nyilvános repóba került titok):**
-   - Állíts be **új Telegram Bot tokent** a `@BotFather`-nél (`/revoke`).
-   - Állíts be **új AI API kulcsokat** (OpenAI / Gemini / Anthropic / OpenRouter / Groq) és töröld a régieket.
-   - Töröld a régi `.secrets.key` fájlt az éles gépen való új kulcsok bevitele előtt, vagy állíts be erős új Web UI kezelői jelszót.
+3. **Kötelező kulcs- és token-rotáció (ha a `git log --all` találatot hoz `.state.json*`, `.secrets*` vagy `.env*` fájlokra):**
+   - **Telegram Bot token**: állíts be újat a `@BotFather`-nél (`/revoke`).
+   - **AI szolgáltatói API kulcsok**: cseréld le az összes érintett OpenAI / Gemini / Anthropic / OpenRouter / Groq / stb. kulcsot és vond vissza a régieket.
+   - **Vault mesterkulcs (`.secrets.key` / `NOVASWARM_MASTER_KEY`) és webes operátori jelszó**: töröld/generáld újra a `.secrets.key`-t az éles szerveren, és állíts be új operátori jelszót az egyszeri setup-kóddal.
+   - **Föderációs és webhook titkok / SSH költöztető kulcsok**: cseréld a `federationTokens`-t, webhook HMAC kulcsokat és az SSH kulcsokat/jelszavakat, ha valaha belekerültek az állapotfájlokba.
 
-4. **OTA frissítés szigorítása (opcionális, erősen ajánlott):**
-   - Írd alá GPG-vel a kiadási commitokat, és a `/etc/systemd/system/novaswarm.service` fájlban add meg az `Environment=NOVASWARM_VERIFY_TAG_SIG=1` sort.
+4. **OTA GPG-ellenőrzés és napi audit-horgony bekapcsolása:**
+   - Írd alá GPG-vel a kiadási tageket (`git tag -s vX.Y.Z`), opcionálisan állítsd be a `/etc/systemd/system/novaswarm.service` fájlban az `Environment=NOVASWARM_VERIFY_TAG_SIG=1` sort (különben `auto` módban működik, és figyelmeztet, ha nincs aláírt tag).
+   - A Web UI **Beállítások** oldalán engedélyezd a **Napi Audit Fej-Hash küldése Telegramra** kapcsolót.

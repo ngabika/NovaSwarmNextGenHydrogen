@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,9 +14,9 @@ import type {
 import {
   assertHostPermission,
   requireDestructiveApproval,
-  shouldRequireApproval,
+  shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
-import { appendAuditLog, getState, updateState } from '../state/store';
+import { appendAuditLog, getState, updateState, verifyAuditLogChain } from '../state/store';
 
 const BACKUP_DIR = path.join(process.cwd(), 'backups');
 const scheduledCronJobs = new Map<string, ScheduledTask>();
@@ -376,18 +376,37 @@ export function requestOsPackageUpgrade(requestedBy = 'Felhasználó'): {
 } {
   assertHostPermission('os_package_upgrade');
   const cmd = 'sudo apt-get update && sudo apt-get upgrade -y';
-  if (!shouldRequireApproval()) {
+  if (!shouldRequireDangerousExecApproval()) {
     let output = '';
+    appendAuditLog({
+      type: 'security',
+      sourceAgentId: 'system-ops',
+      sourceAgentName: requestedBy,
+      message: `[VESZÉLYES ZÓNA] OS csomagfrissítés jóváhagyás nélkül elindítva: ${cmd}`,
+      verifiedExecution: true,
+    });
     try {
-      output = execSync(cmd, { cwd: process.cwd(), encoding: 'utf8', timeout: 30000 }).slice(0, 1200);
+      const uOut = execFileSync('sudo', ['apt-get', 'update'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 30000,
+        shell: false,
+      });
+      const gOut = execFileSync('sudo', ['apt-get', 'upgrade', '-y'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 60000,
+        shell: false,
+      });
+      output = `${uOut}\n${gOut}`.trim().slice(0, 1200);
     } catch (err) {
-      output = `Autonóm végrehajtás kimenet: ${err instanceof Error ? err.message : String(err)}`;
+      output = `Veszélyes Zóna végrehajtás kimenet: ${err instanceof Error ? err.message : String(err)}`;
     }
     appendAuditLog({
       type: 'action',
       sourceAgentId: 'system-ops',
       sourceAgentName: requestedBy,
-      message: `OS csomagfrissítés közvetlenül elindítva (Autonóm mód): ${cmd}`,
+      message: `OS csomagfrissítés végrehajtva (Veszélyes Zóna): ${cmd}`,
       verifiedExecution: true,
     });
     return { queuedApprovalId: 'auto-executed', executedDirectly: true, output, command: cmd };
@@ -401,14 +420,84 @@ export function requestOsPackageUpgrade(requestedBy = 'Felhasználó'): {
   return { queuedApprovalId: req.id, executedDirectly: false, command: cmd };
 }
 
+export function evaluateOtaSignaturePolicy(): {
+  signatureVerificationActive: boolean;
+  signatureWarning: string | null;
+  hasSignedTag: boolean;
+} {
+  const mode = (process.env.NOVASWARM_VERIFY_TAG_SIG || 'auto').trim().toLowerCase();
+  if (mode === '0' || mode === 'false' || mode === 'off') {
+    return {
+      signatureVerificationActive: false,
+      signatureWarning:
+        'Figyelem: Az OTA GPG-aláírás ellenőrzés manuálisan ki van kapcsolva (NOVASWARM_VERIFY_TAG_SIG=0).',
+      hasSignedTag: false,
+    };
+  }
+
+  const hasGitRepo = fs.existsSync(path.join(process.cwd(), '.git'));
+  let hasSignedTag = false;
+  if (hasGitRepo) {
+    try {
+      const tagsOut = execFileSync('git', ['tag', '-l', '--sort=-v:refname'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 2500,
+        shell: false,
+      }).trim();
+      const latestTag = tagsOut.split('\n').map((s) => s.trim()).find(Boolean);
+      if (latestTag) {
+        execFileSync('git', ['verify-tag', latestTag], {
+          cwd: process.cwd(),
+          stdio: 'ignore',
+          timeout: 3000,
+          shell: false,
+        });
+        hasSignedTag = true;
+      }
+    } catch {
+      hasSignedTag = false;
+    }
+  }
+
+  if (mode === '1' || mode === 'true' || mode === 'on') {
+    return {
+      signatureVerificationActive: true,
+      signatureWarning: null,
+      hasSignedTag,
+    };
+  }
+
+  if (hasSignedTag) {
+    return {
+      signatureVerificationActive: true,
+      signatureWarning: null,
+      hasSignedTag: true,
+    };
+  }
+
+  return {
+    signatureVerificationActive: false,
+    signatureWarning:
+      'Figyelem: Aláíratlan OTA csatorna — nincs ellenőrizhető GPG-aláírt Git tag a tárolón (frissítés aláírás nélkül futna).',
+    hasSignedTag: false,
+  };
+}
+
 export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<OtaVersionStatus> {
   const hasGitRepo = fs.existsSync(path.join(process.cwd(), '.git'));
+  const sigPolicy = evaluateOtaSignaturePolicy();
   let localCommit: string | null = null;
   let currentVersion = '1.0.0';
 
   if (hasGitRepo) {
     try {
-      localCommit = execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim() || null;
+      localCommit =
+        execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          shell: false,
+        }).trim() || null;
     } catch {
       localCommit = null;
     }
@@ -447,11 +536,17 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
   let commitsBehind = 0;
   if (hasGitRepo) {
     try {
-      execSync('git fetch --quiet origin', { cwd: process.cwd(), timeout: 5000, stdio: 'ignore' });
-      const behindStr = execSync('git rev-list --count HEAD..origin/main', {
+      execFileSync('git', ['fetch', '--quiet', '--tags', 'origin'], {
+        cwd: process.cwd(),
+        timeout: 5000,
+        stdio: 'ignore',
+        shell: false,
+      });
+      const behindStr = execFileSync('git', ['rev-list', '--count', 'HEAD..origin/main'], {
         cwd: process.cwd(),
         encoding: 'utf8',
         timeout: 2000,
+        shell: false,
       }).trim();
       commitsBehind = Math.max(0, Number(behindStr) || 0);
     } catch {
@@ -472,6 +567,8 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
         hasGitRepo,
         localCommit,
         commitsBehind,
+        signatureVerificationActive: sigPolicy.signatureVerificationActive,
+        signatureWarning: sigPolicy.signatureWarning,
       };
       return cachedOtaStatus;
     }
@@ -493,6 +590,8 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
         remoteCommit: null,
         commitsBehind,
         autoUpdatedAt: cachedOtaStatus?.autoUpdatedAt ?? null,
+        signatureVerificationActive: sigPolicy.signatureVerificationActive,
+        signatureWarning: sigPolicy.signatureWarning,
       };
       return cachedOtaStatus;
     }
@@ -529,6 +628,8 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
           remoteCommit: remoteShort,
           commitsBehind,
           autoUpdatedAt: cachedOtaStatus?.autoUpdatedAt ?? null,
+          signatureVerificationActive: sigPolicy.signatureVerificationActive,
+          signatureWarning: sigPolicy.signatureWarning,
         };
         return cachedOtaStatus;
       }
@@ -545,6 +646,8 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
       hasGitRepo,
       localCommit,
       commitsBehind,
+      signatureVerificationActive: sigPolicy.signatureVerificationActive,
+      signatureWarning: sigPolicy.signatureWarning,
       error: `GitHub API HTTP ${res.status} — nincs elérhető kiadási adat`,
     };
   } catch (err) {
@@ -559,6 +662,8 @@ export async function checkOtaUpdates(fetchImpl: typeof fetch = fetch): Promise<
       hasGitRepo,
       localCommit,
       commitsBehind,
+      signatureVerificationActive: sigPolicy.signatureVerificationActive,
+      signatureWarning: sigPolicy.signatureWarning,
       error: `Hálózati ellenőrzés sikertelen: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
@@ -589,12 +694,29 @@ export function getOtaGitDiff(): {
   }
 
   try {
-    execSync('git fetch --quiet origin', { cwd: process.cwd(), timeout: 8000, stdio: 'ignore' });
+    execFileSync('git', ['fetch', '--quiet', '--tags', 'origin'], {
+      cwd: process.cwd(),
+      timeout: 8000,
+      stdio: 'ignore',
+      shell: false,
+    });
     const behind = Number(
-      execSync('git rev-list --count HEAD..origin/main', { cwd: process.cwd(), encoding: 'utf8' }).trim() || 0
+      execFileSync('git', ['rev-list', '--count', 'HEAD..origin/main'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        shell: false,
+      }).trim() || 0
     );
-    const stat = execSync('git diff --stat HEAD..origin/main', { cwd: process.cwd(), encoding: 'utf8' }).trim();
-    const diff = execSync('git diff HEAD..origin/main', { cwd: process.cwd(), encoding: 'utf8' }).slice(0, 8000);
+    const stat = execFileSync('git', ['diff', '--stat', 'HEAD..origin/main'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      shell: false,
+    }).trim();
+    const diff = execFileSync('git', ['diff', 'HEAD..origin/main'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      shell: false,
+    }).slice(0, 8000);
     return {
       hasGitRepo: true,
       repoSlug,
@@ -621,6 +743,7 @@ export function applyOtaUpdate(): {
   backupId?: string;
   previousCommit?: string;
   newCommit?: string;
+  signatureVerified?: boolean;
   message: string;
 } {
   const backup = createBackupPoint();
@@ -641,20 +764,61 @@ export function applyOtaUpdate(): {
 
   let prevCommit = '';
   try {
-    prevCommit = execSync('git rev-parse HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim();
+    prevCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      shell: false,
+    }).trim();
   } catch {
     prevCommit = '';
   }
 
+  let signatureVerified = false;
   try {
-    execSync('git pull --ff-only origin main', { cwd: process.cwd(), encoding: 'utf8', timeout: 30000 });
-    execSync('npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps', {
+    execFileSync('git', ['fetch', '--tags', 'origin', 'main'], {
       cwd: process.cwd(),
       encoding: 'utf8',
-      timeout: 90000,
+      timeout: 30000,
+      shell: false,
     });
-    execSync('npm run lint && npm run build', { cwd: process.cwd(), encoding: 'utf8', timeout: 90000 });
-    const newCommit = execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim();
+    const sigPolicy = evaluateOtaSignaturePolicy();
+    if (sigPolicy.signatureVerificationActive) {
+      execFileSync('git', ['verify-commit', 'FETCH_HEAD'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 10000,
+        shell: false,
+      });
+      signatureVerified = true;
+    }
+    execFileSync('git', ['pull', '--ff-only', 'origin', 'main'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 30000,
+      shell: false,
+    });
+    try {
+      execFileSync('npm', ['ci', '--no-audit', '--no-fund'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 90000,
+        shell: false,
+      });
+    } catch {
+      execFileSync('npm', ['install', '--no-audit', '--no-fund', '--legacy-peer-deps'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 90000,
+        shell: false,
+      });
+    }
+    execFileSync('npm', ['run', 'lint'], { cwd: process.cwd(), encoding: 'utf8', timeout: 60000, shell: false });
+    execFileSync('npm', ['run', 'build'], { cwd: process.cwd(), encoding: 'utf8', timeout: 90000, shell: false });
+    const newCommit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      shell: false,
+    }).trim();
     const now = new Date().toISOString();
     if (cachedOtaStatus) {
       cachedOtaStatus.autoUpdatedAt = now;
@@ -665,7 +829,7 @@ export function applyOtaUpdate(): {
       type: 'system',
       sourceAgentId: 'ota-updater',
       sourceAgentName: 'GitHub OTA Frissítő',
-      message: `Sikeres GitHub OTA frissítés (${repoSlug}): ${prevCommit.slice(0, 7)} -> ${newCommit}`,
+      message: `Sikeres GitHub OTA frissítés (${repoSlug}): ${prevCommit.slice(0, 7)} -> ${newCommit} (GPG aláírás: ${signatureVerified ? 'igazolva' : 'aláíratlan'})`,
       verifiedExecution: true,
     });
     return {
@@ -674,6 +838,7 @@ export function applyOtaUpdate(): {
       backupId: backup.id,
       previousCommit: prevCommit.slice(0, 7),
       newCommit,
+      signatureVerified,
       message: `Sikeres frissítés (${prevCommit.slice(0, 7)} -> ${newCommit}) és build ellenőrzés. Újraindítás ajánlott a friss kód betöltéséhez.`,
     };
   } catch (err) {
@@ -764,4 +929,56 @@ export function stopAllCronTasks(): void {
     job.stop();
   }
   scheduledCronJobs.clear();
+}
+
+/**
+ * External Audit Chain Anchor: sends the current HMAC-SHA256 head-hash once per day
+ * to the configured Telegram chat so retrospective local rewriting is detectable.
+ */
+export async function maybeSendDailyAuditAnchorToTelegram(
+  sender?: (text: string) => Promise<void>,
+  opts?: { force?: boolean }
+): Promise<{ sent: boolean; headHash: string; count: number; reason?: string }> {
+  const state = getState();
+  const today = new Date().toISOString().slice(0, 10);
+  const lastChained = [...state.auditLogs].reverse().find((x) => Boolean(x.hash));
+  const headHash = lastChained?.hash || state.auditChainAnchor?.prevHash || 'GENESIS';
+  const count = state.auditLogs.length;
+
+  if (!opts?.force) {
+    if (!state.settings.sendAuditAnchorToTelegram) {
+      return { sent: false, headHash, count, reason: 'Kikapcsolva' };
+    }
+    if (state.settings.lastAuditAnchorSentDate === today) {
+      return { sent: false, headHash, count, reason: 'Ma már elküldve' };
+    }
+  }
+
+  const chain = verifyAuditLogChain();
+  const msg =
+    `🔐 NovaSwarm Napi Audit Fej-Hash Horgony (${today})\n` +
+    `Bejegyzések: ${count} db · Lánc sértetlensége: ${chain.valid ? 'ÉP ✅' : 'SÉRÜLT ⚠️'}\n` +
+    `Fej-hash (HMAC-SHA256): ${headHash}`;
+
+  const sendFn =
+    sender ||
+    (async (text: string) => {
+      const m = await import('../telegram/bot');
+      await m.sendTelegramMessage(text);
+    });
+
+  await sendFn(msg);
+
+  updateState((s) => {
+    s.settings.lastAuditAnchorSentDate = today;
+  });
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: 'audit-anchor',
+    sourceAgentName: 'Külső Audit Horgony',
+    message: `Napi audit fej-hash Telegramra küldve (${today}): ${headHash.slice(0, 16)}...`,
+    verifiedExecution: true,
+    metadata: { headHash, count, valid: chain.valid },
+  });
+  return { sent: true, headHash, count };
 }

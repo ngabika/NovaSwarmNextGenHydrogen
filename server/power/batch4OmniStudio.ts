@@ -14,7 +14,7 @@ import type {
   UserXpProfile,
 } from '../../shared/types';
 import { invokeWithFailover } from '../providers/router';
-import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
+import { constantTimeEqual, validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { searchWalFullText } from '../state/sqliteWal';
 import { appendAuditLog, getState, updateState } from '../state/store';
 
@@ -1143,7 +1143,7 @@ export function consumeEphemeralNote(token: string): {
   } = { ok: false, reason: 'A cetli nem található vagy már törlődött.' };
 
   updateState((s) => {
-    const ref = s.ephemeralNotes.find((n) => n.token === token);
+    const ref = s.ephemeralNotes.find((n) => constantTimeEqual(n.token, token));
     if (!ref) {
       outcome = { ok: false, reason: 'A cetli nem található vagy már törlődött.' };
       return;

@@ -199,9 +199,16 @@ import {
 import { detectActiveSandboxBackend, runDestructiveSandboxProof } from '../sandbox/supervisorSandbox';
 import {
   authenticateOperatorPassword,
+  checkLoginRateLimit,
+  clearLoginFailures,
+  consumeOneTimeSetupCode,
+  ensureOneTimeSetupCode,
+  extractClientIp,
   isRequestAuthorized,
   issueSessionToken,
+  recordLoginFailure,
   requireWebAuthMiddleware,
+  verifyOneTimeSetupCode,
   WEB_SESSION_COOKIE_NAME,
 } from '../security/auth';
 import {
@@ -238,6 +245,7 @@ import {
   collectHardwareMetrics,
   createBackupPoint,
   getOtaGitDiff,
+  maybeSendDailyAuditAnchorToTelegram,
   registerCronTask,
   removeUptimeTarget,
   requestOsPackageUpgrade,
@@ -290,21 +298,51 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.get('/auth/status', (req, res) => {
     const s = getState().settings;
     const hasPw = hasWebAuthPassword();
+    if (!hasPw) {
+      ensureOneTimeSetupCode();
+    }
     res.json({
       webAuthEnabled: s.webAuthEnabled,
       webAuthHasPassword: hasPw,
       authClaimRequired: Boolean(s.webAuthEnabled && !hasPw),
+      setupCodeRequired: !hasPw,
       authenticated: isRequestAuthorized(req.headers),
     });
   });
 
   router.post('/auth/login', (req, res) => {
+    const clientIp = extractClientIp(req);
+    const rateCheck = checkLoginRateLimit(clientIp);
+    if (!rateCheck.allowed) {
+      appendAuditLog({
+        type: 'security',
+        sourceAgentId: 'web-auth',
+        sourceAgentName: 'Web Hitelesítés',
+        message: `Blokkolt belépési kísérlet zár alatt (IP: ${clientIp}, hátralevő idő: ${rateCheck.retryAfterSeconds} mp).`,
+        verifiedExecution: true,
+      });
+      res.setHeader('Retry-After', String(rateCheck.retryAfterSeconds));
+      return res.status(429).json({
+        error: `Túl sok sikertelen belépési kísérlet. Próbáld újra ${rateCheck.retryAfterSeconds} másodperc múlva.`,
+        code: 'AUTH_RATE_LIMITED',
+        retryAfterSeconds: rateCheck.retryAfterSeconds,
+      });
+    }
+
     const { password } = req.body as { password?: string };
     if (!password) return res.status(400).json({ error: 'Jelszó megadása kötelező.' });
     const token = authenticateOperatorPassword(password);
     if (!token) {
-      return res.status(401).json({ error: 'Hibás operátori jelszó.' });
+      const fail = recordLoginFailure(clientIp);
+      return res.status(401).json({
+        error:
+          fail.retryAfterSeconds > 0
+            ? `Hibás operátori jelszó. Exponenciális fiókzár aktiválva (${fail.retryAfterSeconds} mp).`
+            : 'Hibás operátori jelszó.',
+        remainingAttempts: Math.max(0, 5 - fail.failures),
+      });
     }
+    clearLoginFailures(clientIp);
     res.cookie(WEB_SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       sameSite: 'lax',
@@ -327,12 +365,49 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         code: 'WEB_AUTH_REQUIRED',
       });
     }
-    const { password, enable } = req.body as { password?: string; enable?: boolean };
+
+    const { password, enable, setupCode } = req.body as {
+      password?: string;
+      enable?: boolean;
+      setupCode?: string;
+    };
+
+    if (!alreadyHasPw) {
+      const clientIp = extractClientIp(req);
+      const rateCheck = checkLoginRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        res.setHeader('Retry-After', String(rateCheck.retryAfterSeconds));
+        return res.status(429).json({
+          error: `Túl sok hibás setup-kód kísérlet. Próbáld újra ${rateCheck.retryAfterSeconds} másodperc múlva.`,
+          code: 'AUTH_RATE_LIMITED',
+          retryAfterSeconds: rateCheck.retryAfterSeconds,
+        });
+      }
+      if (!verifyOneTimeSetupCode(setupCode)) {
+        recordLoginFailure(clientIp, Date.now(), 'Érvénytelen egyszeri setup-kód');
+        return res.status(403).json({
+          error:
+            'Érvénytelen vagy hiányzó egyszeri setup-kód. Olvasd ki a szerver konzolról vagy a .novaswarm-setup.log fájlból!',
+          code: 'INVALID_SETUP_CODE',
+        });
+      }
+    }
+
     if (typeof password === 'string' && password.trim().length > 0) {
       if (password.trim().length < 8) {
         return res.status(400).json({ error: 'A jelszónak legalább 8 karakterből kell állnia.' });
       }
       setWebAuthPassword(password.trim());
+      if (!alreadyHasPw) {
+        consumeOneTimeSetupCode();
+        appendAuditLog({
+          type: 'security',
+          sourceAgentId: 'web-auth',
+          sourceAgentName: 'Web Hitelesítés',
+          message: 'Első operátori jelszó beállítva az egyszeri setup-kód felhasználásával (kód érvénytelenítve).',
+          verifiedExecution: true,
+        });
+      }
     }
     const hasPw = hasWebAuthPassword();
     if (enable && !hasPw) {
@@ -394,6 +469,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         telegramToken?: string;
         telegramChatId?: string;
         operatorPassword?: string;
+        setupCode?: string;
         userProfile: string;
         firstAgent: {
           name: string;
@@ -411,12 +487,24 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       if (!body.firstAgent?.name?.trim()) {
         return res.status(400).json({ error: 'Az első ágens neve kötelező.' });
       }
-      if (body.operatorPassword && body.operatorPassword.trim().length > 0 && body.operatorPassword.trim().length < 8) {
-        return res.status(400).json({ error: 'Az operátori jelszónak legalább 8 karakterből kell állnia.' });
-      }
-
-      if (body.operatorPassword && body.operatorPassword.trim().length >= 8) {
+      if (body.operatorPassword && body.operatorPassword.trim().length > 0) {
+        if (!hasWebAuthPassword()) {
+          if (!verifyOneTimeSetupCode(body.setupCode)) {
+            return res.status(403).json({
+              error:
+                'Az operátori jelszó beállításához érvényes egyszeri setup-kód szükséges (szerver konzol / .novaswarm-setup.log).',
+              code: 'INVALID_SETUP_CODE',
+            });
+          }
+        }
+        if (body.operatorPassword.trim().length < 8) {
+          return res.status(400).json({ error: 'Az operátori jelszónak legalább 8 karakterből kell állnia.' });
+        }
+        const hadPw = hasWebAuthPassword();
         setWebAuthPassword(body.operatorPassword.trim());
+        if (!hadPw) {
+          consumeOneTimeSetupCode();
+        }
       }
       const hasPw = hasWebAuthPassword();
 
@@ -683,6 +771,24 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         }
         if (typeof patch.fullAutonomousMode === 'boolean') {
           s.settings.fullAutonomousMode = patch.fullAutonomousMode;
+        }
+        if (
+          typeof patch.dangerousExecAutoApprove === 'boolean' &&
+          patch.dangerousExecAutoApprove !== s.settings.dangerousExecAutoApprove
+        ) {
+          s.settings.dangerousExecAutoApprove = patch.dangerousExecAutoApprove;
+          appendAuditLog({
+            type: 'security',
+            sourceAgentId: 'user',
+            sourceAgentName: 'Veszélyes Zóna',
+            message: patch.dangerousExecAutoApprove
+              ? '[VESZÉLYES ZÓNA] Parancssori jóváhagyás megkerülése BEKAPCSOLVA (exec_shell jóváhagyás nélkül futhat).'
+              : '[VESZÉLYES ZÓNA] Parancssori jóváhagyás megkerülése KIKAPCSOLVA (biztonságos alaphelyzet).',
+            verifiedExecution: true,
+          });
+        }
+        if (typeof patch.sendAuditAnchorToTelegram === 'boolean') {
+          s.settings.sendAuditAnchorToTelegram = patch.sendAuditAnchorToTelegram;
         }
         if (patch.themeMode === 'light' || patch.themeMode === 'dark' || patch.themeMode === 'high_contrast') {
           s.settings.themeMode = patch.themeMode;
@@ -2464,6 +2570,18 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="novaswarm-audit.json"');
     return res.send(JSON.stringify(logs, null, 2));
+  });
+
+  router.post('/audit/anchor-telegram', async (req, res) => {
+    try {
+      const out = await maybeSendDailyAuditAnchorToTelegram(undefined, {
+        force: Boolean(req.body?.force),
+      });
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
   });
 
   // M25, M26, Ú9-Ú15, Ú26: Host Diagnostics, .env, Docker, Systemd, LAN, VPN, Disk/Rsync, SSH Fleet, SSL

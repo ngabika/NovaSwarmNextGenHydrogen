@@ -617,6 +617,9 @@ export function createDefaultSettings(): Settings {
     autoExtractActionItems: true,
     agentSelfCritiquePass: false,
     defaultResponseTone: 'professional',
+    dangerousExecAutoApprove: false,
+    sendAuditAnchorToTelegram: false,
+    lastAuditAnchorSentDate: null,
   };
 }
 

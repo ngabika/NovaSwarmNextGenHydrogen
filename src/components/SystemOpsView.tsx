@@ -847,7 +847,16 @@ export const SystemOpsView: React.FC<Props> = ({
                 <span className={ota.updateAvailable ? 'font-bold text-amber-800' : 'font-bold text-emerald-700'}>
                   {ota.updateAvailable ? 'FRISSÍTÉS ELÉRHETŐ' : 'Naprakész'}
                 </span>
+                {' · '}
+                <span className={ota.signatureVerificationActive ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700'}>
+                  {ota.signatureVerificationActive ? 'GPG-ellenőrzés aktív' : 'Aláíratlan csatorna'}
+                </span>
               </div>
+              {ota.signatureWarning && (
+                <div className="p-2 rounded border border-amber-300 bg-amber-50 text-amber-900 text-[11px]">
+                  {ota.signatureWarning}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"

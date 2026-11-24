@@ -85,6 +85,7 @@ export const OnboardingWizard: React.FC<Props> = ({
   // Step 6: Host Permissions & Operator Password
   const [hostPermissionsGranted, setHostPermissionsGranted] = useState(false);
   const [operatorPassword, setOperatorPassword] = useState('');
+  const [setupCode, setSetupCode] = useState('');
 
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -161,6 +162,7 @@ export const OnboardingWizard: React.FC<Props> = ({
           },
           hostPermissionsGranted,
           operatorPassword: operatorPassword.trim() || undefined,
+          setupCode: setupCode.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -517,6 +519,21 @@ export const OnboardingWizard: React.FC<Props> = ({
                   placeholder="Hagyd üresen, ha később állítod be a Beállításokban..."
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                 />
+                {operatorPassword.trim().length > 0 && (
+                  <div className="pt-1.5 space-y-1">
+                    <label htmlFor="wiz-setup-code" className="block text-xs font-medium text-amber-800">
+                      Egyszeri szerver Setup-Kód (a szerver konzolról vagy a .novaswarm-setup.log fájlból)
+                    </label>
+                    <input
+                      id="wiz-setup-code"
+                      type="text"
+                      value={setupCode}
+                      onChange={(e) => setSetupCode(e.target.value)}
+                      placeholder="pl. A1B2-C3D4-E5F6"
+                      className="w-full px-3 py-2 text-sm font-mono uppercase border border-amber-300 bg-amber-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-xs text-slate-500 pt-1">

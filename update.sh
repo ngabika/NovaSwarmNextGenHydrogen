@@ -21,10 +21,16 @@ chmod 600 "${BACKUP_FILE}" .secrets.vault.json .secrets.key .state.json 2>/dev/n
 
 PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
-echo "[2/5] Forráskód frissítése (fast-forward + GPG aláírás ellenőrzés, ha be van állítva)..."
+echo "[2/5] Forráskód frissítése (fast-forward + GPG aláírás ellenőrzés)..."
 git fetch origin main --tags 2>/dev/null || git fetch --tags 2>/dev/null || true
-if [ "${NOVASWARM_VERIFY_TAG_SIG:-0}" = "1" ]; then
+SIG_MODE="${NOVASWARM_VERIFY_TAG_SIG:-auto}"
+LATEST_TAG=$(git tag -l --sort=-v:refname | head -n 1 || true)
+if [ "${SIG_MODE}" = "1" ]; then
   git verify-commit FETCH_HEAD || { echo "HIBA: Az új commit GPG aláírása érvénytelen!"; exit 1; }
+elif [ "${SIG_MODE}" = "auto" ] && [ -n "${LATEST_TAG}" ] && git tag -v "${LATEST_TAG}" >/dev/null 2>&1; then
+  git verify-commit FETCH_HEAD || { echo "HIBA: Aláírt tárolón az új commit GPG aláírása érvénytelen!"; exit 1; }
+elif [ "${SIG_MODE}" != "0" ]; then
+  echo "FIGYELEM: Aláíratlan OTA csatorna — nincs ellenőrizhető GPG-aláírt Git tag (NOVASWARM_VERIFY_TAG_SIG=${SIG_MODE})."
 fi
 git pull --ff-only origin main || git pull --ff-only
 

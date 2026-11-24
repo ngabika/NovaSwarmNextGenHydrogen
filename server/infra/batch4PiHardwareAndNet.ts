@@ -13,8 +13,9 @@ import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import {
   assertHostPermission,
   detectDestructiveOperation,
+  parseSafeAllowlistedHostCommand,
   requireDestructiveApproval,
-  shouldRequireApproval,
+  shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { scanLanArpTable } from './networkAndCluster';
@@ -505,37 +506,64 @@ export async function runBashCopilot(
   let executed = false;
   if (execute) {
     assertHostPermission(`bash_copilot:${command}`);
-    const destructive = detectDestructiveOperation(command);
-    if (destructive.isDestructive && shouldRequireApproval()) {
-      const req = requireDestructiveApproval(
-        destructive.type!,
-        destructive.title || 'Destruktív Bash Copilot parancs',
-        command,
-        'bash-copilot'
-      );
-      return {
-        command,
-        explanation,
-        executed: false,
-        output: `Jóváhagyás szükséges a destruktív parancs futtatása előtt (ID: ${req.id.slice(0, 8)}): ${destructive.title}`,
-      };
+    const safeCmd = parseSafeAllowlistedHostCommand(command);
+    if (safeCmd.allowed) {
+      try {
+        output = execFileSync(safeCmd.bin, safeCmd.args, {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          timeout: 8000,
+          shell: false,
+        }).trim();
+        executed = true;
+      } catch (err) {
+        output = err instanceof Error ? err.message : String(err);
+      }
+      appendAuditLog({
+        type: 'terminal',
+        sourceAgentId: 'bash-copilot',
+        sourceAgentName: 'Bash Copilot',
+        message: `Bash Copilot (allowlist, shell:false) futtatás: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
+        verifiedExecution: executed,
+      });
+    } else {
+      const destructive = detectDestructiveOperation(command);
+      if (shouldRequireDangerousExecApproval()) {
+        const actionType = destructive.type || 'destructive_shell';
+        const actionTitle = destructive.title || `Nem engedélylistás Bash Copilot parancs (${safeCmd.reason})`;
+        const req = requireDestructiveApproval(actionType, actionTitle, command, 'bash-copilot');
+        return {
+          command,
+          explanation,
+          executed: false,
+          output: `Jóváhagyás szükséges a parancs futtatása előtt (ID: ${req.id.slice(0, 8)}): ${actionTitle}`,
+        };
+      }
+      appendAuditLog({
+        type: 'security',
+        sourceAgentId: 'bash-copilot',
+        sourceAgentName: 'Bash Copilot',
+        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli Bash Copilot futtatás: ${command}`,
+        verifiedExecution: true,
+      });
+      try {
+        output = execFileSync('sh', ['-c', command], {
+          encoding: 'utf8',
+          timeout: 8000,
+          shell: false,
+        }).trim();
+        executed = true;
+      } catch (err) {
+        output = err instanceof Error ? err.message : String(err);
+      }
+      appendAuditLog({
+        type: 'terminal',
+        sourceAgentId: 'bash-copilot',
+        sourceAgentName: 'Bash Copilot',
+        message: `Bash Copilot (Veszélyes Zóna) futtatás: ${command}`,
+        verifiedExecution: executed,
+      });
     }
-    try {
-      output = execFileSync('sh', ['-c', command], {
-        encoding: 'utf8',
-        timeout: 8000,
-      }).trim();
-      executed = true;
-    } catch (err) {
-      output = err instanceof Error ? err.message : String(err);
-    }
-    appendAuditLog({
-      type: 'terminal',
-      sourceAgentId: 'bash-copilot',
-      sourceAgentName: 'Bash Copilot',
-      message: `Bash Copilot futtatás: ${command}`,
-      verifiedExecution: executed,
-    });
   }
 
   return { command, explanation, executed, output };
@@ -653,11 +681,26 @@ export async function evaluateCustomWidgets(): Promise<CustomDashboardWidget[]> 
         val = txt.slice(0, 140);
       } else {
         assertHostPermission(`custom_widget:${w.source}`);
-        const destructive = detectDestructiveOperation(w.source);
-        if (destructive.isDestructive) {
-          throw new Error(`Destruktív parancs tiltva widgetben (${destructive.title}).`);
+        const safeCmd = parseSafeAllowlistedHostCommand(w.source);
+        if (safeCmd.allowed) {
+          val = execFileSync(safeCmd.bin, safeCmd.args, {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            timeout: 3000,
+            shell: false,
+          }).trim().slice(0, 140);
+        } else if (!shouldRequireDangerousExecApproval()) {
+          appendAuditLog({
+            type: 'security',
+            sourceAgentId: 'custom-widget',
+            sourceAgentName: 'Egyéni Widget',
+            message: `[VESZÉLYES ZÓNA] Nem engedélylistás widget parancs futtatva: ${w.source}`,
+            verifiedExecution: true,
+          });
+          val = execFileSync('sh', ['-c', w.source], { encoding: 'utf8', timeout: 3000, shell: false }).trim().slice(0, 140);
+        } else {
+          throw new Error(`Widget parancs elutasítva: ${safeCmd.reason}`);
         }
-        val = execFileSync('sh', ['-c', w.source], { encoding: 'utf8', timeout: 3000 }).trim().slice(0, 140);
       }
     } catch (err) {
       val = `Hiba: ${err instanceof Error ? err.message : String(err)}`.slice(0, 100);

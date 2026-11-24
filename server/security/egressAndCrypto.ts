@@ -159,11 +159,17 @@ export function computeTotpCode(secretBase32: string, timeMs = Date.now()): stri
   return String(code % 1_000_000).padStart(6, '0');
 }
 
+export function constantTimeEqual(a: string, b: string): boolean {
+  const hashA = crypto.createHash('sha256').update(String(a)).digest();
+  const hashB = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
 export function verifyTotpCode(secretBase32: string, candidate: string, timeMs = Date.now()): boolean {
   const clean = candidate.trim();
   if (!/^\d{6}$/.test(clean)) return false;
   for (const delta of [-30_000, 0, 30_000]) {
-    if (computeTotpCode(secretBase32, timeMs + delta) === clean) {
+    if (constantTimeEqual(computeTotpCode(secretBase32, timeMs + delta), clean)) {
       return true;
     }
   }

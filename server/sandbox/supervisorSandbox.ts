@@ -68,6 +68,7 @@ export function detectActiveSandboxBackend(): SandboxIsolationMode {
 export function runInSupervisorSandbox(params: {
   scriptOrCommand: string;
   isNodeScript?: boolean;
+  nodeArgs?: string[];
   seedFiles?: Record<string, string>;
   realProtectedPaths?: string[];
   timeoutMs?: number;
@@ -108,6 +109,8 @@ export function runInSupervisorSandbox(params: {
       NOVASWARM_SANDBOX: '1',
     };
 
+    const safeNodeArgs = (params.nodeArgs || []).filter((a) => /^--[a-z0-9-]+(=[a-z0-9_.-]+)?$/i.test(a));
+
     if (params.isNodeScript) {
       const candidateFile = path.join(sandboxDir, 'candidate.mjs');
       fs.writeFileSync(candidateFile, params.scriptOrCommand, 'utf8');
@@ -126,9 +129,10 @@ export function runInSupervisorSandbox(params: {
             '/sandbox',
             'node:22-alpine',
             'node',
+            ...safeNodeArgs,
             '/sandbox/candidate.mjs',
           ],
-          { encoding: 'utf8', timeout: timeoutMs }
+          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 512 * 1024 }
         );
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
@@ -154,30 +158,35 @@ export function runInSupervisorSandbox(params: {
             '--unshare-net',
             '--die-with-parent',
             process.execPath,
+            ...safeNodeArgs,
             candidateFile,
           ],
-          { encoding: 'utf8', timeout: timeoutMs, env: strippedEnv }
+          { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL', env: strippedEnv, maxBuffer: 512 * 1024 }
         );
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
       } else if (backend === 'unshare_net_sandbox') {
-        const res = spawnSync('unshare', ['-rn', process.execPath, candidateFile], {
+        const res = spawnSync('unshare', ['-rn', process.execPath, ...safeNodeArgs, candidateFile], {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
+          killSignal: 'SIGKILL',
           env: strippedEnv,
+          maxBuffer: 512 * 1024,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';
         stderr = res.stderr ?? '';
       } else {
         isolationMode = 'isolated_tmpfs_subprocess';
-        const res = spawnSync(process.execPath, [candidateFile], {
+        const res = spawnSync(process.execPath, [...safeNodeArgs, candidateFile], {
           cwd: sandboxDir,
           encoding: 'utf8',
           timeout: timeoutMs,
+          killSignal: 'SIGKILL',
           env: strippedEnv,
+          maxBuffer: 512 * 1024,
         });
         exitCode = res.status ?? 1;
         stdout = res.stdout ?? '';

@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -52,8 +52,9 @@ import {
 import {
   assertHostPermission,
   detectDestructiveOperation,
+  parseSafeAllowlistedHostCommand,
   requireDestructiveApproval,
-  shouldRequireApproval,
+  shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
 import { assertNotForbiddenModificationZone } from '../selfmod/gitGuard';
 import { createAndValidateSkill } from '../skills/loader';
@@ -192,25 +193,60 @@ export async function executeAgentTool(params: {
       }
 
       assertHostPermission(`exec:${command}`, agent.id);
+      const safeCmd = parseSafeAllowlistedHostCommand(command);
+      if (safeCmd.allowed) {
+        const out = execFileSync(safeCmd.bin, safeCmd.args, {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          timeout: 12000,
+          shell: false,
+        });
+        appendAuditLog({
+          type: 'action',
+          sourceAgentId: agent.id,
+          sourceAgentName: agent.name,
+          message: `Tool exec_shell (allowlist, shell:false) végrehajtva: ${safeCmd.bin} ${safeCmd.args.join(' ')}`,
+          verifiedExecution: true,
+        });
+        return {
+          step: { tool: 'exec_shell', args: { command }, ok: true, sandboxed: false, outputPreview: out.slice(0, 240) },
+          observation: out.slice(0, 3000) || '(üres kimenet)',
+        };
+      }
+
       const destructive = detectDestructiveOperation(command);
-      if (destructive.isDestructive && destructive.type && destructive.title && shouldRequireApproval()) {
-        const req = requireDestructiveApproval(destructive.type, destructive.title, command, agent.name);
+      if (shouldRequireDangerousExecApproval()) {
+        const actionType = destructive.type || 'destructive_shell';
+        const actionTitle = destructive.title || `Nem engedélylistás parancs futtatása (${safeCmd.reason})`;
+        const req = requireDestructiveApproval(actionType, actionTitle, command, agent.name);
         void import('../telegram/bot')
           .then((m) => m.notifyApprovalToTelegram(req))
           .catch(() => {});
-        const msg = `Jóváhagyási sorba téve (${req.id}): ${destructive.title}`;
+        const msg = `Jóváhagyási sorba téve (${req.id}): ${actionTitle}`;
         return {
           step: { tool: 'exec_shell', args: { command }, ok: false, sandboxed: false, outputPreview: msg },
           observation: msg,
         };
       }
 
-      const out = execSync(command, { cwd: process.cwd(), encoding: 'utf8', timeout: 12000 });
+      appendAuditLog({
+        type: 'security',
+        sourceAgentId: agent.id,
+        sourceAgentName: agent.name,
+        message: `[VESZÉLYES ZÓNA] Jóváhagyás nélküli exec_shell végrehajtás: ${command}`,
+        verifiedExecution: true,
+      });
+      const out = execFileSync('sh', ['-c', command], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 12000,
+        shell: false,
+      });
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Tool exec_shell végrehajtva: ${command}`,
+        message: `Tool exec_shell (Veszélyes Zóna) végrehajtva: ${command}`,
         verifiedExecution: true,
       });
       return {

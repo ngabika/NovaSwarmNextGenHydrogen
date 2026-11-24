@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import express from 'express';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { createOpenAiProxyRouter } from '../server/gateway/openaiProxy';
 import {
@@ -17,7 +20,12 @@ import {
 } from '../server/power/batch4OmniStudio';
 import { scanLanOpenPorts } from '../server/power/batch7UniverseEngine';
 import { createApiRouter } from '../server/routes/api';
-import { isLoopbackIp, verifySameOriginRequest } from '../server/security/auth';
+import {
+  ensureOneTimeSetupCode,
+  isLoopbackIp,
+  resetAuthSecurityStateForTests,
+  verifySameOriginRequest,
+} from '../server/security/auth';
 import {
   validateSafeOutboundUrl,
   validateSafeOutboundUrlAsync,
@@ -108,6 +116,11 @@ test('Audit Fix 4: API CSRF protection, weak password rejection, onboarding lock
   initial.settings.webAuthEnabled = false;
   resetInMemoryStateForTests(initial);
 
+  const tmpSetupLog = path.join(os.tmpdir(), `novaswarm-setup-a4-${process.pid}-${Date.now()}.log`);
+  process.env.NOVASWARM_SETUP_LOG_PATH = tmpSetupLog;
+  resetAuthSecurityStateForTests();
+  const setupCode = ensureOneTimeSetupCode();
+
   const { server, baseUrl } = await startTestServer((app) => {
     app.use('/api', createApiRouter(() => {}));
     app.use('/v1', createOpenAiProxyRouter(() => {}));
@@ -133,11 +146,11 @@ test('Audit Fix 4: API CSRF protection, weak password rejection, onboarding lock
     });
     assert.equal(onbRes.status, 403);
 
-    // 3. Password endpoint rejects weak password (<8 chars)
+    // 3. Password endpoint rejects weak password (<8 chars) once valid setupCode is supplied
     const weakPwRes = await fetch(`${baseUrl}/api/auth/password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: '123', enable: true }),
+      body: JSON.stringify({ password: '123', setupCode, enable: true }),
     });
     assert.equal(weakPwRes.status, 400);
 
@@ -183,6 +196,9 @@ test('Audit Fix 4: API CSRF protection, weak password rejection, onboarding lock
     });
     assert.equal(fedBadTokenRes.status, 403);
   } finally {
+    delete process.env.NOVASWARM_SETUP_LOG_PATH;
+    if (fs.existsSync(tmpSetupLog)) fs.rmSync(tmpSetupLog, { force: true });
+    resetAuthSecurityStateForTests();
     server.close();
   }
 });
