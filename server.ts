@@ -20,7 +20,13 @@ import {
   resolveApiMockRequest,
 } from './server/power/batch4OmniStudio';
 import { checkWatchedPages } from './server/power/universalSuite';
-import { checkOllamaIdleUnload, discoverModels } from './server/providers/router';
+import {
+  checkOllamaIdleUnload,
+  discoverModels,
+  listInstalledOllamaModelsViaRouter,
+  processLlmRequestQueueTick,
+  pullOllamaModelViaRouter,
+} from './server/providers/router';
 import { createApiRouter } from './server/routes/api';
 import {
   ensureOneTimeSetupCode,
@@ -37,6 +43,14 @@ import {
   createSelectiveJsonBodyMiddleware,
 } from './server/security/rateLimit';
 import { expireStaleApprovals } from './server/security/permissionGate';
+import {
+  flushDailyExceptionDigest,
+  isSystemLockedDown,
+} from './server/security/totalAutonomy';
+import {
+  buildOrRefreshWorldModel,
+  runWeeklySelfEvaluationBenchmark,
+} from './server/agents/autonomyOrchestrator';
 import { closeSqliteWal, runSqliteMaintenance } from './server/state/sqliteWal';
 import { getState, pruneRetentionData, updateState } from './server/state/store';
 import {
@@ -337,7 +351,7 @@ async function bootstrap() {
   // Idle Dreaming + Autonomous Kanban Backlog Worker scheduler
   setInterval(() => {
     const s = getState();
-    if (!s.settings.onboardingCompleted || s.settings.killSwitchActive) return;
+    if (!s.settings.onboardingCompleted || isSystemLockedDown()) return;
     if (s.activeExplicitTaskAgentId) return;
     const idleMs = Date.now() - Date.parse(s.lastActivityAt);
     const thresholdMs = Math.max(1, s.settings.dreamingIdleMinutes) * 60_000;
@@ -359,7 +373,7 @@ async function bootstrap() {
   // Autonomous Heartbeat & Uptime scheduler
   setInterval(() => {
     const s = getState();
-    if (!s.settings.onboardingCompleted || s.settings.killSwitchActive || !s.settings.heartbeatEnabled) return;
+    if (!s.settings.onboardingCompleted || isSystemLockedDown() || !s.settings.heartbeatEnabled) return;
     if (s.activeExplicitTaskAgentId) return; // Explicit user instruction takes priority
     const hw = collectHardwareMetrics();
     if (hw.throttledReason) return;
@@ -373,21 +387,21 @@ async function bootstrap() {
     }
   }, 60_000);
 
-  // Weekly automatic model discovery refresh
+  // Daily automatic model discovery refresh (24h)
   setInterval(() => {
     const s = getState();
     const last = s.settings.lastModelDiscoveryAt ? Date.parse(s.settings.lastModelDiscoveryAt) : 0;
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    if (Date.now() - last >= sevenDaysMs) {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - last >= oneDayMs) {
       void discoverModels().then(() => broadcastEvent('state:updated'));
     }
-  }, 6 * 60 * 60 * 1000);
+  }, 60 * 60 * 1000);
 
   // GitHub Automatic OTA Update scheduler
   let lastAutoOtaCheckMs = 0;
   setInterval(() => {
     const s = getState();
-    if (!s.settings.autoUpdateEnabled || s.settings.killSwitchActive) return;
+    if (!s.settings.autoUpdateEnabled || isSystemLockedDown()) return;
     const intervalMs = Math.max(1, s.settings.autoUpdateCheckHours || 6) * 3_600_000;
     if (Date.now() - lastAutoOtaCheckMs < intervalMs) return;
     lastAutoOtaCheckMs = Date.now();
@@ -428,7 +442,7 @@ async function bootstrap() {
       }
     }
 
-    if (!s.settings.killSwitchActive && s.settings.onboardingCompleted) {
+    if (!isSystemLockedDown() && s.settings.onboardingCompleted) {
       for (const wf of s.workflows) {
         if (!wf.enabled || wf.triggerType !== 'cron') continue;
         const everyMins = Number(wf.triggerConfig);
@@ -485,7 +499,7 @@ async function bootstrap() {
     });
 
     // Proactive Morning/Evening Brief + Email Triage minute check
-    if (s.settings.onboardingCompleted && !s.settings.killSwitchActive) {
+    if (s.settings.onboardingCompleted && !isSystemLockedDown()) {
       const nowD = new Date();
       const hhmm = `${String(nowD.getHours()).padStart(2, '0')}:${String(nowD.getMinutes()).padStart(2, '0')}`;
       const todayPrefix = nowD.toISOString().slice(0, 10);
@@ -519,7 +533,7 @@ async function bootstrap() {
   // M18 Bidirectional Discord/Slack Polling, Batch 6 Smart Reminders & Batch 7 Countdown Timers (every 25s)
   setInterval(() => {
     const s = getState();
-    if (!s.settings.killSwitchActive) {
+    if (!isSystemLockedDown()) {
       void processDueSmartReminders().then((rem) => {
         if (rem.firedCount > 0) broadcastEvent('state:updated');
       });
@@ -535,17 +549,49 @@ async function bootstrap() {
         broadcastEvent('state:updated');
       }
     }
-    if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
+    if (!isSystemLockedDown()) {
+      void processLlmRequestQueueTick().then((qOut) => {
+        if (qOut.completed > 0) broadcastEvent('state:updated');
+      });
+    }
+    if (isSystemLockedDown() || !s.settings.onboardingCompleted) return;
     if (!s.channelConnectors.some((c) => c.enabled && c.pollingEnabled)) return;
     void pollExternalChannels().then((r) => {
       if (r.processed > 0) broadcastEvent('state:updated');
     });
   }, 25_000);
 
-  // Ú61 Night Shift Scheduler & M156 Retention Pruner
+  // Retry deferred offline Ollama pulls periodically when Ollama & internet return
+  setInterval(() => {
+    const pending = getState().settings.ollamaPendingPullModels || [];
+    if (pending.length === 0) return;
+    void (async () => {
+      const probe = await listInstalledOllamaModelsViaRouter();
+      if (!probe.reachable) return;
+      const fulfilled: string[] = [];
+      for (const m of pending) {
+        if (probe.models.some((x) => x.name === m || x.name.startsWith(`${m}:`))) {
+          fulfilled.push(m);
+          continue;
+        }
+        const pulled = await pullOllamaModelViaRouter(m);
+        if (pulled.ok) fulfilled.push(m);
+      }
+      if (fulfilled.length > 0) {
+        updateState((draft) => {
+          draft.settings.ollamaPendingPullModels = (draft.settings.ollamaPendingPullModels || []).filter(
+            (x) => !fulfilled.includes(x)
+          );
+        });
+        broadcastEvent('state:updated');
+      }
+    })();
+  }, 15 * 60_000);
+
+  // Ú61 Night Shift Scheduler, M156 Retention Pruner, Total Autonomy Exception Digest & Weekly Benchmark
   setInterval(() => {
     const s = getState();
-    if (s.settings.killSwitchActive || !s.settings.onboardingCompleted) return;
+    if (isSystemLockedDown() || !s.settings.onboardingCompleted) return;
     if (s.settings.nightShiftEnabled && !s.activeExplicitTaskAgentId) {
       const lastNs = s.settings.lastNightShiftAt ? Date.parse(s.settings.lastNightShiftAt) : 0;
       const intervalMs = Math.max(15, s.settings.nightShiftIntervalMinutes || 180) * 60_000;
@@ -567,6 +613,18 @@ async function bootstrap() {
       // non-fatal
     }
     void maybeSendDailyAuditAnchorToTelegram().catch(() => {});
+    if (s.settings.totalAutonomyEnabled) {
+      const summaryHour = s.settings.exceptionTelegramSummaryHour ?? 20;
+      if (new Date().getHours() >= summaryHour) {
+        void flushDailyExceptionDigest().catch(() => {});
+      }
+      buildOrRefreshWorldModel();
+      const latestEval = (s.weeklyEvaluations || [])[0];
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      if (!latestEval || Date.now() - Date.parse(latestEval.createdAt) >= weekMs) {
+        void runWeeklySelfEvaluationBenchmark().catch(() => {});
+      }
+    }
     try {
       runSqliteMaintenance();
     } catch {

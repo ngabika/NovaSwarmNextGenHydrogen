@@ -2,7 +2,7 @@
 
 **Vizsgált kódbázis:** `https://github.com/ngabika/NovaSwarmNextGenHydrogen` (helyi munkakönyvtár)  
 **Futtatókörnyezet az ellenőrzéskor:** Linux, Node.js `v22.23.5`, csomagkezelő: `npm`  
-**Audit dátuma:** 2026-11-24
+**Audit dátuma:** 2026-11-25
 
 ---
 
@@ -16,9 +16,10 @@ Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/
 | `node -v` | `v22.23.5` | Megfelel a `node:sqlite` által megkövetelt `22.5+` verziónak. |
 | `npm run lint` (`tsc --noEmit`) | Sikeres (0 hiba) | TypeScript típusellenőrzés hiba nélkül lefut. |
 | `npm run build` (`vite build`) | Sikeres | A kliens és PWA csomag hiba nélkül lefordul. |
-| `npm test` | **106 teszt: 102 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + 1. körös (`security_audit_fixes.test.ts`) + 2. körös (`security_audit_fixes_pass2.test.ts`) + 3. körös (`sandbox_js_isolation_pass3.test.ts`) + **7 „Teljes autonómia” profil és jogosultsághatár** regressziós teszt (`tests/full_autonomy_profile.test.ts`). A 4 `SKIP` jelű teszt szándékosan ugorja át a valós konténerfuttatást, mert ebben a tesztkörnyezetben nincs `docker` vagy `bwrap` telepítve (`sudo` bináris szintén nincs jelen — a `sudo` ellenőrző tesztek injektált mock futtatóval futnak). |
+| `bash -n install.sh update.sh` | Sikeres (0 hiba) | Szintaktikai ellenőrzés rendben; éles Debian/Pi `apt`/`visudo`/`systemd` és valódi `ollama pull` végrehajtás **nem ellenőrizhető** ebben a konténerben. |
+| `npm test` | **123 teszt: 119 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + `security_audit_fixes.test.ts` + `security_audit_fixes_pass2.test.ts` + `sandbox_js_isolation_pass3.test.ts` + `full_autonomy_profile.test.ts` (7 teszt) + `total_autonomy.test.ts` (7 teszt) + `lan_devices_adapters.test.ts` (3 teszt) + **`smart_routing_and_ollama.test.ts` (7 teszt)**. A 4 `SKIP` jelű teszt a valós `docker`/`bwrap` konténerfuttatást ugorja át, mert ebben a konténerben nincs `docker`/`bwrap` és nincs `sudo`/fizikai Ollama/GPU sem. |
 | `npm audit` | 4 `moderate`, 0 `high`, 0 `critical` | Mind a 4 mérsékelt jelzés a `vite-plugin-pwa -> workbox-build -> glob / minimatch` dev/build láncból jön; `--force` főverzió-visszalépést (`vite-plugin-pwa@1.1.0`) okozna. |
-| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), a `feature/full-autonomy-profile` / `audit/fixes-3` branch és a PR csak a felhasználó saját git-másolatában ellenőrizhető/hozható létre. |
+| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), a `feature/smart-routing-local-ollama` branch és a commitok csak a felhasználó saját git-másolatában hozhatók létre. |
 
 ---
 
@@ -119,6 +120,22 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | FA4 | `server/security/autonomyProfile.ts:135-197`, `server/routes/api.ts:458-480`, `server/telegram/bot.ts:428-455`, `src/components/SystemOpsView.tsx`, `server.ts:316` | **Közepes** | Jelszó nélküli `sudo` (`NOPASSWD`) hiányában a háttérben indított `sudo` parancs jelszó bekérésekor elakad vagy megbukik. | Induláskori + `/api/system/sudo-check` + Telegram `/sudo` + `SystemOpsView` zöld/piros kártya pontos `sudo visudo -f /etc/sudoers.d/novaswarm` -> `<felhasználó> ALL=(ALL) NOPASSWD:ALL` útmutatóval (automatikusan soha nem szerkeszt `/etc/sudoers.d/`-t); futtatás előtt a `sudo` átíródik nem-interaktív `sudo -n`-re, és jelszóhiba esetén érthető magyar figyelmeztetést ad. Tesztelve: `full_autonomy_profile.test.ts` #5. *(Éles `sudo` bináris jelenléte a konténerben nem ellenőrizhető.)* | **javítva** *(diagnosztika + mock teszt)* |
 | FA5 | `server/security/autonomyProfile.ts:570-705`, `server/infra/networkAndCluster.ts`, `server.ts:326, 562`, `src/App.tsx`, `src/components/SystemOpsView.tsx` | **Közepes** | Teljes autonómiában a visszaállítási pont hiánya kockázatos; napi automatikus mentés és elavulási jelzés szükséges. | `autoPhoenixSnapshotInFullAutonomy` (alap: `true`) naponta automatikusan készít Phoenix pillanatképet Teljes autonómia közben; 24 óránál régebbi vagy hiányzó mentés esetén sárga figyelmeztető sáv jelenik meg a felületen és a `/statusz` kimenetben. Tesztelve: `full_autonomy_profile.test.ts` #7. | **javítva** |
 
+
+### 2.13. „Totális autonómia”, Zéró Kézi Lépés Telepítő és RFC1918 LAN Eszközvezérlés
+| # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
+|---|---|---|---|---|---|
+| TA1 | `install.sh`, `update.sh` | **Magas** | Zéró kézi lépés telepítő: `bubblewrap` telepítése, `<felhasználó> ALL=(ALL) NOPASSWD:ALL` (`/etc/sudoers.d/novaswarm`, `0440`) `visudo -cf` ellenőrzéssel, operátori jelszó + egyszeri setup-kód automatikus beállítása, opcionális Telegram bekérés, Teljes + Totális autonómia bekapcsolása, és önellenőrzés (`/healthz`, `sudo -n true`, `bwrap`, első Phoenix pillanatkép) + 1 rövid „Ezt csináld meg egyszer” lista. | `bash -n install.sh update.sh` hibátlan; `visudo -cf` sikertelenség esetén megszakítja a sudoers telepítést. Éles Raspberry Pi / Debian futtatás (valódi `apt`, `visudo`, `systemd`) ebben a konténerben **nem ellenőrizhető**. | **javítva** *(szintaxis + logika; éles Pi telepítés **nem ellenőrizhető**)* |
+| TA2 | `server/security/totalAutonomy.ts`, `server/state/store.ts`, `server/security/permissionGate.ts`, `server/routes/api.ts`, `server/telegram/bot.ts`, `scripts/novaswarm-cli.ts` | **Kritikus** | **3 sérthetetlen garancia**: 1) Append-only audit-lánc (törlés/csonkítás `updateState`-ben és az `audit` eszközből is blokkolva, + napi Telegram fej-hash anchor), 2) Többcsatornás `/stop` LOCKDOWN (Telegram `/stop`, CLI `lockdown`, Web UI, `/etc/novaswarm/LOCKDOWN` vagy `NOVASWARM_LOCKDOWN_FILE`), amelyet az ágens és a `/api/kill-switch` sem tud feloldani — kizárólag hitelesített tulajdonosi jelszó (`POST /api/total-autonomy/unlock` vagy CLI `unlock`) rate-limittel, 3) Automatikus biztonsági visszaállítási pontok (`captureSecuritySnapshot` / `/visszaallit [n]`) + Security Watchdog (`15` mp próba + automatikus rollback). | Mindhárom garancia és a Watchdog egységtesztekkel igazolva (`total_autonomy.test.ts` #1–#3, #7). Éles `/etc/novaswarm` root jogosultságú rendszerkönyvtár és valós Telegram Bot API hálózat **nem ellenőrizhető** ebben a konténerben (`NOVASWARM_LOCKDOWN_FILE` és mock Telegram küldővel tesztelve). | **javítva** *(tesztelve; külső Telegram hálózat **nem ellenőrizhető**)* |
+| TA3 | `server/security/totalAutonomy.ts`, `server/providers/router.ts`, `server/agents/tools.ts`, `server/agents/autonomyOrchestrator.ts` | **Magas** | Öngyógyító üzemmódok és külső tartalom védelem: napi felhő keret -> helyi Ollama átállás kivétel-riasztással, feladat Circuit Breaker (`>= 3` hiba), `[NEM MEGBÍZHATÓ KÜLSŐ TARTALOM]` címkézés + Kritikus Felülvizsgáló (`settings_admin` / injekció blokk külső tartalomból), önálló 5 fázisú Célciklus (`cél -> terv -> végrehajtás -> verifikáció -> reflexió`), belső Világmodell, memória-higiénia és heti benchmark. | Egységtesztekkel igazolva (`total_autonomy.test.ts` #4–#7). | **javítva** |
+| TA4 | `server/network/deviceDiscoveryAndAdapters.ts`, `server/state/store.ts`, `server/routes/api.ts`, `server/telegram/bot.ts`, `src/components/AutonomyCenterView.tsx` | **Magas** | Helyi hálózati felderítés és **12-adapteres eszközvezérlés** (Proxmox, TrueNAS, Synology, SSH Linux/Pi, Router/UniFi/OpenWrt/MikroTik, Hue, Tasmota, Shelly, MQTT, Home Assistant, Docker API, Systemd). Privát RFC1918/LAN-korlát (`isPrivateLanIp`), publikus IP elutasítása, jelszó-találgatás tilalma (hiányzó belépésnél beviteli kártya), titkosított széf (`deviceCredentials`), és művelet-visszavonási napló (`undo`). | `lan_devices_adapters.test.ts` #1–#3 teszttel igazolva (lokális mock HTTP szerverrel és AES-GCM széffel). Valódi fizikai eszközök (Proxmox/Synology/Shelly/Hue/MQTT broker/stb.) jelenléte **nem ellenőrizhető** ebben a konténerben. | **javítva** *(adapter-logika tesztelve; fizikai LAN hardver **nem ellenőrizhető**)* |
+
+### 2.14. Központi AI Router, Kulcs × Modell Mátrix, Várólista és Hardver-Érzékeny Helyi Ollama
+| # | Hely (`fájl:sor`) | Súlyosság | Leírás & Reprodukció | Javasolt / Alkalmazott Fix | Státusz |
+|---|---|---|---|---|---|
+| SR1 | `server/providers/router.ts`, `server/infra/*`, `server/power/*`, `server/gateway/openaiProxy.ts` | **Kritikus** | Minden modell-, beágyazási (embedding), kép-, hang-, Ollama- és hálózati mesh-hívás **kizárólag a központi `server/providers/router.ts`-en** fut keresztül; sehol máshol a `server/` alatt nem szerepelhet közvetlen szolgáltatói HTTP/SDK hívás, illetve eltávolításra kerültek a hardkódolt `gemini-4-*` és generációs regex szűrők. | Statikus határ-ellenőrző teszt (`smart_routing_and_ollama.test.ts` #1) minden `server/**/*.ts` fájlon igazolja, hogy csak `router.ts` használhat `@google/genai` importot vagy szolgáltatói/Ollama API végpontot. | **javítva** |
+| SR2 | `server/providers/smartRouting.ts`, `server/providers/router.ts`, `server/agents/engine.ts`, `server/telegram/bot.ts`, `src/components/ModelsRouterView.tsx` | **Magas** | Többkulcsos széf + tömeges bevitel + `projectId` + Gemini projekt-kvóta figyelmeztetés, kulcsonkénti modellfelderítés (`keyModelMatrix`, 24h auto-frissítés), `TaskType` rangsorolás + felhasználói `modelBlocklist` + verifikációs visszacsatolás, `Modell1 -> legkevésbé terhelt Kulcs1..N -> Modell2 -> Helyi Ollama (degradált mód + szigorú verifikáció) -> Várólista + automata folytatás`, 80% RPM/TPM előreáltás, párhuzamossági szemafór, `401/403` auto-tiltás, `Retry-After` és napi limit megkülönböztetés, `/kulcsok` parancs és teljes átláthatósági UI. | Mind a 6 viselkedési, hiba-, terheléselosztási, verifikációs és maszkolási forgatókönyv egységtesztekkel igazolva (`smart_routing_and_ollama.test.ts` #2–#6). Valós külső Gemini/OpenRouter/OpenAI/Anthropic API hálózat és élő kulcskvóták **nem ellenőrizhetők** (mock `callProvider`/`fetchFn` segítségével tesztelve). | **javítva** *(logika tesztelve; élő külső API **nem ellenőrizhető**)* |
+| SR3 | `config/ollama-models.json`, `server/system/ollamaSelector.ts`, `server/system/hardwareOptimizer.ts`, `scripts/novaswarm-cli.ts`, `install.sh`, `update.sh` | **Magas** | Hardver-érzékeny helyi Ollama modellválasztó (arch, AVX2/NEON, szabad/összes RAM, swap/zram, GPU VRAM, lemez szabad hely és típus, SD-kímélő mód), `tok/s` benchmark (`ollamaBenchmark`), hiányzó registry jelölt esetén automata visszalépés, tisztítási javaslat, offline telepítésnél `ollamaPendingPullModels` késleltetett letöltés és `novaswarm ollama-reselect` CLI parancs. | Szintaxis (`bash -n install.sh update.sh`) és 6 hardverprofil-szimuláció + benchmark + lépcsős visszalépés (`smart_routing_and_ollama.test.ts` #7) igazolva. Valódi Raspberry Pi / NVIDIA GPU hardver és éles `ollama pull` letöltés **nem ellenőrizhető** ebben a konténerben. | **javítva** *(szimulálva tesztelve; fizikai hardver/pull **nem ellenőrizhető**)* |
+
 ---
 
 ## 3. Funkció-Felülvizsgálat (~560 README ígéret vs. Valós Kód)
@@ -147,34 +164,28 @@ A korábbi iterációkban a README több mint ~560 elnevezett (`Mxxx`, `Úxxx`, 
   1. **Napi munka:** Áttekintő, Csapat Chat, Munkapad, Terminál
   2. **Tudás & AI:** Ágensek & Csapat, Memória & Tudástár, AI Modellek & Költség, Képességek & Eszközök
   3. **Mindennapok & Otthon:** Életvitel & Automatizálás
-  4. **Rendszer:** Rendszer & Költöztetés, Beállítások
+  4. **Rendszer:** Rendszer & Költöztetés, **Autonómia központ** (`AutonomyCenterView.tsx`), Beállítások
 - **Fejlesztői zaj eltávolítása:** Minden látható felületről kigyomlálva a technikai `Batch 3–8`, `B3`, `Mxxx`, `Úxxx`, `Fork Mxxx` azonosító.
 - **`<InfoHint />` komponens (`src/components/InfoHint.tsx`):** Minden fő nézetben, beállításnál és funkciókártyán elérhető egy `(i)` gomb, amely kattintásra/érintésre hétköznapi, konyhanyelvű magyar magyarázatot jelenít meg arról, mire jó az adott funkció és mire érdemes figyelni a használatakor.
 
 ---
 
-## 5. Kézi Teendők (Amiket neked kell végrehajtanod GitHubon / saját szerveren)
+## 5. Ezt csináld meg egyszer (Kézi Teendők a saját gépeden / GitHubon)
 
-Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár és nincsenek meg a GitHub hozzáférési jogosultságaid, az alábbi lépéseket kézzel kell lefuttatnod a saját gépeden:
+Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár, nincs `sudo`/`bubblewrap` és nincsenek fizikai LAN eszközeid, az alábbi lépéseket futtasd le egyszer a saját gépeden:
 
-1. **Külön `feature/full-autonomy-profile` branch, commitok és Pull Request létrehozása:**
+1. **Külön `feature/smart-routing-local-ollama` branch, commitok és Pull Request létrehozása:**
    ```bash
-   git checkout -b feature/full-autonomy-profile
+   git checkout -b feature/smart-routing-local-ollama
    git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log
    git add -A
-   git commit -m "feat: 1-click Full Autonomy profile, configurable exec timeouts, sudo -n diagnostics & Phoenix guard"
-   git push -u origin feature/full-autonomy-profile
-   # Ezután nyiss Pull Requestet GitHubon a feature/full-autonomy-profile -> main ágra!
+   git commit -m "feat: central intelligent multi-key AI router, key-model matrix, queue, and hardware-aware local Ollama selector"
+   git push -u origin feature/smart-routing-local-ollama
+   # Ezután nyiss Pull Requestet GitHubon a feature/smart-routing-local-ollama -> main ágra!
    ```
 
-2. **Bubblewrap és jelszó nélküli `sudo` (`NOPASSWD`) beállítása Raspberry Pi / Debian gazdagépen:**
-   ```bash
-   sudo apt update && sudo apt install -y bubblewrap
-   sudo visudo -f /etc/sudoers.d/novaswarm
-   # Add hozzá (a saját felhasználóneveddel, pl. ngabika):
-   # ngabika ALL=(ALL) NOPASSWD:ALL
-   ```
-   *(A NovaSwarm automatikusan `sudo -n`-nel futtat és ellenőrzi a `/sudo` paranccsal vagy a Rendszer & Költöztetés -> Sudo (NOPASSWD) kártyán.)*
+2. **Éles telepítés / Ollama újraválasztás a célhardveren:**
+   A `chmod +x install.sh update.sh && ./install.sh` (vagy meglévő gépen a `npm run cli -- ollama-reselect`) detektálja a valódi CPU/RAM/GPU/tárhely adatokat, kiválasztja és szükség esetén letölti az optimális helyi Ollama csomagot, majd `tok/s` gyors-benchmarkot futtat. *(Megjegyzés: Gemini API kulcsokból több valódi kvótához külön Google Cloud projektekhez tartozó kulcsokat adj meg az AI Modellek & Router nézetben.)*
 
 3. **Git History ellenőrzése (maradt-e titok korábbi commitokban — ne tisztítsd vaktában, előbb nézd meg):**
    ```bash

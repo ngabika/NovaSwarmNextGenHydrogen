@@ -72,6 +72,9 @@ const TerminalView = lazy(() =>
 const WorkbenchView = lazy(() =>
   import('./components/WorkbenchView').then((m) => ({ default: m.WorkbenchView }))
 );
+const AutonomyCenterView = lazy(() =>
+  import('./components/AutonomyCenterView').then((m) => ({ default: m.AutonomyCenterView }))
+);
 
 type TabId =
   | 'overview'
@@ -84,6 +87,7 @@ type TabId =
   | 'ecosystem'
   | 'terminal'
   | 'system'
+  | 'autonomy'
   | 'settings';
 
 export default function App() {
@@ -216,6 +220,7 @@ export default function App() {
           a: 'agents',
           m: 'memory',
           r: 'system',
+          t: 'autonomy',
           s: 'settings',
         };
         const target = map[e.key.toLowerCase()];
@@ -557,6 +562,12 @@ export default function App() {
           hint: 'Biztonsági mentések, teljes gép-költöztetés másik gépre SSH-n, frissítések, szerver-diagnosztika és jóváhagyások.',
         },
         {
+          id: 'autonomy',
+          label: 'Autonómia központ',
+          icon: <Shield className="h-4 w-4 shrink-0" />,
+          hint: 'Totális autonómia garanciák, LOCKDOWN vészleállítás, biztonsági visszaállítási pontok, LAN felderítés/eszközvezérlés és döntési napló.',
+        },
+        {
           id: 'settings',
           label: tr(lang, 'navSettings'),
           icon: <SettingsIcon className="h-4 w-4 shrink-0" />,
@@ -850,17 +861,23 @@ export default function App() {
           </div>
         )}
 
-        {state.settings.fullAutonomyProfileEnabled && (
+        {(state.settings.totalAutonomyEnabled || state.settings.fullAutonomyProfileEnabled || state.settings.lockdownActive) && (
           <div
             role="alert"
-            className="bg-red-600 text-white border-b border-red-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+            className={`${
+              state.settings.lockdownActive ? 'bg-red-800 border-red-950' : 'bg-red-600 border-red-800'
+            } text-white border-b px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs`}
           >
             <span className="inline-flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              TELJES AUTONÓMIA PROFIL AKTÍV — az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat! Telegram engedélylista, Web jelszó és a /stop vészleállító továbbra is aktív.
+              {state.settings.lockdownActive
+                ? `VÉSZLEÁLLÍTÁS (LOCKDOWN) AKTÍV — minden autonóm futtatás zárolva! Feloldás csak a tulajdonos jelszavával.`
+                : state.settings.totalAutonomyEnabled
+                ? 'TOTÁLIS AUTONÓMIA AKTÍV — teljes önálló végrehajtás · A 3 sérthetetlen garancia (append-only audit, /stop LOCKDOWN, visszaállítási pontok) védve van.'
+                : 'TELJES AUTONÓMIA PROFIL AKTÍV — az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat! Telegram engedélylista, Web jelszó és a /stop vészleállító továbbra is aktív.'}
             </span>
             <div className="flex flex-wrap items-center gap-2">
-              {phoenixAutonomy?.staleWarning && (
+              {phoenixAutonomy?.staleWarning && !state.settings.lockdownActive && (
                 <button
                   type="button"
                   disabled={creatingPhoenixSnap}
@@ -873,17 +890,40 @@ export default function App() {
                       setCreatingPhoenixSnap(false);
                     }
                   }}
-                  className="px-2.5 py-1 text-[11px] font-semibold bg-amber-300 text-slate-950 rounded hover:bg-amber-200 disabled:opacity-60"
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-amber-300 text-slate-950 rounded hover:bg-amber-200 disabled:opacity-60 whitespace-nowrap"
                 >
                   {creatingPhoenixSnap ? 'Mentés...' : 'Phoenix Mentés (>24h!)'}
                 </button>
               )}
+              {!state.settings.lockdownActive && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch('/api/total-autonomy/lockdown', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ reason: 'Felső figyelmeztető sáv vészleállítás' }),
+                    });
+                    await fetchState();
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-red-950 text-white rounded hover:bg-black whitespace-nowrap"
+                >
+                  Vészleállítás (/stop)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('autonomy')}
+                className="px-2.5 py-1 text-[11px] font-semibold bg-white text-red-700 rounded hover:bg-red-50 whitespace-nowrap"
+              >
+                Autonómia központ
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('settings')}
-                className="px-2.5 py-1 text-[11px] font-semibold bg-white text-red-700 rounded hover:bg-red-50"
+                className="px-2.5 py-1 text-[11px] font-semibold bg-red-700/80 text-white border border-red-400 rounded hover:bg-red-700 whitespace-nowrap"
               >
-                Profil kezelése
+                Beállítások
               </button>
             </div>
           </div>
@@ -971,6 +1011,9 @@ export default function App() {
                 language={lang}
                 settings={state.settings}
                 discoveredModels={state.discoveredModels}
+                keyModelMatrix={state.keyModelMatrix || []}
+                routedCallLogs={state.routedCallLogs || []}
+                queuedLlmRequests={state.queuedLlmRequests || []}
                 quotas={state.quotas}
                 virtualKeys={state.virtualKeys}
                 gatewayAnalytics={state.gatewayAnalytics}
@@ -1025,6 +1068,9 @@ export default function App() {
                 phoenixAutonomy={phoenixAutonomy}
                 onRefreshState={fetchState}
               />
+            )}
+            {activeTab === 'autonomy' && (
+              <AutonomyCenterView onRefreshState={fetchState} />
             )}
             {activeTab === 'settings' && (
               <SettingsView

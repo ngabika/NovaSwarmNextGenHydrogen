@@ -10,6 +10,15 @@
  *   novaswarm doctor
  *   novaswarm backup
  */
+import {
+  activateEmergencyLockdown,
+  getTotalAutonomySummary,
+  restoreSecuritySnapshot,
+  unlockEmergencyLockdown,
+} from '../server/security/totalAutonomy';
+import { getState } from '../server/state/store';
+import { reselectOllamaSuite } from '../server/system/ollamaSelector';
+
 const BASE_URL = (process.env.NOVASWARM_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 const TOKEN = process.env.NOVASWARM_API_TOKEN || '';
 
@@ -32,6 +41,63 @@ async function callApi<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: u
 async function main() {
   const [, , cmd = 'help', ...rest] = process.argv;
   const argText = rest.join(' ').trim();
+
+  if (cmd === 'lockdown') {
+    const reason = argText || 'CLI vészleállítás';
+    getState();
+    const localRes = await activateEmergencyLockdown('cli', reason);
+    try {
+      await callApi('/api/total-autonomy/lockdown', 'POST', { reason });
+    } catch {
+      // Server might be down or auth-protected; local state + lockfile already written
+    }
+    console.log(
+      `🛑 VÉSZLEÁLLÍTÁS AKTIVÁLVA (CLI). Zárfájl: ${localRes.lockfilePath || 'állapotfájl'} | Megállított folyamatok: ${localRes.terminatedProcesses}`
+    );
+    return;
+  }
+
+  if (cmd === 'unlock') {
+    const password = argText || process.env.NOVASWARM_PASSWORD || '';
+    getState();
+    const localRes = await unlockEmergencyLockdown({ password, actorLabel: 'cli-unlock' });
+    if (!localRes.ok) {
+      throw new Error(localRes.error || 'Vészleállítás feloldása sikertelen.');
+    }
+    try {
+      await callApi('/api/total-autonomy/unlock', 'POST', { password });
+    } catch {
+      // ignore if server not running
+    }
+    console.log('✅ Vészleállítás (LOCKDOWN) feloldva hitelesített tulajdonosi jelszóval.');
+    return;
+  }
+
+  if (cmd === 'restore-security') {
+    const steps = Math.max(1, Number(rest[0] || 1) || 1);
+    getState();
+    const localRes = restoreSecuritySnapshot(steps, 'cli');
+    try {
+      await callApi('/api/total-autonomy/restore', 'POST', { stepsBack: steps });
+    } catch {
+      // ignore if server offline or unreachable
+    }
+    if (!localRes.ok) {
+      throw new Error(localRes.message);
+    }
+    console.log(`♻️ ${localRes.message}`);
+    return;
+  }
+
+  if (cmd === 'autonomy-status') {
+    getState();
+    const summary = getTotalAutonomySummary();
+    console.log(`Totális autonómia: ${summary.totalAutonomyEnabled ? 'AKTÍV' : 'KI'}`);
+    console.log(`Vészleállítás: ${summary.lockdownActive ? 'AKTÍV' : 'KI'}`);
+    console.log(`Audit lánc: ${summary.guarantees.appendOnlyAudit.chainValid ? 'ÉP' : 'SÉRÜLT'} (${summary.guarantees.appendOnlyAudit.entriesCount} sor)`);
+    console.log(`Biztonsági mentések: ${summary.guarantees.securityRestore.snapshotsCount} db`);
+    return;
+  }
 
   if (cmd === 'status') {
     const data = await callApi<{
@@ -117,8 +183,61 @@ async function main() {
     return;
   }
 
+  if (cmd === 'ollama-reselect') {
+    const noPull = rest.includes('--no-pull');
+    const noBench = rest.includes('--no-benchmark');
+    try {
+      const out = await callApi<{
+        hardware: { arch: string; cpuCores: number; ramTotalMb: number; ramFreeMb: number; gpuName: string; gpuVramMb: number; storageKind: string };
+        selection: {
+          tierLabel: string;
+          mainModel: string;
+          fastModel: string;
+          codeModel: string;
+          embeddingModel: string;
+          visionModel: string | null;
+          numCtx: number;
+          keepAlive: string;
+          singleModelMutex: boolean;
+          sdCardSparingMode: boolean;
+        };
+        cleanupSuggestions: string[];
+        pulledModels: string[];
+        pendingPullModels: string[];
+        benchmark?: { tokensPerSec: number; latencyMs: number } | null;
+      }>('/api/providers/ollama/reselect', 'POST', {
+        pullMissing: !noPull,
+        runBenchmark: !noBench,
+        checkRemoteRegistry: true,
+      });
+      console.log(`Hardver tier: ${out.selection.tierLabel} (${out.hardware.arch}, ${out.hardware.cpuCores} mag, ${out.hardware.ramFreeMb}/${out.hardware.ramTotalMb} MB RAM, GPU=${out.hardware.gpuName} ${out.hardware.gpuVramMb} MB, tároló=${out.hardware.storageKind})`);
+      console.log(`Kiválasztott modellek -> Fő: ${out.selection.mainModel} | Gyors: ${out.selection.fastModel} | Kód: ${out.selection.codeModel} | Embed: ${out.selection.embeddingModel}${out.selection.visionModel ? ` | Látás: ${out.selection.visionModel}` : ''}`);
+      console.log(`Hangolás -> num_ctx=${out.selection.numCtx} | keep_alive=${out.selection.keepAlive} | egy-modell mutex=${out.selection.singleModelMutex ? 'BE' : 'KI'} | Pi SD-kímélő=${out.selection.sdCardSparingMode ? 'BE' : 'KI'}`);
+      if (out.pulledModels.length > 0) console.log(`Letöltött modellek: ${out.pulledModels.join(', ')}`);
+      if (out.pendingPullModels.length > 0) console.log(`Függőben lévő letöltések (offline/később): ${out.pendingPullModels.join(', ')}`);
+      if (out.benchmark) console.log(`Benchmark: ${out.benchmark.tokensPerSec} tok/s (${out.benchmark.latencyMs}ms)`);
+      for (const s of out.cleanupSuggestions) console.log(`  [TAKARÍTÁS] ${s}`);
+      return;
+    } catch {
+      getState();
+      const out = await reselectOllamaSuite({
+        pullMissing: !noPull,
+        runBenchmark: !noBench,
+        checkRemoteRegistry: true,
+      });
+      console.log(`[Offline mód] Hardver tier: ${out.selection.tierLabel}`);
+      console.log(`Kiválasztott modellek -> Fő: ${out.selection.mainModel} | Gyors: ${out.selection.fastModel} | Kód: ${out.selection.codeModel} | Embed: ${out.selection.embeddingModel}`);
+      if (out.pendingPullModels.length > 0) console.log(`Függőben lévő letöltések: ${out.pendingPullModels.join(', ')}`);
+      if (out.benchmark) console.log(`Benchmark: ${out.benchmark.tokensPerSec} tok/s (${out.benchmark.latencyMs}ms)`);
+      for (const s of out.cleanupSuggestions) console.log(`  [TAKARÍTÁS] ${s}`);
+      return;
+    }
+  }
+
   console.log(`NovaSwarm CLI (Cél: ${BASE_URL})`);
-  console.log('Parancsok: status | ask "<szöveg>" | mission "<cél>" | kanban | weather [város] | doctor | backup');
+  console.log(
+    'Parancsok: status | autonomy-status | ollama-reselect | lockdown [ok] | unlock <jelszó> | restore-security [lépés] | ask "<szöveg>" | mission "<cél>" | kanban | weather [város] | doctor | backup'
+  );
 }
 
 main().catch((err) => {

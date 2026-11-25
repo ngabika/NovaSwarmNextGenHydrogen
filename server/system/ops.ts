@@ -1027,7 +1027,7 @@ export async function maybeSendDailyAuditAnchorToTelegram(
   const count = state.auditLogs.length;
 
   if (!opts?.force) {
-    if (!state.settings.sendAuditAnchorToTelegram) {
+    if (!state.settings.sendAuditAnchorToTelegram && !state.settings.totalAutonomyEnabled) {
       return { sent: false, headHash, count, reason: 'Kikapcsolva' };
     }
     if (state.settings.lastAuditAnchorSentDate === today) {

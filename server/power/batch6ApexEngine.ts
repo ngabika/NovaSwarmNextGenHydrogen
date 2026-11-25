@@ -12,7 +12,7 @@ import type {
 } from '../../shared/types';
 import { controlDockerContainer, listDockerContainers, scanLanDevices } from '../infra/hostAdmin';
 import { sendWakeOnLanPacket } from '../infra/networkAndCluster';
-import { invokeWithFailover, unloadOllamaModel } from '../providers/router';
+import { invokeMeshNodeViaRouter, invokeWithFailover, unloadOllamaModel } from '../providers/router';
 import { validateSafeOutboundUrl } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { flushTelemetryRingBuffer, runRamOomWatchdogTick } from '../system/hardwareOptimizer';
@@ -379,27 +379,18 @@ export async function dispatchSwarmMeshTask(
     nodeName = chosen.name;
     nodeUrl = chosen.ollamaUrl || chosen.url;
     try {
-      const targetUrl = chosen.ollamaUrl
-        ? `${chosen.ollamaUrl.replace(/\/+$/, '')}/api/generate`
-        : `${chosen.url.replace(/\/+$/, '')}/v1/chat/completions`;
-      const urlCheck = validateSafeOutboundUrl(targetUrl);
+      const urlCheck = validateSafeOutboundUrl(nodeUrl);
       if (!urlCheck.ok) throw new Error(urlCheck.reason || 'Tiltott mesh célpont URL.');
-      const body = chosen.ollamaUrl
-        ? JSON.stringify({ model: s.settings.ollamaModel, prompt, stream: false })
-        : JSON.stringify({ model: s.settings.ollamaModel, messages: [{ role: 'user', content: prompt }] });
-
-      const res = await fetchImpl(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as {
-        response?: string;
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      responsePreview = (json.response || json.choices?.[0]?.message?.content || JSON.stringify(json)).slice(0, 350);
+      const meshOut = await invokeMeshNodeViaRouter(
+        {
+          url: nodeUrl,
+          model: s.settings.ollamaModel,
+          prompt,
+          isOllamaUrl: Boolean(chosen.ollamaUrl),
+        },
+        fetchImpl
+      );
+      responsePreview = meshOut.text.slice(0, 350);
       status = 'ok';
     } catch (err) {
       responsePreview = `Távoli node hiba (${chosen.name}): ${err instanceof Error ? err.message : String(err)} — helyi fallback futtatva.`;

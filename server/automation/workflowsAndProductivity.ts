@@ -483,7 +483,7 @@ export function importSanitizedBundle(bundle: {
         role: ag.role || 'Specialista',
         parentAgentId: null,
         systemPrompt: ag.systemPrompt || 'Importált specialista ágens.',
-        modelId: ag.modelId || 'gemini-4-hydrogen',
+        modelId: ag.modelId || '',
         providerId: ag.providerId || s.settings.primaryProvider,
         webSearchEnabled: ag.webSearchEnabled ?? true,
         hostExecutionEnabled: false,

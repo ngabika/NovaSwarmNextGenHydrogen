@@ -57,10 +57,23 @@ import {
 import {
   assertHostPermission,
   detectDestructiveOperation,
+  KillSwitchActiveError,
   parseSafeAllowlistedHostCommand,
   requireDestructiveApproval,
   shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
+import {
+  applyAgentSettingsAdmin,
+  createSecuritySnapshot,
+  evaluateUntrustedActionGuard,
+  isSystemLockedDown,
+  runSecurityWatchdog,
+  tagUntrustedContent,
+} from '../security/totalAutonomy';
+import {
+  discoverLanDevicesSafe,
+  executeDeviceControl,
+} from '../network/deviceDiscoveryAndAdapters';
 import { assertNotForbiddenModificationZone } from '../selfmod/gitGuard';
 import { createAndValidateSkill } from '../skills/loader';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -125,6 +138,10 @@ Elérhető eszközök:
 34. hash_notarize: {"title": "...", "content": "..."} — SHA-256 dokumentum közjegyzői lenyomat rögzítése.
 35. cluster_status: {} — többgépes fürt és GPU Ollama csomópontok állapotának lekérdezése.
 36. omni_toolkit: {"mode": "decision_matrix|scenario|redteam|meeting_extract|sql_audit|infra_lint|stats|finance|unit_convert|tone_rewrite|blueprint|fact_save|fact_query|sanitize", ...} — 200+ képességű Omni-Asszisztens kognitív, elemző, pénzügyi, adatvédelmi és fejlesztői eszköztár.
+37. settings_admin: {"patch": {"...": "..."}, "reason": "..."} — Totális autonómia beállítás-kezelő (verziózott biztonsági mentéssel és automatikus Watchdog visszaállítással; a 3 sérthetetlen garancia nem gyengíthető).
+38. lan_discover: {"targets": ["192.168.1.1"]} — passzív/biztonságos privát RFC1918 LAN eszközfelderítés (ARP, mDNS, SSDP, OUI gyártó). Publikus IP/domain tiltva.
+39. device_control: {"deviceId": "...", "mode": "status|read|act", "action": "...", "params": {...}, "dryRun": false} — egységes 12-adapteres eszközvezérlés visszavonással (undo); hiányzó jelszó esetén sosem találgat, hanem a tulajdonost kérdezi.
+40. decision_log: {"query": "...", "limit": 10} — autonóm döntési napló lekérdezése indoklással és elvetett alternatívákkal.
 Ha már minden adat megvan a válaszadáshoz, válaszolj normál szöveggel (<tool_call> nélkül).`;
 
 export function buildDynamicToolsInstruction(): string {
@@ -173,11 +190,26 @@ export async function executeAgentTool(params: {
   toolName: string;
   args: Record<string, unknown>;
   isolationMode: SessionIsolationMode;
+  hasUntrustedContext?: boolean;
 }): Promise<{ step: ToolExecutionStep; observation: string; createdArtifactId?: string }> {
-  const { agent, toolName, args, isolationMode } = params;
+  const { agent, toolName, args, isolationMode, hasUntrustedContext = false } = params;
   const isSandboxed = isolationMode === 'sandboxed' || !agent.hostExecutionEnabled;
 
   try {
+    if (isSystemLockedDown()) {
+      throw new KillSwitchActiveError();
+    }
+
+    const untrustedCheck = evaluateUntrustedActionGuard({
+      hasUntrustedContext,
+      actionName: toolName,
+      actionArgsText: JSON.stringify(args || {}),
+      sourcePromptOrContext: '',
+    });
+    if (!untrustedCheck.allowed) {
+      throw new Error(untrustedCheck.reason || 'Kritikus Felülvizsgáló blokkolta a műveletet.');
+    }
+
     if (toolName === 'exec_shell') {
       const command = String(args.command || '').trim();
       if (!command) throw new Error('Parancs hiányzik.');
@@ -304,18 +336,20 @@ export async function executeAgentTool(params: {
       assertHostPermission(`write_file:${rel}`, agent.id);
       const cleanRel = assertNotForbiddenModificationZone(rel);
       const abs = path.resolve(process.cwd(), cleanRel);
+      const snap = createSecuritySnapshot(`write_file előtti mentés (${cleanRel})`, agent.id);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, content, 'utf8');
+      const wd = await runSecurityWatchdog({ snapshotId: snap.id, changeLabel: `write_file:${cleanRel}` });
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Tool write_file: ${cleanRel}`,
+        message: `Tool write_file: ${cleanRel} (Snapshot: ${snap.id}, Watchdog: ${wd.healthy ? 'OK' : 'ROLLBACK'})`,
         verifiedExecution: true,
       });
       return {
-        step: { tool: 'write_file', args: { path: cleanRel }, ok: true, sandboxed: false, outputPreview: `Written ${content.length} bytes` },
-        observation: `Sikeres fájlírás: ${cleanRel} (${content.length} bájt)`,
+        step: { tool: 'write_file', args: { path: cleanRel }, ok: wd.healthy, sandboxed: false, outputPreview: `Written ${content.length} bytes` },
+        observation: `Sikeres fájlírás: ${cleanRel} (${content.length} bájt). ${wd.message}`,
       };
     }
 
@@ -334,18 +368,20 @@ export async function executeAgentTool(params: {
       if (!original.includes(search)) {
         throw new Error(`A keresett szövegrészlet nem található a fájlban (${cleanRel}).`);
       }
+      const snap = createSecuritySnapshot(`patch_file előtti mentés (${cleanRel})`, agent.id);
       const next = original.replace(search, replace);
       fs.writeFileSync(abs, next, 'utf8');
+      const wd = await runSecurityWatchdog({ snapshotId: snap.id, changeLabel: `patch_file:${cleanRel}` });
       appendAuditLog({
         type: 'action',
         sourceAgentId: agent.id,
         sourceAgentName: agent.name,
-        message: `Tool patch_file: ${cleanRel}`,
+        message: `Tool patch_file: ${cleanRel} (Snapshot: ${snap.id}, Watchdog: ${wd.healthy ? 'OK' : 'ROLLBACK'})`,
         verifiedExecution: true,
       });
       return {
-        step: { tool: 'patch_file', args: { path: cleanRel }, ok: true, sandboxed: false, outputPreview: `Patched ${cleanRel}` },
-        observation: `Sikeres célzott fájl-patch: ${cleanRel}`,
+        step: { tool: 'patch_file', args: { path: cleanRel }, ok: wd.healthy, sandboxed: false, outputPreview: `Patched ${cleanRel}` },
+        observation: `Sikeres célzott fájl-patch: ${cleanRel}. ${wd.message}`,
       };
     }
 
@@ -371,7 +407,7 @@ export async function executeAgentTool(params: {
       });
       return {
         step: { tool: 'web_fetch', args: { url }, ok: res.ok, sandboxed: isSandboxed, outputPreview: parsed.text.slice(0, 180) },
-        observation: obs,
+        observation: tagUntrustedContent(`web_fetch:${url}`, obs),
       };
     }
 
@@ -393,7 +429,7 @@ export async function executeAgentTool(params: {
           sandboxed: isSandboxed,
           outputPreview: `${searchRes.results.length} találat (${searchRes.provider})`,
         },
-        observation: obs,
+        observation: tagUntrustedContent(`web_search:${query}`, obs),
       };
     }
 
@@ -782,7 +818,7 @@ export async function executeAgentTool(params: {
       });
       return {
         step: { tool: 'http_request', args: { method, url }, ok: res.status < 400, sandboxed: isSandboxed, outputPreview: `HTTP ${res.status} (${res.latencyMs}ms)` },
-        observation: `HTTP ${res.status} (${res.latencyMs}ms):\n${res.responseBody.slice(0, 3000)}`,
+        observation: tagUntrustedContent(`http:${url}`, `HTTP ${res.status} (${res.latencyMs}ms):\n${res.responseBody.slice(0, 3000)}`),
       };
     }
 
@@ -979,6 +1015,74 @@ export async function executeAgentTool(params: {
       return {
         step: { tool: 'omni_toolkit', args: { mode }, ok: true, sandboxed: isSandboxed, outputPreview: `${mode}: ${rendered.slice(0, 120)}` },
         observation: rendered.slice(0, 3500),
+      };
+    }
+
+    if (toolName === 'settings_admin') {
+      if (isSandboxed) throw new Error('Elszigetelt szálban a settings_admin eszköz tiltva.');
+      const patch = (args.patch && typeof args.patch === 'object' ? args.patch : {}) as Record<string, unknown>;
+      const reason = String(args.reason || 'Autonóm konfigurációs igazítás');
+      const rejected = Array.isArray(args.rejectedAlternatives) ? args.rejectedAlternatives.map(String) : undefined;
+      const res = await applyAgentSettingsAdmin({
+        agentId: agent.id,
+        agentName: agent.name,
+        patch,
+        reason,
+        rejectedAlternatives: rejected,
+        hasUntrustedContext,
+      });
+      return {
+        step: { tool: 'settings_admin', args: { changedKeys: res.changedKeys }, ok: res.ok, sandboxed: false, outputPreview: res.message.slice(0, 180) },
+        observation: res.message,
+      };
+    }
+
+    if (toolName === 'lan_discover') {
+      if (isSandboxed) throw new Error('Elszigetelt szálban a LAN eszközfelderítés tiltva.');
+      const targets = Array.isArray(args.targets) ? args.targets.map(String) : undefined;
+      const res = await discoverLanDevicesSafe({ targets });
+      const summary = res.devices
+        .slice(0, 20)
+        .map((d) => `- [${d.id}] ${d.ip} (${d.mac}) · ${d.vendor} · ${d.adapterType} · portok: ${d.openPorts.join(',') || '-'}`)
+        .join('\n');
+      return {
+        step: { tool: 'lan_discover', args: { targets }, ok: true, sandboxed: false, outputPreview: `${res.discoveredCount} eszköz (${res.newDevicesCount} új)` },
+        observation: `LAN felderítés kész: ${res.discoveredCount} eszköz (${res.newDevicesCount} új).\n${summary}`,
+      };
+    }
+
+    if (toolName === 'device_control') {
+      if (isSandboxed) throw new Error('Elszigetelt szálban a LAN eszközvezérlés tiltva.');
+      const deviceId = String(args.deviceId || '').trim();
+      const mode = (args.mode === 'read' || args.mode === 'act' ? args.mode : 'status') as 'status' | 'read' | 'act';
+      const action = args.action ? String(args.action) : undefined;
+      const actionParams = args.params && typeof args.params === 'object' ? (args.params as Record<string, unknown>) : {};
+      const res = await executeDeviceControl({
+        deviceId,
+        mode,
+        action,
+        actionParams,
+        dryRun: Boolean(args.dryRun),
+        hasUntrustedContext,
+      });
+      return {
+        step: { tool: 'device_control', args: { deviceId, mode, action }, ok: res.ok, sandboxed: false, outputPreview: res.message.slice(0, 180) },
+        observation: res.message,
+      };
+    }
+
+    if (toolName === 'decision_log') {
+      const q = String(args.query || '').trim().toLowerCase();
+      const limit = Math.min(30, Math.max(1, Number(args.limit || 10)));
+      const matches = (getState().autonomyDecisions || [])
+        .filter((d) => !q || d.decision.toLowerCase().includes(q) || d.rationale.toLowerCase().includes(q))
+        .slice(0, limit);
+      const rendered = matches
+        .map((d) => `[${d.createdAt}] (${d.category}/${d.outcome}) ${d.decision} — Ok: ${d.rationale}`)
+        .join('\n');
+      return {
+        step: { tool: 'decision_log', args: { query: q, limit }, ok: true, sandboxed: isSandboxed, outputPreview: `${matches.length} döntés` },
+        observation: rendered || 'Nincs találat az autonóm döntési naplóban.',
       };
     }
 

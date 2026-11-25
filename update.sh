@@ -53,17 +53,55 @@ if ! npm run lint || ! npm run build; then
   exit 1
 fi
 
-echo "[4/5] Nem-roncsoló adatmigráció futtatása..."
-npx tsx -e "import { migrateStateNonDestructive } from './server/state/store.ts'; migrateStateNonDestructive(); console.log('Migráció kész.');"
-chmod 600 .secrets.vault.json .secrets.key .state.json 2>/dev/null || true
+echo "[4/5] Nem-roncsoló adatmigráció, függő Ollama letöltések és biztonsági ellenőrzés..."
+npx tsx -e "
+import { initStateStore, getState, migrateStateNonDestructive, updateState } from './server/state/store.ts';
+import { pullOllamaModelViaRouter, listInstalledOllamaModelsViaRouter } from './server/providers/router.ts';
+async function run() {
+  migrateStateNonDestructive();
+  initStateStore();
+  const s = getState();
+  const pending = s.settings.ollamaPendingPullModels || [];
+  if (pending.length > 0) {
+    const probe = await listInstalledOllamaModelsViaRouter();
+    if (probe.reachable) {
+      const done = [];
+      for (const m of pending) {
+        if (probe.models.some((x) => x.name === m || x.name.startsWith(m + ':')) || (await pullOllamaModelViaRouter(m)).ok) {
+          done.push(m);
+        }
+      }
+      if (done.length > 0) {
+        updateState((draft) => {
+          draft.settings.ollamaPendingPullModels = (draft.settings.ollamaPendingPullModels || []).filter((x) => !done.includes(x));
+        });
+      }
+    }
+  }
+  console.log('Migráció kész. Hardverbővítés esetén futtasd: novaswarm ollama-reselect');
+}
+run().catch(() => {});
+"
+chmod 600 .secrets.vault.json .secrets.key .state.json .config.json 2>/dev/null || true
+
+LOCKDOWN_PRESENT=0
+if [ -f /etc/novaswarm/LOCKDOWN ] || [ -f "${HOME}/.novaswarm/LOCKDOWN" ]; then
+  LOCKDOWN_PRESENT=1
+fi
 
 echo "[5/5] Szolgáltatás újraindítása..."
-if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "${SERVICE_NAME}.service"; then
+if [ "${LOCKDOWN_PRESENT}" -eq 1 ]; then
+  echo "FIGYELEM: Vészleállítás (LOCKDOWN) zárfájl aktív! A szolgáltatás zárolva marad a tulajdonosi feloldásig."
+elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "${SERVICE_NAME}.service"; then
   SUDO=""
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
   $SUDO systemctl restart "${SERVICE_NAME}"
   sleep 2
-  curl -fsS "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null 2>&1 || true
+  if curl -fsS "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null 2>&1; then
+    echo "✅ /healthz rendben frissítés után."
+  else
+    echo "⚠️ FIGYELEM: /healthz nem válaszolt frissítés után!"
+  fi
 fi
 
 echo "NovaSwarm frissítés sikeresen lefutott."

@@ -48,6 +48,13 @@ export const SettingsView: React.FC<Props> = ({
   const [autonomyMsg, setAutonomyMsg] = useState<string | null>(null);
   const [autonomyErr, setAutonomyErr] = useState<string | null>(null);
 
+  // Total Autonomy mode activation modal state
+  const [totalModalOpen, setTotalModalOpen] = useState(false);
+  const [totalPassword, setTotalPassword] = useState('');
+  const [totalBusy, setTotalBusy] = useState(false);
+  const [totalMsg, setTotalMsg] = useState<string | null>(null);
+  const [totalErr, setTotalErr] = useState<string | null>(null);
+
   useEffect(() => {
     setForm(settings);
   }, [settings]);
@@ -61,6 +68,10 @@ export const SettingsView: React.FC<Props> = ({
       const {
         fullAutonomyProfileEnabled: _ignoredProfileFlag,
         fullAutonomyPreviousFlags: _ignoredPrevFlags,
+        totalAutonomyEnabled: _ignoredTotalFlag,
+        lockdownActive: _ignoredLockFlag,
+        lockdownReason: _ignoredLockReason,
+        lockdownActivatedAt: _ignoredLockAt,
         ...restForm
       } = form;
       const res = await fetch('/api/settings', {
@@ -118,6 +129,39 @@ export const SettingsView: React.FC<Props> = ({
       setAutonomyErr(err instanceof Error ? err.message : 'Hálózati hiba');
     } finally {
       setAutonomyBusy(false);
+    }
+  };
+
+  const handleToggleTotalAutonomy = async (enableTarget: boolean) => {
+    setTotalBusy(true);
+    setTotalErr(null);
+    setTotalMsg(null);
+    try {
+      const res = await fetch('/api/total-autonomy/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: enableTarget,
+          password: enableTarget ? totalPassword : undefined,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok) {
+        setTotalErr(body.error || `Hiba a Totális autonómia váltásakor (HTTP ${res.status}).`);
+        return;
+      }
+      setTotalPassword('');
+      setTotalModalOpen(false);
+      setTotalMsg(
+        enableTarget
+          ? 'Totális autonómia BEKAPCSOLVA. A 3 sérthetetlen garancia (append-only audit + napi anchor, LOCKDOWN, visszaállítási pontok) aktív.'
+          : 'Totális autonómia KIKAPCSOLVA.'
+      );
+      await onRefreshState();
+    } catch (err) {
+      setTotalErr(err instanceof Error ? err.message : 'Hálózati hiba');
+    } finally {
+      setTotalBusy(false);
     }
   };
 
@@ -924,6 +968,107 @@ export const SettingsView: React.FC<Props> = ({
                 onChange={(e) => setForm({ ...form, retentionDays: Number(e.target.value) })}
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
               />
+            </div>
+          </div>
+
+          {/* Crimson Total Autonomy Card */}
+          <div className="p-4 rounded-xl border-2 border-red-400 dark:border-red-700 bg-red-50/80 dark:bg-red-950/35 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <OctagonAlert className="h-4 w-4 text-red-700 dark:text-red-400" />
+                  <h4 className="text-sm font-bold text-red-950 dark:text-red-100">
+                    Totális autonómia
+                  </h4>
+                  <span
+                    className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
+                      settings.totalAutonomyEnabled
+                        ? 'bg-red-700 text-white'
+                        : 'bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300'
+                    }`}
+                  >
+                    {settings.totalAutonomyEnabled ? 'AKTÍV' : 'Kikapcsolva'}
+                  </span>
+                </div>
+                <p className="text-xs text-red-950/90 dark:text-red-200 max-w-2xl">
+                  Önálló célvégrehajtás, beállítás-adminisztráció, helyi hálózati felderítés/eszközvezérlés és öngyógyító Security Watchdog.{' '}
+                  <strong>3 sérthetetlen garancia:</strong> (1) hamisításbiztos append-only audit + napi Telegram anchor, (2) többcsatornás{' '}
+                  <span className="font-mono">/stop</span> LOCKDOWN csak tulajdonosi jelszóval oldható fel, (3) automatikus biztonsági visszaállítási pontok.
+                </p>
+              </div>
+              {settings.totalAutonomyEnabled ? (
+                <button
+                  type="button"
+                  disabled={totalBusy}
+                  onClick={() => void handleToggleTotalAutonomy(false)}
+                  className="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+                >
+                  Totális autonómia Kikapcsolása
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTotalErr(null);
+                    setTotalPassword('');
+                    setTotalModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold bg-red-700 text-white rounded-lg hover:bg-red-800 whitespace-nowrap shrink-0"
+                >
+                  Totális autonómia Bekapcsolása...
+                </button>
+              )}
+            </div>
+            {totalMsg && (
+              <div className="p-2.5 rounded-lg bg-white/90 dark:bg-slate-900/70 border border-red-300 text-xs text-slate-900 dark:text-slate-100">
+                {totalMsg}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1 items-end">
+              <div>
+                <label htmlFor="set-wd-timeout" className="block text-xs font-medium text-red-950 dark:text-red-200 mb-1">
+                  Watchdog Próba Időablak (mp)
+                </label>
+                <input
+                  id="set-wd-timeout"
+                  type="number"
+                  min={15}
+                  max={600}
+                  value={form.watchdogTimeoutSeconds ?? 120}
+                  onChange={(e) => setForm({ ...form, watchdogTimeoutSeconds: Number(e.target.value) })}
+                  className="w-full px-3 py-1.5 text-sm font-mono border border-red-300 dark:border-red-800 rounded-lg bg-white dark:bg-slate-900"
+                />
+              </div>
+              <div>
+                <label htmlFor="set-cb-max" className="block text-xs font-medium text-red-950 dark:text-red-200 mb-1">
+                  Circuit Breaker Limit (hiba)
+                </label>
+                <input
+                  id="set-cb-max"
+                  type="number"
+                  min={2}
+                  max={10}
+                  value={form.circuitBreakerMaxFailures ?? 3}
+                  onChange={(e) => setForm({ ...form, circuitBreakerMaxFailures: Number(e.target.value) })}
+                  className="w-full px-3 py-1.5 text-sm font-mono border border-red-300 dark:border-red-800 rounded-lg bg-white dark:bg-slate-900"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-red-950 dark:text-red-200 cursor-pointer pb-1.5">
+                <input
+                  type="checkbox"
+                  checked={form.autoWatchdogRollbackEnabled !== false}
+                  onChange={(e) => setForm({ ...form, autoWatchdogRollbackEnabled: e.target.checked })}
+                />
+                <span>Watchdog automata rollback</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-red-950 dark:text-red-200 cursor-pointer pb-1.5">
+                <input
+                  type="checkbox"
+                  checked={form.dailyCloudCostFallbackToOllama !== false}
+                  onChange={(e) => setForm({ ...form, dailyCloudCostFallbackToOllama: e.target.checked })}
+                />
+                <span>Felhő keret után Ollama váltás</span>
+              </label>
             </div>
           </div>
 
@@ -1739,6 +1884,72 @@ export const SettingsView: React.FC<Props> = ({
                 className="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
                 {autonomyBusy ? 'Aktiválás...' : 'Értem a kockázatot, Bekapcsolás'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {totalModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="total-autonomy-modal-title"
+          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
+        >
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 rounded-xl p-6 space-y-4 shadow-xl">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <OctagonAlert className="h-5 w-5 shrink-0" />
+              <h3 id="total-autonomy-modal-title" className="text-base font-bold">
+                Totális autonómia bekapcsolása
+              </h3>
+            </div>
+            <div className="text-xs text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
+              <p>
+                A Totális autonómia engedélyezi az ágenseknek az önálló célciklust, a LAN felderítést/eszközvezérlést,
+                a <span className="font-mono">settings_admin</span> módosításokat és a teljes gazdagép-parancsok futtatását.
+              </p>
+              <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-900 dark:text-red-200">
+                <strong>Sérthetetlen garanciák:</strong> az ágens sem tudja kikapcsolni az append-only auditot,
+                a napi Telegram hash-horgonyt, a <span className="font-mono">/stop</span> LOCKDOWN vészleállítót és
+                az automatikus biztonsági visszaállítási pontokat.
+              </div>
+            </div>
+            {totalErr && (
+              <div className="p-2.5 rounded-lg bg-red-50 border border-red-300 text-xs text-red-900">
+                {totalErr}
+              </div>
+            )}
+            {settings.webAuthHasPassword && (
+              <div>
+                <label htmlFor="total-confirm-pw" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Operátori jelszó megerősítése
+                </label>
+                <input
+                  id="total-confirm-pw"
+                  type="password"
+                  value={totalPassword}
+                  onChange={(e) => setTotalPassword(e.target.value)}
+                  placeholder="Add meg az operátori jelszót..."
+                  autoFocus
+                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
+                />
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setTotalModalOpen(false)}
+                className="px-3.5 py-2 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                disabled={totalBusy || (settings.webAuthHasPassword && !totalPassword.trim())}
+                onClick={() => void handleToggleTotalAutonomy(true)}
+                className="px-4 py-2 text-xs font-semibold bg-red-700 text-white rounded-lg hover:bg-red-800 disabled:opacity-50"
+              >
+                {totalBusy ? 'Aktiválás...' : 'Saját felelősségre Bekapcsolom'}
               </button>
             </div>
           </div>

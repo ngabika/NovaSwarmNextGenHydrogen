@@ -3,12 +3,14 @@ import express from 'express';
 import type { ProviderId, VirtualKey } from '../../shared/types';
 import { computeLocalEmbedding } from '../memory/vectorStore';
 import {
+  computeOllamaEmbedding,
   GuardrailBlockedError,
   invokeWithFailover,
   type InlineMediaInput,
   type OpenAiToolDefinition,
   type RouterDependencies,
 } from '../providers/router';
+import { classifyTaskType } from '../providers/smartRouting';
 import { isRequestAuthorized, requireAllowedHostMiddleware } from '../security/auth';
 import { constantTimeEqual } from '../security/egressAndCrypto';
 import { appendAuditLog, getState, maskSecret, updateState } from '../state/store';
@@ -314,11 +316,20 @@ export function createOpenAiProxyRouter(
             : 'simple'
           : parsed.complexity;
 
+      const taskType = classifyTaskType({
+        prompt: userPrompt,
+        systemInstruction: systemParts.join('\n') || undefined,
+        complexity,
+        hasImages: collectedImages.length > 0,
+        hasTools: Boolean(body.tools && body.tools.length > 0),
+      });
+
       const result = await invokeWithFailover(
         {
           prompt: userPrompt,
           systemInstruction: systemParts.join('\n') || undefined,
           complexity,
+          taskType,
           preferredProvider: parsed.provider,
           preferredModel: parsed.model,
           images: collectedImages.length > 0 ? collectedImages : undefined,
@@ -424,6 +435,10 @@ export function createOpenAiProxyRouter(
           cached: Boolean(result.cached),
           cost_usd: result.costUsd,
           provider: result.provider,
+          task_type: result.taskType,
+          degraded_mode: Boolean(result.degradedMode),
+          queued: Boolean(result.queued),
+          queue_id: result.queueId,
         },
       });
     } catch (err) {
@@ -435,17 +450,23 @@ export function createOpenAiProxyRouter(
     }
   });
 
-  router.post('/embeddings', (req, res) => {
+  router.post('/embeddings', async (req, res) => {
     const auth = authenticateVirtualKey(req.headers.authorization, undefined, req.ip, req.headers.cookie);
     if (!auth.ok) return res.status(auth.status).json({ error: { message: auth.error } });
 
     const body = req.body as { input?: string | string[]; model?: string };
     const inputs = Array.isArray(body.input) ? body.input : [body.input || ''];
-    const data = inputs.map((text, index) => ({
-      object: 'embedding',
-      index,
-      embedding: computeLocalEmbedding(String(text), 64),
-    }));
+    const data = await Promise.all(
+      inputs.map(async (text, index) => {
+        const cleanText = String(text);
+        const remoteVec = await computeOllamaEmbedding(cleanText);
+        return {
+          object: 'embedding',
+          index,
+          embedding: remoteVec || computeLocalEmbedding(cleanText, 64),
+        };
+      })
+    );
 
     return res.json({
       object: 'list',

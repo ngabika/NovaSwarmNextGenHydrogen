@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 import type { SshHostProfile, SslWatchTarget } from '../../shared/types';
-import { invokeWithFailover } from '../providers/router';
+import { invokeWithFailover, listInstalledOllamaModelsViaRouter } from '../providers/router';
 import { assertHostPermission, requireDestructiveApproval, shouldRequireApproval } from '../security/permissionGate';
 import { detectActiveSandboxBackend } from '../sandbox/supervisorSandbox';
 import { appendAuditLog, getState, updateState } from '../state/store';
@@ -30,22 +30,15 @@ export async function runHostSelfDiagnostics(): Promise<{
   const state = getState();
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
 
-  // 1. Ollama reachability
-  try {
-    const res = await fetch(`${state.settings.ollamaUrl.replace(/\/$/, '')}/api/tags`, {
-      signal: AbortSignal.timeout(2000),
+  // 1. Ollama reachability (via central router)
+  const ollamaProbe = await listInstalledOllamaModelsViaRouter(state.settings.ollamaUrl);
+  if (ollamaProbe.reachable) {
+    checks.push({
+      name: 'Lokális Ollama Motor',
+      ok: true,
+      detail: `Elérhető (${ollamaProbe.models.length} telepített modell)`,
     });
-    if (res.ok) {
-      const data = (await res.json()) as { models?: Array<{ name: string }> };
-      checks.push({
-        name: 'Lokális Ollama Motor',
-        ok: true,
-        detail: `Elérhető (${data.models?.length ?? 0} telepített modell)`,
-      });
-    } else {
-      checks.push({ name: 'Lokális Ollama Motor', ok: false, detail: `HTTP ${res.status}` });
-    }
-  } catch {
+  } else {
     checks.push({
       name: 'Lokális Ollama Motor',
       ok: false,

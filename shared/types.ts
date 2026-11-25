@@ -15,16 +15,46 @@ export type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'oll
 
 export type ExecutionPreset = 'fast' | 'deep' | 'precise';
 
+export type TaskType =
+  | 'simple_fast'
+  | 'summarization'
+  | 'code_simple'
+  | 'code_hard'
+  | 'complex_planning'
+  | 'long_context'
+  | 'vision'
+  | 'audio'
+  | 'tool_heavy'
+  | 'embedding';
+
+export interface ModelCapabilityFlags {
+  text: boolean;
+  vision: boolean;
+  audio: boolean;
+  tools: boolean;
+  reasoning: boolean;
+  embedding: boolean;
+}
+
 export interface ProviderKeyEntry {
   id: string;
   label: string;
   /** Masked preview returned to UI (e.g. AIza...9f2a) — raw secret kept in server vault */
   maskedKey: string;
   enabled: boolean;
+  /** Optional cloud project identifier (e.g. Google Cloud Project ID — Gemini quota is per-project) */
+  projectId?: string;
   failureCount: number;
   lastUsedAt?: string;
   lastError?: string;
+  disabledReason?: string;
   cooldownUntil?: string;
+  dailyExhaustedUntil?: string;
+  rpmLimit?: number;
+  tpmLimit?: number;
+  requestsLastMinute?: number;
+  tokensLastMinute?: number;
+  activeConcurrency?: number;
   createdAt?: string;
 }
 
@@ -38,6 +68,88 @@ export interface ModelInfo {
   isFree: boolean;
   tier: 'free' | 'budget' | 'standard' | 'flagship' | 'local';
   source: 'api' | 'catalog';
+  capabilities?: ModelCapabilityFlags;
+  qualityScore?: number;
+  speedScore?: number;
+}
+
+export type KeyModelStatus =
+  | 'available'
+  | 'rpm_cooldown'
+  | 'daily_exhausted'
+  | 'disabled_invalid'
+  | 'error';
+
+export interface KeyModelMatrixEntry {
+  keyId: string;
+  keyLabel: string;
+  maskedKey: string;
+  provider: ProviderId;
+  projectId?: string;
+  modelId: string;
+  contextWindow: number;
+  capabilities: ModelCapabilityFlags;
+  inputCostPer1M: number;
+  outputCostPer1M: number;
+  isFree: boolean;
+  status: KeyModelStatus;
+  cooldownUntil?: string;
+  resetAt?: string;
+  reason?: string;
+  requestsLastMinute: number;
+  tokensLastMinute: number;
+  rpmLimit: number;
+  tpmLimit: number;
+  successCount: number;
+  failureCount: number;
+  verificationPassCount: number;
+  verificationFailCount: number;
+  avgLatencyMs: number;
+  discoveredAt: string;
+  lastUsedAt?: string;
+}
+
+export interface RoutedCallLogEntry {
+  id: string;
+  timestamp: string;
+  taskType: TaskType;
+  provider: ProviderId;
+  modelId: string;
+  keyId: string;
+  keyLabel: string;
+  maskedKey: string;
+  projectId?: string;
+  switchReason?: string;
+  degradedMode: boolean;
+  strictVerificationRequired: boolean;
+  queued?: boolean;
+  cached?: boolean;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface QueuedRequestSummary {
+  id: string;
+  taskType: TaskType;
+  promptPreview: string;
+  agentId?: string;
+  createdAt: string;
+  readyAt?: string;
+  attempts: number;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  lastReason: string;
+}
+
+export interface OllamaBenchmarkTelemetry {
+  model: string;
+  tokensPerSec: number;
+  latencyMs: number;
+  evaluatedAt: string;
+  hardwareTier?: HardwareTierId;
 }
 
 export interface QuotaStatus {
@@ -896,6 +1008,29 @@ export interface Settings {
   /** Külső audit-lánc horgony: napi fej-hash küldése Telegramra */
   sendAuditAnchorToTelegram?: boolean;
   lastAuditAnchorSentDate?: string | null;
+  /** Totális autonómia mód és sérthetetlen védőgaranciák */
+  totalAutonomyEnabled?: boolean;
+  totalAutonomyActivatedAt?: string | null;
+  dailyCloudCostFallbackToOllama?: boolean;
+  autoWatchdogRollbackEnabled?: boolean;
+  watchdogTimeoutSeconds?: number;
+  circuitBreakerMaxFailures?: number;
+  circuitBreakerDailyActionCap?: number;
+  exceptionTelegramSummaryHour?: number;
+  lastExceptionDigestDate?: string | null;
+  lockdownActive?: boolean;
+  lockdownReason?: string | null;
+  lockdownActivatedAt?: string | null;
+  /** Smart Multi-Key / Task Routing & Hardware-Aware Ollama extensions */
+  modelBlocklist?: string[];
+  taskModelRankingOverrides?: Partial<Record<TaskType, string[]>>;
+  providerOrder?: ProviderId[];
+  ollamaFastModel?: string;
+  ollamaCodeModel?: string;
+  ollamaVisionModel?: string;
+  ollamaBenchmark?: OllamaBenchmarkTelemetry | null;
+  ollamaPendingPullModels?: string[];
+  ollamaCleanupSuggestions?: string[];
 }
 
 export interface SudoCheckStatus {
@@ -1101,6 +1236,9 @@ export interface NovaSwarmState {
   approvals: ApprovalRequest[];
   supervisor: SupervisorStatus;
   discoveredModels: ModelInfo[];
+  keyModelMatrix?: KeyModelMatrixEntry[];
+  routedCallLogs?: RoutedCallLogEntry[];
+  queuedLlmRequests?: QueuedRequestSummary[];
   quotas: Record<ProviderId, QuotaStatus>;
   backups: BackupPoint[];
   virtualKeys: VirtualKey[];
@@ -1198,6 +1336,18 @@ export interface NovaSwarmState {
   agentPersonas?: AgentPersonaProfile[];
   userContextProfiles?: UserContextProfile[];
   writingStyleSamples?: WritingStyleSample[];
+  /** Totális autonómia, biztonsági pillanatképek, megszakító, hálózati leltár & világmodell */
+  securitySnapshots?: SecuritySnapshot[];
+  autonomyDecisions?: AutonomyDecisionRecord[];
+  circuitBreakerTasks?: CircuitBreakerTaskRecord[];
+  exceptionNotificationsQueue?: ExceptionDigestEntry[];
+  lanDeviceInventory?: LanDeviceInventoryItem[];
+  pendingDevicePrompts?: PendingDeviceCredentialPrompt[];
+  deviceActionHistory?: DeviceAdapterActionRecord[];
+  worldModelNodes?: WorldModelNode[];
+  worldModelEdges?: WorldModelEdge[];
+  weeklyEvaluations?: WeeklySelfEvaluationReport[];
+  goalCycles?: AutonomousGoalCycle[];
   factVault?: VerifiedFactItem[];
   goalTrees?: HierarchicalGoalNode[];
   agentHandoffs?: AgentHandoffTask[];
@@ -1552,6 +1702,23 @@ export interface HardwareAdaptiveProfile {
   hybridLocalFirstRecommended: boolean;
   detectedAt: string;
   appliedNotes: string[];
+  /** Extended hardware-aware local Ollama selector fields */
+  boardModel?: string;
+  isRaspberryPi?: boolean;
+  ramFreeMb?: number;
+  diskFreeMb?: number;
+  gpuVendor?: 'nvidia' | 'amd' | 'apple' | 'intel_igpu' | 'none';
+  gpuVramMb?: number;
+  cpuFlags?: string[];
+  zramPresent?: boolean;
+  recommendedFastModel?: string;
+  recommendedCodeModel?: string;
+  recommendedEmbeddingModel?: string;
+  recommendedVisionModel?: string;
+  recommendedGpuLayers?: number;
+  recommendedParallelism?: number;
+  singleModelMutex?: boolean;
+  estimatedTokensPerSec?: number;
 }
 
 /** Batch 5: One-Shot SSH Host Migration Record */
@@ -2052,3 +2219,165 @@ export interface SandboxCapabilities {
   nodePermissionSupported: boolean;
   warning: string | null;
 }
+
+export interface SecuritySettingsSnapshotSubset {
+  hostPermissionsGranted: boolean;
+  fullAutonomousMode: boolean;
+  dangerousExecAutoApprove: boolean;
+  fullAutonomyProfileEnabled: boolean;
+  totalAutonomyEnabled: boolean;
+  webAuthEnabled: boolean;
+  guardrailsEnabled: boolean;
+  guardrailBlockPii: boolean;
+  guardrailBlockSecrets: boolean;
+  guardrailBlockPromptInjection: boolean;
+  telegramChatId: string;
+  telegramAllowedChatIds: string[];
+  channelPairingRequired: boolean;
+  lanSubnetAllowlist: string[];
+  dailyCostLimitEnabled: boolean;
+  dailyCostLimitUsd: number;
+  dailyCloudCostFallbackToOllama: boolean;
+  autoWatchdogRollbackEnabled: boolean;
+  watchdogTimeoutSeconds: number;
+  circuitBreakerMaxFailures: number;
+}
+
+export interface SecuritySnapshot {
+  id: string;
+  createdAt: string;
+  reason: string;
+  actor: string;
+  settingsSubset: SecuritySettingsSnapshotSubset;
+}
+
+export interface AutonomyDecisionRecord {
+  id: string;
+  createdAt: string;
+  agentId: string;
+  category: 'security_admin' | 'code_selfmod' | 'device_control' | 'goal_loop' | 'budget_failover' | 'watchdog' | 'circuit_breaker';
+  decision: string;
+  rationale: string;
+  rejectedAlternatives: string[];
+  outcome: 'applied' | 'blocked' | 'rolled_back' | 'verified' | 'failed';
+  highImpact: boolean;
+  rollbackSnapshotId?: string;
+}
+
+export interface CircuitBreakerTaskRecord {
+  taskKey: string;
+  consecutiveFailures: number;
+  rollbacksCount: number;
+  state: 'closed' | 'open';
+  trippedAt?: string;
+  reason?: string;
+  lastUpdatedAt: string;
+}
+
+export interface ExceptionDigestEntry {
+  id: string;
+  createdAt: string;
+  category: string;
+  summary: string;
+  highImpact: boolean;
+}
+
+export type DeviceAdapterType =
+  | 'ssh'
+  | 'http_rest'
+  | 'mqtt'
+  | 'home_assistant'
+  | 'snmp'
+  | 'openwrt_unifi'
+  | 'proxmox'
+  | 'synology_nas'
+  | 'shelly_tasmota'
+  | 'philips_hue'
+  | 'ipp_printer'
+  | 'wol';
+
+export interface LanDeviceInventoryItem {
+  id: string;
+  ip: string;
+  mac: string;
+  hostname?: string;
+  vendor: string;
+  inferredType: string;
+  adapterType: DeviceAdapterType;
+  openPorts: number[];
+  services: string[];
+  bannerExcerpt?: string;
+  hasCredentials: boolean;
+  credentialFieldsMask?: string[];
+  status: 'online' | 'offline' | 'unknown' | 'needs_credentials';
+  lastSeenAt: string;
+  discoveredAt: string;
+  lastError?: string;
+}
+
+export interface PendingDeviceCredentialPrompt {
+  id: string;
+  deviceId: string;
+  ip: string;
+  vendor: string;
+  adapterType: DeviceAdapterType;
+  requiredFields: string[];
+  message: string;
+  status: 'pending' | 'resolved' | 'dismissed';
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface DeviceAdapterActionRecord {
+  id: string;
+  deviceId: string;
+  adapterType: DeviceAdapterType;
+  action: string;
+  paramsSummary: string;
+  priorState: Record<string, unknown> | null;
+  resultSummary: string;
+  ok: boolean;
+  dryRun: boolean;
+  undone: boolean;
+  createdAt: string;
+}
+
+export interface WorldModelNode {
+  id: string;
+  kind: 'device' | 'service' | 'agent' | 'routine' | 'anomaly';
+  label: string;
+  status: 'nominal' | 'warning' | 'critical' | 'offline';
+  detail?: string;
+  updatedAt: string;
+}
+
+export interface WorldModelEdge {
+  fromId: string;
+  toId: string;
+  relation: string;
+}
+
+export interface WeeklySelfEvaluationReport {
+  id: string;
+  createdAt: string;
+  successRatePct: number;
+  verifiedTasks: number;
+  failedOrRolledBackTasks: number;
+  avgCostPerTaskUsd: number;
+  securityAuditValid: boolean;
+  recommendations: string[];
+  summaryMarkdown: string;
+}
+
+export interface AutonomousGoalCycle {
+  id: string;
+  goal: string;
+  phase: 'goal' | 'plan' | 'execute' | 'verify' | 'reflect' | 'completed' | 'failed';
+  plannerNotes?: string;
+  verifierOutput?: string;
+  criticFeedback?: string;
+  verifiedSuccess: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+

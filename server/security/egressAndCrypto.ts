@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import type { NotaryRecord } from '../../shared/types';
-import { getState, updateState } from '../state/store';
+import { getState, listActiveVaultSecretValuesForRedaction, updateState } from '../state/store';
 
 function isBlockedMetadataOrUnspecifiedIp(ipRaw: string): boolean {
   let ip = ipRaw.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
@@ -92,15 +92,42 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b\d{8,12}:AA[0-9A-Za-z\-_]{25,}\b/g,
 ];
 
+const CREDENTIAL_ASSIGNMENT_RE =
+  /\b(password|passwd|pwd|api_?key|secret|token|passphrase|private_?key|ssh_?pass)\b(\s*[:=]\s*)(["']?)([^\s"',;]{4,})\3/gi;
+
 export function redactLeakedSecrets(text: string): { redacted: string; foundCount: number } {
-  let out = text;
+  let out = String(text ?? '');
   let foundCount = 0;
+
+  // 1. Literal match against encrypted vault secrets (cloud keys, bot tokens, SSH/device passwords)
+  try {
+    const vaultSecrets = listActiveVaultSecretValuesForRedaction();
+    for (const secret of vaultSecrets) {
+      if (!secret || secret.length < 4) continue;
+      if (out.includes(secret)) {
+        const parts = out.split(secret);
+        foundCount += parts.length - 1;
+        out = parts.join('***REDACTED***');
+      }
+    }
+  } catch {
+    // Vault might be uninitialized in minimal unit-test contexts
+  }
+
+  // 2. Known token prefixes
   for (const re of SECRET_PATTERNS) {
     out = out.replace(re, (m) => {
       foundCount += 1;
       return `${m.slice(0, 6)}***REDACTED***`;
     });
   }
+
+  // 3. Key=value / password: ... assignment patterns
+  out = out.replace(CREDENTIAL_ASSIGNMENT_RE, (_m, key: string, sep: string, quote: string) => {
+    foundCount += 1;
+    return `${key}${sep}${quote}***REDACTED***${quote}`;
+  });
+
   return { redacted: out, foundCount };
 }
 

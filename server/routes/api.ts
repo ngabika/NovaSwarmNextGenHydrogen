@@ -178,18 +178,29 @@ import {
 } from '../power/universalSuite';
 import {
   addProviderKey,
+  addProviderKeysBulk,
   clearResponseCache,
   computeMonthlyProjection,
   discoverModels,
   generateImageArtifactWithGemini,
+  getLlmQueueStatus,
+  getModelRankingsPreview,
   getResponseCacheSize,
   invokeWithFailover,
+  processLlmRequestQueueTick,
   removeProviderKey,
   resetProviderCooldowns,
   transcribeAudioBuffer,
   unloadOllamaModel,
+  updateProviderKeyConfig,
   warmOllamaModel,
 } from '../providers/router';
+import { analyzeGeminiProjectSharing } from '../providers/smartRouting';
+import {
+  benchmarkOllamaModel,
+  detectDetailedHardware,
+  reselectOllamaSuite,
+} from '../system/ollamaSelector';
 import {
   getOfflinePackStats,
   ingestDocumentToRag,
@@ -234,6 +245,30 @@ import {
   KillSwitchActiveError,
   resolveApproval,
 } from '../security/permissionGate';
+import {
+  activateEmergencyLockdown,
+  CircuitBreakerOpenError,
+  getTotalAutonomySummary,
+  InviolableGuaranteeError,
+  isSystemLockedDown,
+  resetTaskCircuit,
+  restoreSecuritySnapshot,
+  runSecurityWatchdog,
+  toggleTotalAutonomyMode,
+  unlockEmergencyLockdown,
+  UntrustedInjectionBlockedError,
+} from '../security/totalAutonomy';
+import {
+  discoverLanDevicesSafe,
+  executeDeviceControl,
+  saveDeviceCredentialsSafe,
+  undoDeviceAction,
+} from '../network/deviceDiscoveryAndAdapters';
+import {
+  buildOrRefreshWorldModel,
+  runGoalLoopCycle,
+  runWeeklySelfEvaluationBenchmark,
+} from '../agents/autonomyOrchestrator';
 import {
   applyGuardedSelfModification,
   ForbiddenZoneError,
@@ -298,12 +333,41 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.use(requireWebAuthMiddleware);
 
+  router.use((req, res, next) => {
+    if (!isSystemLockedDown() || req.method === 'GET') {
+      return next();
+    }
+    const allowedWhileLocked = new Set([
+      '/auth/login',
+      '/auth/logout',
+      '/auth/status',
+      '/total-autonomy/unlock',
+      '/total-autonomy/restore',
+      '/kill-switch',
+    ]);
+    if (allowedWhileLocked.has(req.path)) {
+      return next();
+    }
+    return res.status(423).json({
+      error: 'A Vészleállítás (LOCKDOWN) aktív — minden rendszer- és ügynökművelet zárolva van a tulajdonosi feloldásig.',
+      code: 'SYSTEM_LOCKED_DOWN',
+    });
+  });
+
   const handleErr = (res: express.Response, err: unknown) => {
     if (err instanceof HostPermissionDeniedError || err instanceof KillSwitchActiveError) {
       return res.status(403).json({ error: err.message, code: err.code });
     }
-    if (err instanceof ForbiddenZoneError || err instanceof SecretLeakDetectedError) {
+    if (
+      err instanceof ForbiddenZoneError ||
+      err instanceof SecretLeakDetectedError ||
+      err instanceof InviolableGuaranteeError ||
+      err instanceof UntrustedInjectionBlockedError
+    ) {
       return res.status(403).json({ error: err.message, code: err.code });
+    }
+    if (err instanceof CircuitBreakerOpenError) {
+      return res.status(423).json({ error: err.message, code: err.code });
     }
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(400).json({ error: msg });
@@ -714,6 +778,24 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
           code: 'USE_AUTONOMY_PROFILE_ENDPOINT',
         });
       }
+      if ('totalAutonomyEnabled' in patch || 'lockdownActive' in patch) {
+        return res.status(403).json({
+          error: 'A Totális autonómia és a LOCKDOWN kizárólag a /api/total-autonomy/* végpontokon kezelhető.',
+          code: 'USE_TOTAL_AUTONOMY_ENDPOINT',
+        });
+      }
+      if (currentSettings.totalAutonomyEnabled && patch.sendAuditAnchorToTelegram === false) {
+        return res.status(403).json({
+          error: 'SÉRTETLEN GARANCIA: Totális autonómia alatt a napi audit fej-hash Telegram horgony nem kapcsolható ki.',
+          code: 'INVIOLABLE_GUARANTEE',
+        });
+      }
+      if (typeof patch.auditLogMaxEntries === 'number' && patch.auditLogMaxEntries < 100) {
+        return res.status(403).json({
+          error: 'SÉRTETLEN GARANCIA: Az audit napló nem csonkítható 100 bejegyzés alá.',
+          code: 'INVIOLABLE_GUARANTEE',
+        });
+      }
       if (changedSecurityKeys.length > 0) {
         if (req.headers['x-novaswarm-tool'] || req.headers.authorization) {
           return res.status(403).json({
@@ -1029,6 +1111,24 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         if (typeof patch.currencyAlertThresholdHuf === 'number' && patch.currencyAlertThresholdHuf >= 0) {
           s.settings.currencyAlertThresholdHuf = Math.round(patch.currencyAlertThresholdHuf);
         }
+        if (typeof patch.dailyCloudCostFallbackToOllama === 'boolean') {
+          s.settings.dailyCloudCostFallbackToOllama = patch.dailyCloudCostFallbackToOllama;
+        }
+        if (typeof patch.autoWatchdogRollbackEnabled === 'boolean') {
+          s.settings.autoWatchdogRollbackEnabled = patch.autoWatchdogRollbackEnabled;
+        }
+        if (typeof patch.watchdogTimeoutSeconds === 'number' && patch.watchdogTimeoutSeconds >= 5) {
+          s.settings.watchdogTimeoutSeconds = Math.min(120, Math.round(patch.watchdogTimeoutSeconds));
+        }
+        if (typeof patch.circuitBreakerMaxFailures === 'number' && patch.circuitBreakerMaxFailures >= 2) {
+          s.settings.circuitBreakerMaxFailures = Math.min(20, Math.round(patch.circuitBreakerMaxFailures));
+        }
+        if (typeof patch.circuitBreakerDailyActionCap === 'number' && patch.circuitBreakerDailyActionCap >= 5) {
+          s.settings.circuitBreakerDailyActionCap = Math.min(500, Math.round(patch.circuitBreakerDailyActionCap));
+        }
+        if (typeof patch.exceptionTelegramSummaryHour === 'number') {
+          s.settings.exceptionTelegramSummaryHour = Math.min(23, Math.max(0, Math.round(patch.exceptionTelegramSummaryHour)));
+        }
       });
 
       appendAuditLog({
@@ -1044,20 +1144,68 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
   });
 
-  // Multi-provider key pool, cooldowns, cache & Virtual Keys
+  // Multi-provider key pool, matrix, task routing, queue, cooldowns, cache & Virtual Keys
   router.post('/providers/keys', (req, res) => {
     try {
-      const { provider, rawKey, label } = req.body as {
+      const { provider, rawKey, label, projectId } = req.body as {
         provider: ProviderId;
         rawKey: string;
         label?: string;
+        projectId?: string;
       };
       if (!provider || !rawKey?.trim()) {
         return res.status(400).json({ error: 'Szolgáltató és API kulcs kötelező.' });
       }
-      const entry = addProviderKey(provider, rawKey, label);
+      const entry = addProviderKey(provider, rawKey, label, projectId);
+      const geminiProjectReport =
+        provider === 'gemini' ? analyzeGeminiProjectSharing(getState().settings.providerKeys.gemini) : undefined;
       broadcastEvent('state:updated');
-      res.json({ ok: true, entry });
+      res.json({ ok: true, entry, geminiProjectReport });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/providers/keys/bulk', (req, res) => {
+    try {
+      const { provider, rawKeysText, labelPrefix, projectId } = req.body as {
+        provider: ProviderId;
+        rawKeysText: string;
+        labelPrefix?: string;
+        projectId?: string;
+      };
+      if (!provider || !rawKeysText?.trim()) {
+        return res.status(400).json({ error: 'Szolgáltató és legalább egy API kulcs kötelező.' });
+      }
+      const result = addProviderKeysBulk({ provider, rawKeysText, labelPrefix, projectId });
+      broadcastEvent('state:updated');
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.patch('/providers/keys/:provider/:keyId', (req, res) => {
+    try {
+      const { enabled, label, projectId } = req.body as {
+        enabled?: boolean;
+        label?: string;
+        projectId?: string;
+      };
+      const updated = updateProviderKeyConfig(req.params.provider as ProviderId, req.params.keyId, {
+        enabled,
+        label,
+        projectId,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: 'A megadott kulcs nem található.' });
+      }
+      const geminiProjectReport =
+        req.params.provider === 'gemini'
+          ? analyzeGeminiProjectSharing(getState().settings.providerKeys.gemini)
+          : undefined;
+      broadcastEvent('state:updated');
+      res.json({ ok: true, entry: updated, geminiProjectReport });
     } catch (err) {
       handleErr(res, err);
     }
@@ -1085,12 +1233,102 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
   });
 
+  router.get('/providers/matrix', (req, res) => {
+    const state = getState();
+    const taskType = (typeof req.query.taskType === 'string' ? req.query.taskType : 'simple_fast') as import('../../shared/types').TaskType;
+    res.json({
+      matrix: state.keyModelMatrix || [],
+      geminiProjectReport: analyzeGeminiProjectSharing(state.settings.providerKeys.gemini || []),
+      routedCallLogs: (state.routedCallLogs || []).slice(0, 20),
+      queuedLlmRequests: getLlmQueueStatus(),
+      taskRankings: getModelRankingsPreview(taskType),
+      hardware: detectDetailedHardware(),
+    });
+  });
+
+  router.put('/providers/task-rankings', (req, res) => {
+    const { taskType, models } = req.body as {
+      taskType: import('../../shared/types').TaskType;
+      models: string[];
+    };
+    if (!taskType || !Array.isArray(models)) {
+      return res.status(400).json({ error: 'taskType és models[] kötelező.' });
+    }
+    updateState((s) => {
+      s.settings.taskModelRankingOverrides = s.settings.taskModelRankingOverrides || {};
+      s.settings.taskModelRankingOverrides[taskType] = models.map((m) => String(m).trim()).filter(Boolean);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true, overrides: getState().settings.taskModelRankingOverrides });
+  });
+
+  router.put('/providers/blocklist', (req, res) => {
+    const { modelBlocklist } = req.body as { modelBlocklist?: string[] };
+    if (!Array.isArray(modelBlocklist)) {
+      return res.status(400).json({ error: 'modelBlocklist[] kötelező.' });
+    }
+    updateState((s) => {
+      s.settings.modelBlocklist = modelBlocklist.map((m) => String(m).trim()).filter(Boolean);
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true, modelBlocklist: getState().settings.modelBlocklist });
+  });
+
+  router.post('/providers/queue/drain', async (_req, res) => {
+    try {
+      const out = await processLlmRequestQueueTick();
+      broadcastEvent('state:updated');
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/providers/ollama/reselect', async (req, res) => {
+    try {
+      const { pullMissing = true, runBenchmark = false, checkRemoteRegistry = false } = (req.body || {}) as {
+        pullMissing?: boolean;
+        runBenchmark?: boolean;
+        checkRemoteRegistry?: boolean;
+      };
+      const out = await reselectOllamaSuite({
+        pullMissing,
+        runBenchmark,
+        checkRemoteRegistry,
+      });
+      broadcastEvent('state:updated');
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/providers/ollama/benchmark', async (req, res) => {
+    try {
+      const { model } = (req.body || {}) as { model?: string };
+      const out = await benchmarkOllamaModel(model);
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
   router.post('/providers/test-failover', async (req, res) => {
     try {
-      const { prompt } = req.body as { prompt?: string };
+      const { prompt, taskType, preferredProvider, preferredModel } = req.body as {
+        prompt?: string;
+        taskType?: import('../../shared/types').TaskType;
+        preferredProvider?: ProviderId;
+        preferredModel?: string;
+      };
       const result = await invokeWithFailover({
-        prompt: prompt || 'Válaszolj röviden: Működik a failover router?',
+        prompt: prompt || 'Válaszolj röviden: Működik az intelligens router és failover?',
         complexity: 'simple',
+        taskType,
+        preferredProvider,
+        preferredModel,
+        bypassCache: true,
       });
       broadcastEvent('state:updated');
       res.json(result);
@@ -2437,6 +2675,12 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     if (active) {
       activateKillSwitch('web');
     } else {
+      if (getState().settings.lockdownActive) {
+        return res.status(423).json({
+          error: 'LOCKDOWN vészleállítás aktív — feloldás kizárólag a tulajdonos jelszavával a /api/total-autonomy/unlock végponton lehetséges.',
+          code: 'LOCKDOWN_REQUIRES_VERIFIED_UNLOCK',
+        });
+      }
       deactivateKillSwitch();
     }
     broadcastEvent('state:updated');
@@ -3760,6 +4004,262 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.get('/openapi.json', (_req, res) => {
     res.json(buildOpenApiSpec());
+  });
+
+  // ===== Total Autonomy, Lockdown, Security Restore, Watchdog & Decision Log =====
+  router.get('/total-autonomy/status', (_req, res) => {
+    const s = getState();
+    res.json({
+      ...getTotalAutonomySummary(),
+      worldModelNodes: (s.worldModelNodes || []).slice(0, 100),
+      worldModelEdges: (s.worldModelEdges || []).slice(0, 150),
+      weeklyEvaluations: (s.weeklyEvaluations || []).slice(0, 10),
+      goalCycles: (s.goalCycles || []).slice(0, 20),
+    });
+  });
+
+  router.post('/total-autonomy/toggle', async (req, res) => {
+    try {
+      if (req.headers['x-novaswarm-tool'] || req.headers.authorization) {
+        return res.status(403).json({
+          error: 'Ágens vagy Bearer token nem kapcsolhatja a Totális autonómia módot.',
+          code: 'AGENT_PRIVILEGE_BOUNDARY',
+        });
+      }
+      if (hasWebAuthPassword() && !hasValidHumanSessionCookie(req.headers)) {
+        return res.status(401).json({
+          error: 'A Totális autonómia kapcsolásához érvényes emberi Web UI munkamenet-süti szükséges.',
+          code: 'HUMAN_SESSION_REQUIRED',
+        });
+      }
+      const { enabled, password } = req.body as { enabled?: boolean; password?: string };
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'Az "enabled" boolean mező kötelező.' });
+      }
+      const result = await toggleTotalAutonomyMode({
+        enabled,
+        password,
+        clientIp: extractClientIp(req),
+      });
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
+      if (!result.ok) {
+        return res.status(result.statusCode).json({
+          error: result.error,
+          code: result.code,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+      }
+      broadcastEvent('state:updated');
+      return res.json({ ok: true, settings: result.settings, summary: getTotalAutonomySummary() });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/lockdown', async (req, res) => {
+    try {
+      const { reason } = (req.body || {}) as { reason?: string };
+      const result = await activateEmergencyLockdown('web', reason?.trim() || 'Web UI vészleállítás');
+      broadcastEvent('state:updated');
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/unlock', async (req, res) => {
+    try {
+      if (req.headers['x-novaswarm-tool']) {
+        return res.status(403).json({
+          error: 'Ágens nem oldhatja fel a vészleállítást — kizárólag a tulajdonos hitelesített jelszavával lehetséges.',
+          code: 'INVIOLABLE_GUARANTEE',
+        });
+      }
+      const { password } = (req.body || {}) as { password?: string };
+      const result = await unlockEmergencyLockdown({
+        password,
+        actorIp: extractClientIp(req),
+        actorLabel: 'web-owner',
+      });
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
+      if (!result.ok) {
+        return res.status(result.statusCode).json({
+          error: result.error,
+          code: result.code,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+      }
+      broadcastEvent('state:updated');
+      res.json({ ok: true, settings: getState().settings });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/restore', (req, res) => {
+    try {
+      if (req.headers['x-novaswarm-tool']) {
+        return res.status(403).json({ error: 'Ágens nem hívhatja közvetlenül a kézi biztonsági visszaállítást.' });
+      }
+      const { stepsBack } = (req.body || {}) as { stepsBack?: number };
+      const result = restoreSecuritySnapshot(Math.max(1, Number(stepsBack || 1) || 1), 'web-owner');
+      broadcastEvent('state:updated');
+      res.status(result.ok ? 200 : 404).json(result);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/watchdog/run', async (_req, res) => {
+    try {
+      const snaps = getState().securitySnapshots || [];
+      const latestId = snaps[0]?.id || 'manual-probe';
+      const wd = await runSecurityWatchdog({ snapshotId: latestId, changeLabel: 'Kézi ellenőrzés' });
+      broadcastEvent('state:updated');
+      res.json(wd);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/circuit-breaker/reset', (req, res) => {
+    try {
+      const { taskKey } = (req.body || {}) as { taskKey?: string };
+      if (!taskKey?.trim()) return res.status(400).json({ error: 'taskKey kötelező.' });
+      resetTaskCircuit(taskKey.trim());
+      broadcastEvent('state:updated');
+      res.json({ ok: true });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/total-autonomy/decisions', (req, res) => {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const category = String(req.query.category || '').trim();
+    const highImpactOnly = req.query.highImpact === '1' || req.query.highImpact === 'true';
+    const items = (getState().autonomyDecisions || []).filter((d) => {
+      if (category && d.category !== category) return false;
+      if (highImpactOnly && !d.highImpact) return false;
+      if (q) {
+        const hay = `${d.decision} ${d.rationale} ${d.agentId}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    res.json({ decisions: items.slice(0, 150) });
+  });
+
+  router.post('/total-autonomy/world-model/refresh', (_req, res) => {
+    const wm = buildOrRefreshWorldModel();
+    broadcastEvent('state:updated');
+    res.json(wm);
+  });
+
+  router.post('/total-autonomy/benchmark/run', async (_req, res) => {
+    try {
+      const report = await runWeeklySelfEvaluationBenchmark();
+      broadcastEvent('state:updated');
+      res.json({ report });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/total-autonomy/goal-cycle', async (req, res) => {
+    try {
+      const { goal } = (req.body || {}) as { goal?: string };
+      if (!goal?.trim()) return res.status(400).json({ error: 'goal kötelező.' });
+      const cycle = await runGoalLoopCycle({ goal: goal.trim() });
+      broadcastEvent('state:updated');
+      res.json({ cycle });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  // ===== LAN Discovery & Extensible 12-Adapter Device Control =====
+  router.get('/network/devices', (_req, res) => {
+    const s = getState();
+    res.json({
+      devices: s.lanDeviceInventory || [],
+      pendingPrompts: (s.pendingDevicePrompts || []).filter((p) => p.status === 'pending'),
+      actionHistory: (s.deviceActionHistory || []).slice(0, 60),
+    });
+  });
+
+  router.post('/network/devices/discover', async (req, res) => {
+    try {
+      const { targets } = (req.body || {}) as { targets?: string[] };
+      const out = await discoverLanDevicesSafe({ targets });
+      buildOrRefreshWorldModel();
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/network/devices/:id/credentials', (req, res) => {
+    try {
+      if (req.headers['x-novaswarm-tool']) {
+        return res.status(403).json({ error: 'Ágens nem állíthat be eszköz-hitelesítést.' });
+      }
+      const creds = (req.body?.credentials || req.body || {}) as Record<string, string>;
+      const out = saveDeviceCredentialsSafe(req.params.id, creds);
+      broadcastEvent('state:updated');
+      res.json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/network/devices/:id/control', async (req, res) => {
+    try {
+      const { mode, action, params, dryRun } = (req.body || {}) as {
+        mode?: 'status' | 'read' | 'act';
+        action?: string;
+        params?: Record<string, unknown>;
+        dryRun?: boolean;
+      };
+      const out = await executeDeviceControl({
+        deviceId: req.params.id,
+        mode: mode || 'status',
+        action,
+        actionParams: params,
+        dryRun,
+      });
+      broadcastEvent('state:updated');
+      res.status(out.ok || out.needsCredentials ? 200 : 400).json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/network/actions/:actionId/undo', async (req, res) => {
+    try {
+      const out = await undoDeviceAction(req.params.actionId);
+      broadcastEvent('state:updated');
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/network/prompts/:id/dismiss', (req, res) => {
+    updateState((s) => {
+      const p = (s.pendingDevicePrompts || []).find((x) => x.id === req.params.id);
+      if (p) {
+        p.status = 'dismissed';
+        p.resolvedAt = new Date().toISOString();
+      }
+    });
+    broadcastEvent('state:updated');
+    res.json({ ok: true });
   });
 
   router.use('/v3', createUniversalV3Router(broadcastEvent));

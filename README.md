@@ -29,6 +29,17 @@ A Web UI **Beállítások** oldalán található 1-kattintásos **„Teljes auto
   ```
 - **Napi automatikus Phoenix mentés:** Teljes autonómiában a rendszer naponta automatikus Phoenix pillanatképet készít, és figyelmeztet, ha a legutóbbi mentés 24 óránál régebbi.
 
+### „Totális autonómia” Mód & 3 Sérthetetlen Garancia
+
+A **Beállítások** piros „Totális autonómia” kártyájával és a dedikált **Autonómia központ** nézettel kapcsolható be a teljes önálló működés (cél -> terv -> végrehajtás -> verifikáció -> reflexió ciklus, beállítás-adminisztráció, belső világmodell, memória-higiénia, heti önértékelő benchmark és kereshető döntési napló). A tulajdonosi szabadság mellett **3 sérthetetlen garancia** aktív:
+1. **Hamisításbiztos append-only audit-lánc + napi Telegram anchor:** Az ágensek nem törölhetik és nem vághatják meg az auditnaplót; a HMAC-SHA256 fej-hash naponta Telegramra rögzíthető.
+2. **Többcsatornás vészleállítás (`/stop` LOCKDOWN):** Aktiválható Telegramról (`/stop`), CLI-ből (`lockdown`), Web UI-ból vagy zárfájllal (`/etc/novaswarm/LOCKDOWN`). Feloldani kizárólag a hitelesített tulajdonosi jelszóval lehet.
+3. **Automatikus biztonsági visszaállítási pontok + Security Watchdog:** Kockázatos/beállítás-módosítás előtt automatikus pillanatkép készül, és a 15 mp-es `/healthz` próba hibája esetén automatikusan visszaáll.
+
+- **Öngyógyító üzemmódok & Külső védelem:** Napi felhő keret elérésekor automata átállás helyi Ollamára; 3 hiba után feladat Circuit Breaker nyit; minden külső szöveg `[NEM MEGBÍZHATÓ KÜLSŐ TARTALOM]` jelölést kap, és a Kritikus Felülvizsgáló blokkolja a külső tartalomból érkező `settings_admin` / injekciós kísérleteket.
+- **Hálózati Felderítés (RFC1918) & 12-Adapteres Eszközvezérlő:** Kizárólag privát LAN IP-kre szkennel, 12 beépített adapterrel (Proxmox, TrueNAS, Synology, SSH Linux/Pi, Router/UniFi/OpenWrt/MikroTik, Hue, Tasmota, Shelly, MQTT, Home Assistant, Docker API, Systemd). Eszközjelszót soha nem találgat — hiányzó adathoz belépési kártyát hoz létre, a végrehajtásokat pedig visszavonási naplóval követi.
+- **Telegram parancsok:** `/stop [ok]`, `/visszaallit [n]`, `/autonomia`, `/eszkozok`.
+
 ---
 
 ## Moduláris Felépítés (Mag + Opcionális Modulok)
@@ -36,7 +47,8 @@ A Web UI **Beállítások** oldalán található 1-kattintásos **„Teljes auto
 A NovaSwarm funkcionalitása két rétegre oszlik:
 
 1. **Mag (Core):**
-   - Több-szolgáltatós AI Router (Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Ollama szekvenciális Pi-mutexszel és hibatűréssel)
+   - **Központi, feladat-alapú AI Router (`server/providers/router.ts`):** Egyetlen belépési pont minden felhő és helyi hívásra; többkulcsos széf tömeges bevitellel és Google Cloud `projectId` tudatosítással, kulcsonkénti 24 órás modellfelderítéssel (`keyModelMatrix`), terheléselosztással (80% RPM/TPM előreváltás + párhuzamossági szemafór), `Modell -> Kulcs1..N -> Modell2 -> Helyi Ollama (degradált mód + szigorú verifikáció) -> Várólista` lánccal és Telegram `/kulcsok` paranccsal.
+   - **Hardver-érzékeny Helyi Ollama Csomag (`config/ollama-models.json` + `ollamaSelector.ts`):** Automatikusan felméri a CPU (AVX2/NEON), RAM, swap/zram, GPU VRAM és szabad lemez/SD állapotot; külön optimalizál Raspberry Pi (2 GB, SD-kímélő, szekvenciális mutex), asztali CPU és GPU munkaállomás profilokra, offline módban késlelteti a letöltést, és méri a valós `tok/s` sebességet.
    - Raj Chat (SSE streaming, elágaztatás, visszatekerés, Red-Team elemző) + OpenAI-kompatibilis `/v1/*` proxy
    - Memória & Tudástár (`novaswarm.sqlite` WAL + FTS5, Obsidian Vault, rétegzett hot/warm/cold memória)
    - Hitelesítés, `.secrets.vault.json` (`.secrets.key` + scrypt + AES-256-GCM), HMAC-SHA256 audit-lánc, Telegram csatorna-engedélylista
@@ -68,7 +80,8 @@ A NovaSwarm funkcionalitása két rétegre oszlik:
 
 ### 4. Rendszer
 - **Rendszer & Költöztetés**: Hardver-adaptív optimalizálás, 1-kattintásos SSH költöztető új gépre, Phoenix biztonsági mentés, LAN eszközök és fürt.
-- **Beállítások**: Belépési jelszó, Telegram csatorna, API kulcsok széfje, vészleállító és modulok engedélyezése.
+- **Autonómia központ**: A 3 sérthetetlen garancia élő állapota, LOCKDOWN vészleállítás/feloldás, Watchdog próba, felhő keret + Circuit Breaker, célciklus, RFC1918 LAN felderítés & 12-adapteres eszközvezérlő, biztonsági visszaállítási pontok, világmodell és kereshető döntési napló.
+- **Beállítások**: Belépési jelszó, Telegram csatorna, API kulcsok széfje, „Totális autonómia” piros kártya, vészleállító és modulok engedélyezése.
 
 ---
 
@@ -89,6 +102,8 @@ cd NovaSwarmNextGenHydrogen
 chmod +x install.sh update.sh uninstall.sh
 ./install.sh
 ```
+
+A `install.sh` **zéró kézi lépéses**: automatikusan telepíti a `bubblewrap`-ot, függőségeket, buildet, systemd szolgáltatást; `visudo -cf` ellenőrzéssel hozza létre a `/etc/sudoers.d/novaswarm` (`0440`) fájlt; beállítja az operátori jelszót az egyszeri setup-kóddal (kézi másolás nélkül); opcionálisan bekéri a Telegram bot tokent és chat ID-t; bekapcsolja a Teljes és Totális autonómiát; majd zöld/piros önellenőrzéssel zár (`/healthz`, `sudo -n true`, `bwrap`, első Phoenix pillanatkép).
 
 ### Tiszta újratelepítés (a jelenlegi felhasználó saját mappájába)
 
@@ -125,5 +140,10 @@ npm test
 # Terminál CLI használata
 npm run cli -- status
 npm run cli -- doctor
+npm run cli -- ollama-reselect
 npm run cli -- mission "Elemezd a rendszer terhelését"
+npm run cli -- autonomy-status
+npm run cli -- lockdown "Kézi vészleállítás"
+npm run cli -- unlock
+npm run cli -- restore-security 1
 ```

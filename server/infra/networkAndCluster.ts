@@ -331,22 +331,26 @@ export function registerClusterNode(input: { name: string; url: string; role: Cl
 
 export async function pingClusterNodes(): Promise<ClusterNode[]> {
   const nodes = getState().clusterNodes;
+  const { listInstalledOllamaModelsViaRouter } = await import('../providers/router');
   for (const n of nodes) {
     const t0 = Date.now();
     try {
-      const probeUrl = n.role === 'gpu_ollama' ? `${n.url}/api/tags` : `${n.url}/healthz`;
-      const res = await fetch(probeUrl, { signal: AbortSignal.timeout(3500) });
-      const latencyMs = Date.now() - t0;
+      let ok = false;
       let gpuVramMb: number | undefined;
-      if (n.role === 'gpu_ollama' && res.ok) {
-        const data = (await res.json()) as { models?: Array<{ size?: number }> };
-        const maxModel = Math.max(0, ...(data.models || []).map((m) => m.size || 0));
+      if (n.role === 'gpu_ollama') {
+        const probe = await listInstalledOllamaModelsViaRouter(n.ollamaUrl || n.url);
+        ok = probe.reachable;
+        const maxModel = Math.max(0, ...probe.models.map((m) => m.size || 0));
         if (maxModel > 0) gpuVramMb = Math.round(maxModel / (1024 * 1024));
+      } else {
+        const res = await fetch(`${n.url}/healthz`, { signal: AbortSignal.timeout(3500) });
+        ok = res.ok;
       }
+      const latencyMs = Date.now() - t0;
       updateState((s) => {
         const ref = s.clusterNodes.find((x) => x.id === n.id);
         if (ref) {
-          ref.status = res.ok ? 'online' : 'offline';
+          ref.status = ok ? 'online' : 'offline';
           ref.latencyMs = latencyMs;
           ref.lastSeenAt = new Date().toISOString();
           if (gpuVramMb) ref.gpuVramMb = gpuVramMb;

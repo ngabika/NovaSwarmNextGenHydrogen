@@ -38,7 +38,15 @@ export function assertHostPermission(
 ): void {
   const state = stateOverride ?? getState();
 
-  if (state.settings.killSwitchActive) {
+  const overrideLockfile = process.env.NOVASWARM_LOCKDOWN_FILE?.trim();
+  const lockdownPaths = overrideLockfile
+    ? [overrideLockfile]
+    : [
+        '/etc/novaswarm/LOCKDOWN',
+        path.join(process.env.HOME || '/root', '.novaswarm', 'LOCKDOWN'),
+      ];
+
+  if (state.settings.killSwitchActive || state.settings.lockdownActive || lockdownPaths.some((p) => fs.existsSync(p))) {
     throw new KillSwitchActiveError();
   }
 

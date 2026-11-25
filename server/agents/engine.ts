@@ -18,6 +18,7 @@ import { preCompactThreadMemory, searchMemories } from '../memory/vectorStore';
 import {
   invokeStreamWithFailover,
   invokeWithFailover,
+  reportModelVerificationOutcome,
   type InlineMediaInput,
   type RouterDependencies,
 } from '../providers/router';
@@ -38,6 +39,11 @@ import {
   requireDestructiveApproval,
   shouldRequireDangerousExecApproval,
 } from '../security/permissionGate';
+import { isSystemLockedDown } from '../security/totalAutonomy';
+import {
+  buildOrRefreshWorldModel,
+  consolidateAndFlagStaleMemories,
+} from './autonomyOrchestrator';
 import { buildProgressiveSkillsIndex } from '../skills/loader';
 import { appendAuditLog, appendUnifiedMessage, getState, updateState } from '../state/store';
 import {
@@ -492,6 +498,7 @@ export async function runAgentWithTools(params: {
   latencyMs: number;
   toolTrace: ToolExecutionStep[];
   artifactIds: string[];
+  degradedMode?: boolean;
 }> {
   const startedAt = Date.now();
   const state = getState();
@@ -500,13 +507,14 @@ export async function runAgentWithTools(params: {
   const preset = params.preset ?? state.settings.defaultPreset ?? 'fast';
   const toolTrace: ToolExecutionStep[] = [];
   const artifactIds: string[] = [];
-  let runningPrompt = params.prompt;
+  let runningPrompt = params.prompt || '';
   let totalCost = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let retryCount = 0;
   let lastModel = params.agent.modelId;
   let lastProvider = params.agent.providerId;
+  let hasUntrustedContext = runningPrompt.includes('[NEM MEGBÍZHATÓ KÜLSŐ TARTALOM]');
 
   for (let step = 0; step < maxSteps; step++) {
     const invokeReq = {
@@ -533,8 +541,28 @@ export async function runAgentWithTools(params: {
 
     const calls = parseAllToolCallsFromResponse(res.text);
     if (calls.length === 0) {
+      let finalText = res.text;
+      if (!res.queued) {
+        const hasToolProof = toolTrace.some((t) => t.ok);
+        const claimRe = /\b(telepítettem|lefuttattam|létrehoztam a fájlt|módosítottam a rendszert|installed|executed command|created file)\b/i;
+        const suspiciousDegradedClaim = Boolean(res.strictVerificationRequired && claimRe.test(finalText) && !hasToolProof);
+        const verificationPassed = finalText.trim().length > 0 && !suspiciousDegradedClaim;
+        reportModelVerificationOutcome(lastProvider, lastModel, res.keyId, verificationPassed);
+        if (res.degradedMode) {
+          appendAuditLog({
+            type: 'supervisor',
+            sourceAgentId: params.agent.id,
+            sourceAgentName: params.agent.name,
+            message: `Szigorú verifikáció (helyi Ollama tartalék / degraded mód, modell: ${lastModel}): ${verificationPassed ? 'ÁTMENT' : 'FIGYELMEZTETÉS (igazolatlan műveleti állítás)'}`,
+            verifiedExecution: true,
+          });
+          if (suspiciousDegradedClaim) {
+            finalText += '\n\n[Szigorú Degraded Verifikáció]: A tartalék lokális modell végrehajtásra utaló állítást tett eszköz-igazolás nélkül — operátori/eszköz ellenőrzés ajánlott.';
+          }
+        }
+      }
       return {
-        text: res.text,
+        text: finalText,
         model: lastModel,
         provider: lastProvider,
         costUsd: totalCost,
@@ -543,9 +571,11 @@ export async function runAgentWithTools(params: {
         latencyMs: Date.now() - startedAt,
         toolTrace,
         artifactIds,
+        degradedMode: Boolean(res.degradedMode),
       };
     }
 
+    const stepStartedWithUntrusted = hasUntrustedContext;
     const outcomes = await Promise.all(
       calls.map((c) =>
         executeAgentTool({
@@ -553,6 +583,7 @@ export async function runAgentWithTools(params: {
           toolName: c.name,
           args: c.args,
           isolationMode: params.isolationMode,
+          hasUntrustedContext: stepStartedWithUntrusted,
         })
       )
     );
@@ -561,6 +592,17 @@ export async function runAgentWithTools(params: {
     let anyFailed = false;
     for (let idx = 0; idx < outcomes.length; idx++) {
       const outcome = outcomes[idx];
+      const toolName = calls[idx].name;
+      if (
+        toolName === 'web_fetch' ||
+        toolName === 'web_search' ||
+        toolName === 'browser_action' ||
+        toolName === 'http_request' ||
+        toolName === 'deep_research' ||
+        outcome.observation.includes('[NEM MEGBÍZHATÓ KÜLSŐ TARTALOM]')
+      ) {
+        hasUntrustedContext = true;
+      }
       toolTrace.push(outcome.step);
       if (!outcome.step.ok) anyFailed = true;
       if (outcome.createdArtifactId) artifactIds.push(outcome.createdArtifactId);
@@ -628,8 +670,8 @@ export async function handleUserTurn(params: {
   coordinatorReply: UnifiedMessage;
 }> {
   const state = getState();
-  if (state.settings.killSwitchActive) {
-    throw new Error('A Vészleállító aktív — új feladatok feldolgozása szünetel.');
+  if (isSystemLockedDown()) {
+    throw new Error('A Vészleállító (LOCKDOWN) aktív — új feladatok feldolgozása szünetel.');
   }
 
   const thread = state.threads.find((t) => t.id === params.threadId);
@@ -1087,7 +1129,7 @@ export function createAgent(input: {
     systemPrompt: input.systemPrompt.trim(),
     modelId:
       input.modelId ||
-      (defaultProvider === 'ollama' ? state.settings.ollamaModel : 'gemini-4-hydrogen'),
+      (defaultProvider === 'ollama' ? state.settings.ollamaModel : ''),
     providerId: defaultProvider,
     webSearchEnabled: input.webSearchEnabled ?? true,
     hostExecutionEnabled: input.hostExecutionEnabled ?? state.settings.hostPermissionsGranted,
@@ -1136,8 +1178,8 @@ export async function runAutonomousKanbanWorkerTick(
   routerDeps?: RouterDependencies
 ): Promise<{ worked: boolean; cardId?: string; status?: string; reason?: string }> {
   const state = getState();
-  if (state.settings.killSwitchActive) {
-    return { worked: false, reason: 'Vészleállító aktív.' };
+  if (isSystemLockedDown()) {
+    return { worked: false, reason: 'Vészleállító (LOCKDOWN) aktív.' };
   }
   if (state.activeExplicitTaskAgentId) {
     return { worked: false, reason: 'Aktív felhasználói kérés élvez elsőbbséget.' };
@@ -1316,7 +1358,7 @@ export async function runRedTeamCritique(params: {
       id: 'red-team-critic',
       name: 'Red-Team Kritikus',
       role: 'Adverzariális Kritikus',
-      modelId: 'gemini-4-hydrogen',
+      modelId: '',
       providerId: state.settings.primaryProvider,
     };
 
@@ -1375,6 +1417,17 @@ export async function runNightShiftCycle(routerDeps?: RouterDependencies): Promi
   const actionsTaken: string[] = [];
   let tasksCompleted = 0;
 
+  if (isSystemLockedDown()) {
+    return {
+      id: `night-${crypto.randomUUID().slice(0, 6)}`,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      tasksCompleted: 0,
+      reportSummary: 'Éjszakai Műszak kihagyva: Vészleállítás (LOCKDOWN) aktív.',
+      actionsTaken: ['LOCKDOWN miatt leállítva'],
+    };
+  }
+
   const state = getState();
   const todoCount = state.kanban.filter((c) => !c.archived && c.status === 'todo').length;
   const maxBatch = Math.min(2, todoCount);
@@ -1387,6 +1440,17 @@ export async function runNightShiftCycle(routerDeps?: RouterDependencies): Promi
     } else {
       break;
     }
+  }
+
+  const memHygiene = consolidateAndFlagStaleMemories();
+  if (memHygiene.consolidatedCount > 0 || memHygiene.staleFlaggedCount > 0) {
+    actionsTaken.push(
+      `Memória higiénia: ${memHygiene.consolidatedCount} duplikátum konszolidálva, ${memHygiene.staleFlaggedCount} elavult jelölve.`
+    );
+  }
+  const wm = buildOrRefreshWorldModel();
+  if (wm.anomalies.length > 0) {
+    actionsTaken.push(`Világmodell anomáliák (${wm.anomalies.length} db): ${wm.anomalies.slice(0, 2).join('; ')}`);
   }
 
   if (state.memories.length > 0) {

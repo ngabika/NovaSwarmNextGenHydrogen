@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import express from 'express';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import type { DynamicToolDef } from '../shared/types';
 import { executeHostCommandForAgent, executeHostCommandForAgentAsync } from '../server/agents/engine';
@@ -25,6 +28,7 @@ import {
   deactivateKillSwitch,
   getActiveHostChildCount,
 } from '../server/security/permissionGate';
+import { unlockEmergencyLockdown } from '../server/security/totalAutonomy';
 import {
   createInitialState,
   getState,
@@ -323,53 +327,63 @@ test('Sudo NOPASSWD diagnostics (mocked) & sudo -n non-interactive enforcement',
 });
 
 test('Kill-switch (/stop) immediately terminates active running host command & autonomous commands are audit-logged', async () => {
-  resetInMemoryStateForTests(createInitialState());
-  updateState((s) => {
-    s.settings.hostPermissionsGranted = true;
-    s.settings.fullAutonomousMode = true;
-    s.settings.dangerousExecAutoApprove = true;
-    s.settings.fullAutonomyProfileEnabled = true;
-    s.settings.telegramAllowedChatIds = ['777888999'];
-    s.settings.telegramChatId = '777888999';
-  });
+  const tmpLock = path.join(os.tmpdir(), `novaswarm-fullauto-lock-${process.pid}-${Date.now()}`);
+  process.env.NOVASWARM_LOCKDOWN_FILE = tmpLock;
+  try {
+    resetInMemoryStateForTests(createInitialState());
+    setWebAuthPassword('');
+    updateState((s) => {
+      s.settings.hostPermissionsGranted = true;
+      s.settings.fullAutonomousMode = true;
+      s.settings.dangerousExecAutoApprove = true;
+      s.settings.fullAutonomyProfileEnabled = true;
+      s.settings.telegramAllowedChatIds = ['777888999'];
+      s.settings.telegramChatId = '777888999';
+    });
 
-  const agent = getState().agents[0];
-  assert.ok(agent);
+    const agent = getState().agents[0];
+    assert.ok(agent);
 
-  const startedMs = Date.now();
-  const runningPromise = executeHostCommandForAgentAsync(
-    agent,
-    `${process.execPath} -e "setTimeout(() => {}, 20000)"`
-  );
+    const startedMs = Date.now();
+    const runningPromise = executeHostCommandForAgentAsync(
+      agent,
+      `${process.execPath} -e "setTimeout(() => {}, 20000)"`
+    );
 
-  await new Promise((r) => setTimeout(r, 150));
-  assert.ok(getActiveHostChildCount() >= 1, 'Futó gazdagép folyamat regisztrálva lett');
+    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(getActiveHostChildCount() >= 1, 'Futó gazdagép folyamat regisztrálva lett');
 
-  const tgStopReply = await processTelegramInput('/stop');
-  assert.match(tgStopReply, /VÉSZLEÁLLÍTÓ AKTIVÁLVA/);
+    const tgStopReply = await processTelegramInput('/stop');
+    assert.match(tgStopReply, /VÉSZLEÁLLÍT(Ó|ÁS).*AKTIVÁLVA/);
 
-  const finished = await runningPromise;
-  const elapsedMs = Date.now() - startedMs;
-  assert.equal(finished.executed, false);
-  assert.match(finished.stderr, /Vészleállító \(\/stop\)/);
-  assert.equal(getActiveHostChildCount(), 0);
-  assert.ok(elapsedMs < 4000, `A vészleállítónak azonnal meg kellett szakítania a folyamatot (${elapsedMs}ms)`);
+    const finished = await runningPromise;
+    const elapsedMs = Date.now() - startedMs;
+    assert.equal(finished.executed, false);
+    assert.match(finished.stderr, /Vészleállító \(\/stop\)/);
+    assert.equal(getActiveHostChildCount(), 0);
+    assert.ok(elapsedMs < 4000, `A vészleállítónak azonnal meg kellett szakítania a folyamatot (${elapsedMs}ms)`);
 
-  deactivateKillSwitch();
-  const okRun = await executeHostCommandForAgentAsync(agent, `${process.execPath} -e "console.log('AUDIT_OUTPUT_OK')"`);
-  assert.equal(okRun.executed, true);
-  const logs = getState().auditLogs;
-  const secEntry = logs.find(
-    (l) =>
-      l.type === 'security' &&
-      l.sourceAgentId === agent.id &&
-      l.message.includes('AUDIT_OUTPUT_OK') &&
-      /\[\d{4}-\d{2}-\d{2}T/.test(l.message)
-  );
-  assert.ok(
-    secEntry,
-    'Az autonóm parancs teljes biztonsági audit bejegyzése (parancs + ágens + időbélyeg + kimenet) rögzítve lett'
-  );
+    const unlockRes = await unlockEmergencyLockdown({ actorLabel: 'test-cleanup' });
+    assert.equal(unlockRes.ok, true);
+    deactivateKillSwitch();
+    const okRun = await executeHostCommandForAgentAsync(agent, `${process.execPath} -e "console.log('AUDIT_OUTPUT_OK')"`);
+    assert.equal(okRun.executed, true);
+    const logs = getState().auditLogs;
+    const secEntry = logs.find(
+      (l) =>
+        l.type === 'security' &&
+        l.sourceAgentId === agent.id &&
+        l.message.includes('AUDIT_OUTPUT_OK') &&
+        /\[\d{4}-\d{2}-\d{2}T/.test(l.message)
+    );
+    assert.ok(
+      secEntry,
+      'Az autonóm parancs teljes biztonsági audit bejegyzése (parancs + ágens + időbélyeg + kimenet) rögzítve lett'
+    );
+  } finally {
+    delete process.env.NOVASWARM_LOCKDOWN_FILE;
+    if (fs.existsSync(tmpLock)) fs.unlinkSync(tmpLock);
+  }
 });
 
 test('Phoenix 24h staleness warning and daily auto-snapshot in Full Autonomy mode', () => {

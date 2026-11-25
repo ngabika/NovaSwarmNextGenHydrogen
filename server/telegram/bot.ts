@@ -21,7 +21,13 @@ import {
   getExecTimeoutForCommand,
   getPhoenixAutonomyStatus,
 } from '../security/autonomyProfile';
-import { activateKillSwitch, assertHostPermission, resolveApproval } from '../security/permissionGate';
+import {
+  activateEmergencyLockdown,
+  getTotalAutonomySummary,
+  restoreSecuritySnapshot,
+} from '../security/totalAutonomy';
+import { discoverLanDevicesSafe } from '../network/deviceDiscoveryAndAdapters';
+import { assertHostPermission, resolveApproval } from '../security/permissionGate';
 import {
   collectPiHardwareDeepStatus,
   checkSystemPackageUpdates,
@@ -205,6 +211,7 @@ export async function syncTelegramBotCommands(token: string): Promise<void> {
           { command: 'teendok', description: 'Akciópontok kinyerése szövegből' },
           { command: 'v8riport', description: 'Omni vezetői Markdown riport' },
           { command: 'sudo', description: 'Jelszó nélküli sudo (NOPASSWD) ellenőrzése' },
+          { command: 'kulcsok', description: 'API kulcsok, mátrix, kvóták és várólista' },
           { command: 'stop', description: 'Vészleállító (Kill-Switch)' },
         ],
       }),
@@ -419,8 +426,50 @@ export async function processTelegramInput(
   });
 
   if (text === '/stop' || text === '/veszleallito') {
-    activateKillSwitch('telegram');
-    return 'VÉSZLEÁLLÍTÓ AKTIVÁLVA. Minden ágens-folyamat és MCP végrehajtás azonnal leállt.';
+    const res = await activateEmergencyLockdown('telegram', 'Telegram /stop parancs');
+    return `🛑 VÉSZLEÁLLÍTÁS (LOCKDOWN) AKTIVÁLVA.\nMegállított host folyamatok: ${res.terminatedProcesses}\nTotális autonómia kikapcsolva. Feloldás kizárólag a tulajdonos hitelesített jelszavával lehetséges.`;
+  }
+
+  if (text === '/visszaallit' || text.startsWith('/visszaallit ')) {
+    const stepsArg = text.replace(/^\/visszaallit\s*/i, '').trim();
+    const steps = stepsArg ? Math.max(1, Number(stepsArg) || 1) : 1;
+    const restored = restoreSecuritySnapshot(steps, 'telegram');
+    return restored.ok
+      ? `♻️ ${restored.message}`
+      : `⚠️ ${restored.message}`;
+  }
+
+  if (text === '/autonomia') {
+    const summary = getTotalAutonomySummary();
+    return [
+      `🔐 Totális Autonómia Állapot:`,
+      `- Mód: ${summary.totalAutonomyEnabled ? 'AKTÍV (🔴)' : 'Kikapcsolva'}`,
+      `- Vészleállítás (LOCKDOWN): ${summary.lockdownActive ? `AKTÍV (${summary.lockdownReason || 'zárolva'})` : 'Ki'}`,
+      `- Append-only Audit: ${summary.guarantees.appendOnlyAudit.chainValid ? 'ÉP ✅' : 'SÉRÜLT ⚠️'} (${summary.guarantees.appendOnlyAudit.entriesCount} sor)`,
+      `- Biztonsági pillanatképek: ${summary.guarantees.securityRestore.snapshotsCount} db (Watchdog: ${summary.guarantees.securityRestore.autoWatchdogRollback ? 'BE' : 'KI'})`,
+      `- Felhő költés: $${summary.cloudBudget.spendUsd.toFixed(4)} / $${summary.cloudBudget.limitUsd.toFixed(2)} (Ollama átállás: ${summary.cloudBudget.fallbackToOllama ? 'BE' : 'KI'})`,
+    ].join('\n');
+  }
+
+  if (text === '/eszkozok' || text === '/eszközök' || text.startsWith('/eszkozok ')) {
+    const arg = text.replace(/^\/eszkoz[oö]k\s*/i, '').trim().toLowerCase();
+    if (arg === 'scan') {
+      const res = await discoverLanDevicesSafe();
+      return `🛰️ LAN felderítés kész: ${res.discoveredCount} eszköz (${res.newDevicesCount} új).\n${res.devices
+        .slice(0, 12)
+        .map((d) => `• ${d.ip} — ${d.vendor} [${d.adapterType}] (${d.status})`)
+        .join('\n')}`;
+    }
+    const devs = state.lanDeviceInventory || [];
+    const pending = (state.pendingDevicePrompts || []).filter((p) => p.status === 'pending');
+    if (devs.length === 0) {
+      return 'Még nincs felderített LAN eszköz. Futtasd: /eszkozok scan';
+    }
+    return [
+      `📡 LAN Eszközleltár (${devs.length} db):`,
+      ...devs.slice(0, 15).map((d) => `• ${d.ip} [${d.adapterType}] ${d.vendor} — ${d.status} (jelszó: ${d.hasCredentials ? 'mentve' : 'nincs'})`),
+      ...(pending.length > 0 ? ['', `🔑 Hiányzó hitelesítések (${pending.length}): ${pending.map((p) => p.ip).join(', ')}`] : []),
+    ].join('\n');
   }
 
   if (text === '/statusz' || text === '/status') {
@@ -431,11 +480,11 @@ export async function processTelegramInput(
     return [
       `NovaSwarm Állapot:`,
       `- Aktív ágensek: ${activeAgents} (+1 Felügyelő: ${state.supervisor.status})`,
-      `- Teljes autonómia profil: ${state.settings.fullAutonomyProfileEnabled ? 'AKTÍV (parancsok jóváhagyás nélkül futhatnak)' : 'Ki'}`,
+      `- Totális autonómia: ${state.settings.totalAutonomyEnabled ? 'AKTÍV (🔴)' : 'Ki'} | Profil: ${state.settings.fullAutonomyProfileEnabled ? 'AKTÍV' : 'Ki'}`,
       `- Jogosultságok: host=${state.settings.hostPermissionsGranted ? 'IGEN' : 'Nem'} | autonóm=${state.settings.fullAutonomousMode ? 'IGEN' : 'Nem'} | veszélyes_exec=${state.settings.dangerousExecAutoApprove ? 'IGEN' : 'Nem'}`,
       `- Exec időkorlát: ${state.settings.execTimeoutSeconds ?? 12}s (hosszú: ${state.settings.longExecTimeoutSeconds ?? 600}s)`,
       `- Sudo NOPASSWD (${sudoStat.username}): ${sudoStat.hasNopasswd ? 'Rendben' : 'HIÁNYZIK (/sudo)'}`,
-      `- Kill switch: ${state.settings.killSwitchActive ? 'AKTÍV' : 'Ki'}`,
+      `- Vészleállítás (LOCKDOWN): ${state.settings.lockdownActive || state.settings.killSwitchActive ? 'AKTÍV' : 'Ki'}`,
       `- CPU: ${hw.cpuLoadPercent}% (${hw.cpuCores} mag) | RAM: ${hw.ramUsedMb}/${hw.ramTotalMb} MB (${hw.ramPercent}%)`,
       `- Hőmérséklet: ${hw.temperatureCelsius !== null ? `${hw.temperatureCelsius}°C` : 'N/A'} | Akku: ${hw.batteryPercent !== null ? `${hw.batteryPercent}%` : 'AC/N/A'}`,
       `- Napi költés: $${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}`,
@@ -495,6 +544,49 @@ export async function processTelegramInput(
       .slice(0, 8)
       .map((m) => `• [${(m.tier || 'warm').toUpperCase()} | ${m.entity}] ${m.content.slice(0, 100)}`);
     return `Legutóbbi tartós memóriák (${state.memories.length} db összesen):\n${lines.join('\n')}`;
+  }
+
+  if (text === '/kulcsok' || text === '/keys') {
+    const providers = ['gemini', 'openrouter', 'openai', 'anthropic'] as const;
+    const nowMs = Date.now();
+    const lines: string[] = ['🔑 API Kulcs-Pool & Mátrix Állapot:'];
+    for (const p of providers) {
+      const keys = state.settings.providerKeys[p] || [];
+      if (keys.length === 0) {
+        lines.push(`• ${p}: nincs kulcs`);
+        continue;
+      }
+      const activeCnt = keys.filter(
+        (k) =>
+          k.enabled &&
+          !(k.cooldownUntil && Date.parse(k.cooldownUntil) > nowMs) &&
+          !(k.dailyExhaustedUntil && Date.parse(k.dailyExhaustedUntil) > nowMs)
+      ).length;
+      const details = keys
+        .slice(0, 6)
+        .map((k) => {
+          const st = !k.enabled
+            ? 'LETILTVA'
+            : k.dailyExhaustedUntil && Date.parse(k.dailyExhaustedUntil) > nowMs
+            ? 'NAPI LIMIT'
+            : k.cooldownUntil && Date.parse(k.cooldownUntil) > nowMs
+            ? 'COOLDOWN'
+            : 'OK';
+          return `${k.label}(${k.maskedKey}${k.projectId ? `, proj:${k.projectId}` : ''}) [${st}]`;
+        })
+        .join(', ');
+      lines.push(`• ${p} (${activeCnt}/${keys.length} aktív): ${details}`);
+    }
+    const { analyzeGeminiProjectSharing } = await import('../providers/smartRouting');
+    const gemProj = analyzeGeminiProjectSharing(state.settings.providerKeys.gemini || []);
+    if (gemProj.warningHu) lines.push(`⚠️ ${gemProj.warningHu}`);
+    const matCount = (state.keyModelMatrix || []).length;
+    const queuedCount = (state.queuedLlmRequests || []).length;
+    const recentDegraded = (state.routedCallLogs || [])[0]?.degradedMode;
+    lines.push(
+      `📊 Mátrix bejegyzések: ${matCount} | Várólista: ${queuedCount} kérés | Helyi Ollama: ${state.settings.ollamaModel}${recentDegraded ? ' [DEGRADED TARTALÉK AKTÍV]' : ''}`
+    );
+    return lines.join('\n');
   }
 
   if (text === '/modell' || text === '/models') {
@@ -626,7 +718,8 @@ export async function processTelegramInput(
   if (text === '/help' || text === '/parancsok' || text === '/start') {
     return [
       'NovaSwarm Parancsok:',
-      '/statusz · /autopilot · /top · /df · /hwopt',
+      '/statusz · /autonomia · /kulcsok · /visszaallit [n] · /eszkozok [scan]',
+      '/autopilot · /top · /df · /hwopt',
       '/mission <cél> · /nightshift · /kapszula · /brief',
       '/kanban · /otlet <cél> · /lista [tétel]',
       '/search <kifejezés> · /vita <téma> · /inbox · /heal',

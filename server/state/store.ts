@@ -153,6 +153,7 @@ interface SecretVault {
   webAuthPasswordHash?: string;
   webSessionSecret?: string;
   namedSecrets?: Record<string, string>;
+  deviceCredentials?: Record<string, string>;
 }
 
 function loadSecretVault(): SecretVault {
@@ -349,6 +350,86 @@ export function getWebSessionSecret(): string {
   vault.webSessionSecret = encryptSecret(fresh);
   saveSecretVault(vault);
   return fresh;
+}
+
+export interface DeviceCredentialSecretPayload {
+  username?: string;
+  password?: string;
+  apiToken?: string;
+  sshPrivateKey?: string;
+  extraNotes?: string;
+}
+
+export function setDeviceCredentialSecret(
+  deviceId: string,
+  creds: DeviceCredentialSecretPayload
+): { stored: boolean; fields: string[] } {
+  const vault = loadSecretVault();
+  vault.deviceCredentials = vault.deviceCredentials ?? {};
+  const cleaned: DeviceCredentialSecretPayload = {};
+  if (creds.username?.trim()) cleaned.username = creds.username.trim();
+  if (creds.password?.trim()) cleaned.password = creds.password.trim();
+  if (creds.apiToken?.trim()) cleaned.apiToken = creds.apiToken.trim();
+  if (creds.sshPrivateKey?.trim()) cleaned.sshPrivateKey = creds.sshPrivateKey.trim();
+  if (creds.extraNotes?.trim()) cleaned.extraNotes = creds.extraNotes.trim();
+
+  const fields = Object.keys(cleaned);
+  if (fields.length === 0) {
+    delete vault.deviceCredentials[deviceId];
+    saveSecretVault(vault);
+    return { stored: false, fields: [] };
+  }
+  vault.deviceCredentials[deviceId] = encryptSecret(JSON.stringify(cleaned));
+  saveSecretVault(vault);
+  return { stored: true, fields };
+}
+
+export function getDeviceCredentialSecret(deviceId: string): DeviceCredentialSecretPayload | null {
+  const vault = loadSecretVault();
+  const enc = vault.deviceCredentials?.[deviceId];
+  if (!enc) return null;
+  try {
+    return JSON.parse(decryptSecret(enc)) as DeviceCredentialSecretPayload;
+  } catch {
+    return null;
+  }
+}
+
+export function hasDeviceCredentialSecret(deviceId: string): boolean {
+  const vault = loadSecretVault();
+  return Boolean(vault.deviceCredentials?.[deviceId]);
+}
+
+export function deleteDeviceCredentialSecret(deviceId: string): void {
+  const vault = loadSecretVault();
+  if (!vault.deviceCredentials) return;
+  delete vault.deviceCredentials[deviceId];
+  saveSecretVault(vault);
+}
+
+export function listActiveVaultSecretValuesForRedaction(): string[] {
+  const values: string[] = [];
+  const vault = loadSecretVault();
+  const addVal = (raw?: string) => {
+    if (raw && raw.trim().length >= 4) {
+      values.push(raw.trim());
+    }
+  };
+  if (vault.telegramBotToken) addVal(decryptSecret(vault.telegramBotToken));
+  for (const enc of Object.values(vault.providerKeys || {})) {
+    addVal(decryptSecret(enc));
+  }
+  for (const enc of Object.values(vault.deviceCredentials || {})) {
+    try {
+      const parsed = JSON.parse(decryptSecret(enc)) as DeviceCredentialSecretPayload;
+      addVal(parsed.password);
+      addVal(parsed.apiToken);
+      addVal(parsed.sshPrivateKey);
+    } catch {
+      // ignore corrupted entry
+    }
+  }
+  return values;
 }
 
 export function createDefaultQuotas(): Record<ProviderId, QuotaStatus> {
@@ -626,6 +707,27 @@ export function createDefaultSettings(): Settings {
     lastPhoenixSnapshotAt: null,
     sendAuditAnchorToTelegram: false,
     lastAuditAnchorSentDate: null,
+    totalAutonomyEnabled: false,
+    totalAutonomyActivatedAt: null,
+    dailyCloudCostFallbackToOllama: true,
+    autoWatchdogRollbackEnabled: true,
+    watchdogTimeoutSeconds: 15,
+    circuitBreakerMaxFailures: 3,
+    circuitBreakerDailyActionCap: 40,
+    exceptionTelegramSummaryHour: 20,
+    lastExceptionDigestDate: null,
+    lockdownActive: false,
+    lockdownReason: null,
+    lockdownActivatedAt: null,
+    modelBlocklist: [],
+    taskModelRankingOverrides: {},
+    providerOrder: ['gemini', 'openrouter', 'openai', 'anthropic', 'ollama'],
+    ollamaFastModel: '',
+    ollamaCodeModel: '',
+    ollamaVisionModel: '',
+    ollamaBenchmark: null,
+    ollamaPendingPullModels: [],
+    ollamaCleanupSuggestions: [],
   };
 }
 
@@ -639,7 +741,7 @@ export function createSupervisorAgent(): Agent {
     parentAgentId: null,
     systemPrompt:
       'Te vagy a rendszer állandó technikai Felügyelő/Auditor ágense. Feladatod minden autonóm kör után ellenőrizni a naplókat és memória-írásokat, kiszűrni a nem végrehajtott, fiktív sikereket, és előzetes dry-run sandbox teszteket futtatni új skillek, MCP kapcsolatok és önmódosítások előtt.',
-    modelId: 'gemini-4-hydrogen',
+    modelId: '',
     providerId: 'gemini',
     webSearchEnabled: false,
     hostExecutionEnabled: true,
@@ -704,6 +806,9 @@ export function createInitialState(): NovaSwarmState {
       lastDestructiveProofAt: null,
     },
     discoveredModels: [],
+    keyModelMatrix: [],
+    routedCallLogs: [],
+    queuedLlmRequests: [],
     quotas: createDefaultQuotas(),
     backups: [],
     virtualKeys: [],
@@ -876,6 +981,17 @@ export function createInitialState(): NovaSwarmState {
     wellnessLogs: [],
     smartChecklists: createDefaultSmartChecklists(),
     timeBlocks: [],
+    securitySnapshots: [],
+    autonomyDecisions: [],
+    circuitBreakerTasks: [],
+    exceptionNotificationsQueue: [],
+    lanDeviceInventory: [],
+    pendingDevicePrompts: [],
+    deviceActionHistory: [],
+    worldModelNodes: [],
+    worldModelEdges: [],
+    weeklyEvaluations: [],
+    goalCycles: [],
     lastActivityAt: now,
     activeExplicitTaskAgentId: null,
   };
@@ -909,6 +1025,21 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
       ...base.settings.manualModelPriority,
       ...(source.settings?.manualModelPriority || {}),
     },
+    modelBlocklist: Array.isArray(source.settings?.modelBlocklist) ? source.settings.modelBlocklist : [],
+    taskModelRankingOverrides:
+      source.settings?.taskModelRankingOverrides && typeof source.settings.taskModelRankingOverrides === 'object'
+        ? source.settings.taskModelRankingOverrides
+        : {},
+    providerOrder:
+      Array.isArray(source.settings?.providerOrder) && source.settings.providerOrder.length > 0
+        ? source.settings.providerOrder
+        : base.settings.providerOrder,
+    ollamaPendingPullModels: Array.isArray(source.settings?.ollamaPendingPullModels)
+      ? source.settings.ollamaPendingPullModels
+      : [],
+    ollamaCleanupSuggestions: Array.isArray(source.settings?.ollamaCleanupSuggestions)
+      ? source.settings.ollamaCleanupSuggestions
+      : [],
   };
 
   if (mergedSettings.dailySpendDate !== todayIsoDate()) {
@@ -1149,6 +1280,19 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
         ? source.smartChecklists
         : base.smartChecklists,
     timeBlocks: Array.isArray(source.timeBlocks) ? source.timeBlocks : [],
+    securitySnapshots: Array.isArray(source.securitySnapshots) ? source.securitySnapshots : [],
+    autonomyDecisions: Array.isArray(source.autonomyDecisions) ? source.autonomyDecisions : [],
+    circuitBreakerTasks: Array.isArray(source.circuitBreakerTasks) ? source.circuitBreakerTasks : [],
+    exceptionNotificationsQueue: Array.isArray(source.exceptionNotificationsQueue)
+      ? source.exceptionNotificationsQueue
+      : [],
+    lanDeviceInventory: Array.isArray(source.lanDeviceInventory) ? source.lanDeviceInventory : [],
+    pendingDevicePrompts: Array.isArray(source.pendingDevicePrompts) ? source.pendingDevicePrompts : [],
+    deviceActionHistory: Array.isArray(source.deviceActionHistory) ? source.deviceActionHistory : [],
+    worldModelNodes: Array.isArray(source.worldModelNodes) ? source.worldModelNodes : [],
+    worldModelEdges: Array.isArray(source.worldModelEdges) ? source.worldModelEdges : [],
+    weeklyEvaluations: Array.isArray(source.weeklyEvaluations) ? source.weeklyEvaluations : [],
+    goalCycles: Array.isArray(source.goalCycles) ? source.goalCycles : [],
     gatewayAnalytics: {
       ...base.gatewayAnalytics,
       ...(source.gatewayAnalytics || {}),
@@ -1172,6 +1316,10 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
       ...base.supervisor,
       ...(source.supervisor || {}),
     },
+    discoveredModels: Array.isArray(source.discoveredModels) ? source.discoveredModels : [],
+    keyModelMatrix: Array.isArray(source.keyModelMatrix) ? source.keyModelMatrix : [],
+    routedCallLogs: Array.isArray(source.routedCallLogs) ? source.routedCallLogs : [],
+    queuedLlmRequests: Array.isArray(source.queuedLlmRequests) ? source.queuedLlmRequests : [],
     auditChainAnchor: source.auditChainAnchor,
   };
 
@@ -1287,7 +1435,14 @@ export function saveState(state: NovaSwarmState): void {
 
 export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarmState {
   const current = getState();
+  const protectAudit = Boolean(current.settings.totalAutonomyEnabled);
+  const prevAuditLogs = protectAudit ? [...current.auditLogs] : null;
+  const prevAuditAnchor = protectAudit ? current.auditChainAnchor : undefined;
   mutator(current);
+  if (protectAudit && prevAuditLogs && current.auditLogs.length < prevAuditLogs.length) {
+    current.auditLogs = prevAuditLogs;
+    current.auditChainAnchor = prevAuditAnchor;
+  }
   saveState(current);
   return current;
 }
@@ -1343,15 +1498,23 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | '
 
     s.auditLogs.push(full);
     const maxEntries = Math.max(100, s.settings.auditLogMaxEntries || 2000);
-    if (s.auditLogs.length > maxEntries) {
-      const overflow = s.auditLogs.length - maxEntries;
-      const dropped = s.auditLogs.splice(0, overflow);
-      const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
-      if (lastDroppedHash) {
-        s.auditChainAnchor = {
-          prevHash: lastDroppedHash,
-          prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
-        };
+    // Sérthetetlen garancia (Append-only): Totális autonómia módban (és biztonsági bejegyzéseknél) nem törlünk / csonkítunk naplót.
+    if (!s.settings.totalAutonomyEnabled && s.auditLogs.length > maxEntries) {
+      let headCut = 0;
+      const targetOverflow = s.auditLogs.length - maxEntries;
+      while (headCut < targetOverflow && headCut < s.auditLogs.length) {
+        if (s.auditLogs[headCut]?.type === 'security') break;
+        headCut += 1;
+      }
+      if (headCut > 0) {
+        const dropped = s.auditLogs.splice(0, headCut);
+        const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
+        if (lastDroppedHash) {
+          s.auditChainAnchor = {
+            prevHash: lastDroppedHash,
+            prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
+          };
+        }
       }
     }
   });
@@ -1384,7 +1547,7 @@ export function appendUnifiedMessage(
   return full;
 }
 
-/** M156: Retention cleanup across transient logs/history (head-only prune preserves audit hash chain anchor) */
+/** M156: Retention cleanup across transient logs/history (head-only prune preserves audit hash chain anchor; blocked in Total Autonomy for strict append-only audit) */
 export function pruneRetentionData(daysOverride?: number): { prunedLogs: number; prunedClipboard: number } {
   const days = Math.max(1, daysOverride ?? getState().settings.retentionDays ?? 90);
   const cutoffMs = Date.now() - days * 86_400_000;
@@ -1392,23 +1555,25 @@ export function pruneRetentionData(daysOverride?: number): { prunedLogs: number;
   let prunedClipboard = 0;
 
   updateState((s) => {
-    let headCutIdx = 0;
-    while (headCutIdx < s.auditLogs.length) {
-      const item = s.auditLogs[headCutIdx];
-      if (item.type === 'security' || Date.parse(item.timestamp) >= cutoffMs) {
-        break;
+    if (!s.settings.totalAutonomyEnabled) {
+      let headCutIdx = 0;
+      while (headCutIdx < s.auditLogs.length) {
+        const item = s.auditLogs[headCutIdx];
+        if (item.type === 'security' || Date.parse(item.timestamp) >= cutoffMs) {
+          break;
+        }
+        headCutIdx++;
       }
-      headCutIdx++;
-    }
-    if (headCutIdx > 0) {
-      const dropped = s.auditLogs.splice(0, headCutIdx);
-      prunedLogs = dropped.length;
-      const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
-      if (lastDroppedHash) {
-        s.auditChainAnchor = {
-          prevHash: lastDroppedHash,
-          prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
-        };
+      if (headCutIdx > 0) {
+        const dropped = s.auditLogs.splice(0, headCutIdx);
+        prunedLogs = dropped.length;
+        const lastDroppedHash = [...dropped].reverse().find((d) => Boolean(d.hash))?.hash;
+        if (lastDroppedHash) {
+          s.auditChainAnchor = {
+            prevHash: lastDroppedHash,
+            prunedCount: (s.auditChainAnchor?.prunedCount || 0) + dropped.length,
+          };
+        }
       }
     }
 
@@ -1438,10 +1603,15 @@ export function createApprovalRequest(
   return full;
 }
 
-/** M345: Reset non-secret runtime data (optionally preserving API keys, Telegram & settings) */
+/** M345: Reset non-secret runtime data (optionally preserving API keys, Telegram & settings) — strictly preserves append-only audit log & security snapshots */
 export function clearOrResetAppData(opts?: { keepSecretsAndSettings?: boolean }): NovaSwarmState {
   const prev = getState();
   const fresh = createInitialState();
+  // Sérthetetlen garanciák megőrzése: audit napló, lánc-horgony és biztonsági visszaállítási pillanatképek nem törlődnek!
+  fresh.auditLogs = [...prev.auditLogs];
+  fresh.auditChainAnchor = prev.auditChainAnchor;
+  fresh.securitySnapshots = [...(prev.securitySnapshots || [])];
+  fresh.autonomyDecisions = [...(prev.autonomyDecisions || [])];
   if (opts?.keepSecretsAndSettings !== false) {
     fresh.settings = {
       ...prev.settings,

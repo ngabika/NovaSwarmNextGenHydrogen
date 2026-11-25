@@ -9,6 +9,7 @@ import type {
 } from '../../shared/types';
 import { appendAuditLog, getState, updateState } from '../state/store';
 import { clearResponseCache, unloadOllamaModel } from '../providers/router';
+import { detectDetailedHardware } from './ollamaSelector';
 
 export interface TelemetryBufferSample {
   timestamp: string;
@@ -203,16 +204,29 @@ export function classifyHardwareSpecs(input: {
 export function detectHardwareProfile(): HardwareAdaptiveProfile {
   const mem = readProcMeminfo();
   const gpu = detectGpuSummary();
-  return classifyHardwareSpecs({
+  const detailed = detectDetailedHardware();
+  const base = classifyHardwareSpecs({
     cpuCores: Math.max(1, os.cpus().length),
     arch: `${os.platform()}/${os.arch()}`,
     ramTotalMb: mem.ramTotalMb,
     ramAvailableMb: mem.ramAvailableMb,
     swapTotalMb: mem.swapTotalMb,
     storageKind: detectStorageKind(),
-    hasGpu: gpu.hasGpu,
-    gpuName: gpu.gpuName,
+    hasGpu: gpu.hasGpu || detailed.gpuVendor !== 'none',
+    gpuName: detailed.gpuVendor !== 'none' ? detailed.gpuName : gpu.gpuName,
   });
+  return {
+    ...base,
+    boardModel: detailed.boardModel,
+    isRaspberryPi: detailed.isRaspberryPi,
+    ramFreeMb: detailed.ramFreeMb,
+    diskFreeMb: detailed.diskFreeMb,
+    gpuVendor: detailed.gpuVendor,
+    gpuVramMb: detailed.gpuVramMb,
+    cpuFlags: detailed.cpuFlags,
+    zramPresent: detailed.zramPresent,
+    singleModelMutex: detailed.ramTotalMb <= 2500 && detailed.gpuVendor === 'none',
+  };
 }
 
 export function applyHardwareAdaptiveOptimization(force = true): {

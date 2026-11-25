@@ -56,32 +56,34 @@ test('Round-robin key pool rotation & failover chain (Gemini -> OpenRouter -> Ol
     'ollama:local',
   ]);
 
-  // 429 errors placed Gemini keys on cooldown; verify cooldown was set then reset before total outage test
+  // 429 errors placed Gemini keys on cooldown; 401 disabled OpenRouter key
   assert.ok(state.settings.providerKeys.gemini[0].cooldownUntil);
-  resetProviderCooldowns();
+  assert.equal(state.settings.providerKeys.openrouter[0].enabled, false);
+  assert.ok(state.settings.providerKeys.openrouter[0].disabledReason);
 
-  // If Ollama also fails, error MUST list ALL tried channels explicitly (Section 11.5)
-  await assert.rejects(
-    () =>
-      invokeWithFailover(
-        { prompt: 'Total outage', complexity: 'simple' },
-        {
-          resolveSecret: (id) => secretMap[id] || '',
-          sleep: async () => {},
-          callProvider: async ({ provider }) => {
-            if (provider === 'gemini') throw new Error('túl sok kérés');
-            if (provider === 'openrouter') throw new Error('érvénytelen kulcs');
-            throw new Error('időtúllépés');
-          },
-        }
-      ),
-    (err: Error) => {
-      assert.match(err.message, /\[gemini\/Gemini Key 1\]: túl sok kérés/);
-      assert.match(err.message, /\[openrouter\/OpenRouter Key 1\]: érvénytelen kulcs/);
-      assert.match(err.message, /\[ollama\]: időtúllépés/);
-      return true;
+  resetProviderCooldowns();
+  state.settings.providerKeys.openrouter[0].enabled = true;
+  state.settings.providerKeys.openrouter[0].disabledReason = undefined;
+
+  // If Ollama also fails, router returns graceful queued fallback AND records errorSummary listing ALL channels
+  const totalOutageRes = await invokeWithFailover(
+    { prompt: 'Total outage', complexity: 'simple' },
+    {
+      resolveSecret: (id) => secretMap[id] || '',
+      sleep: async () => {},
+      callProvider: async ({ provider }) => {
+        if (provider === 'gemini') throw new Error('túl sok kérés');
+        if (provider === 'openrouter') throw new Error('érvénytelen kulcs');
+        throw new Error('időtúllépés');
+      },
     }
   );
+  assert.equal(totalOutageRes.queued, true);
+  assert.equal(totalOutageRes.degradedMode, true);
+  assert.ok(totalOutageRes.queueId);
+  assert.match(totalOutageRes.errorSummary || '', /\[gemini\/Gemini Key 1\]: túl sok kérés/);
+  assert.match(totalOutageRes.errorSummary || '', /\[openrouter\/OpenRouter Key 1\]: érvénytelen kulcs/);
+  assert.match(totalOutageRes.errorSummary || '', /\[ollama\]: időtúllépés/);
 });
 
 test('Dynamic model discovery + local cost table + OpenRouter exact $0 free filtering', async () => {

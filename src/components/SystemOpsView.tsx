@@ -67,6 +67,9 @@ const Batch7UniverseLabPanel = lazy(() =>
 const Batch8SingularityPanel = lazy(() =>
   import('./Batch8SingularityPanel').then((m) => ({ default: m.Batch8SingularityPanel }))
 );
+const AutonomyCenterView = lazy(() =>
+  import('./AutonomyCenterView').then((m) => ({ default: m.AutonomyCenterView }))
+);
 
 interface Props {
   language: LanguageCode;
@@ -107,7 +110,7 @@ export const SystemOpsView: React.FC<Props> = ({
   phoenixAutonomy,
   onRefreshState,
 }) => {
-  const [subTab, setSubTab] = useState<'ops' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
+  const [subTab, setSubTab] = useState<'ops' | 'autonomy_center' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
   const [sudoLocal, setSudoLocal] = useState<SudoCheckStatus | null>(sudoStatus ?? null);
   const [sudoChecking, setSudoChecking] = useState(false);
   const [phoenixSaving, setPhoenixSaving] = useState(false);
@@ -470,6 +473,7 @@ export const SystemOpsView: React.FC<Props> = ({
           {(
             [
               { id: 'ops', label: 'Üzemeltetés & Mentés', hint: 'Jóváhagyásra váró műveletek, uptime és SSL figyelés, valamint teljes biztonsági mentések és visszaállítás.' },
+              { id: 'autonomy_center', label: 'Autonómia központ', hint: 'Totális autonómia garanciák, LOCKDOWN vészleállító, biztonsági visszaállítási pontok, LAN felderítés és döntési napló.' },
               { id: 'selfmod', label: 'Önfejlesztés & Frissítés', hint: 'A program önmódosító előzményei és hivatalos GitHub frissítések ellenőrzése vagy telepítése.' },
               { id: 'infra', label: 'Szerver & Konténerek', hint: 'Docker konténerek, Linux szolgáltatások (systemd), helyi eszközök, VPN és távoli SSH gépek kezelése.' },
               { id: 'pi_hw_b4', label: 'Hardver & Fájlok', hint: 'Hőmérséklet, Raspberry Pi szenzorok, behatolás-szűrő, okosmérő, fájlböngésző és saját állapotdobozok.' },
@@ -2046,6 +2050,11 @@ export const SystemOpsView: React.FC<Props> = ({
       {subTab === 'b8_omni' && (
         <Suspense fallback={<div className="p-6 text-xs text-slate-500">Képesség Stúdió betöltése...</div>}>
           <Batch8SingularityPanel state={state} onRefreshState={onRefreshState} />
+        </Suspense>
+      )}
+      {subTab === 'autonomy_center' && (
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Autonómia központ betöltése...</div>}>
+          <AutonomyCenterView onRefreshState={onRefreshState} />
         </Suspense>
       )}
     </div>

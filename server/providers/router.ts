@@ -6,13 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   ExecutionPreset,
+  KeyModelMatrixEntry,
   MediaArtifact,
+  ModelCapabilityFlags,
   ModelInfo,
   NovaSwarmState,
   ProviderId,
   ProviderKeyEntry,
+  QueuedRequestSummary,
   QuotaStatus,
+  RoutedCallLogEntry,
   Settings,
+  TaskType,
 } from '../../shared/types';
 import {
   appendAuditLog,
@@ -22,6 +27,17 @@ import {
   setRawProviderKeySecret,
   updateState,
 } from '../state/store';
+import {
+  analyzeGeminiProjectSharing,
+  classifyProviderError,
+  classifyTaskType,
+  inferCapabilitiesFromModelMeta,
+  isModelBlocked,
+  rankModelsForTask,
+  selectLeastLoadedKeysForModel,
+  type GeminiProjectSharingReport,
+  type RankedModelCandidate,
+} from './smartRouting';
 
 export interface PricingRule {
   pattern: RegExp;
@@ -32,16 +48,16 @@ export interface PricingRule {
 }
 
 export const LOCAL_MODEL_PRICING_CATALOG: PricingRule[] = [
-  { pattern: /^gemini-3\.1-flash-lite/i, inputCostPer1M: 0.05, outputCostPer1M: 0.2, tier: 'free', contextWindow: 1000000 },
-  { pattern: /^gemini-4-hydrogen/i, inputCostPer1M: 0.15, outputCostPer1M: 0.6, tier: 'budget', contextWindow: 1000000 },
-  { pattern: /^gemini-4-neon/i, inputCostPer1M: 0.6, outputCostPer1M: 2.5, tier: 'standard', contextWindow: 1000000 },
-  { pattern: /^gemini-4-carbon/i, inputCostPer1M: 2.5, outputCostPer1M: 10.0, tier: 'flagship', contextWindow: 2000000 },
+  { pattern: /flash-lite/i, inputCostPer1M: 0.05, outputCostPer1M: 0.2, tier: 'free', contextWindow: 1000000 },
   { pattern: /gemini.*flash/i, inputCostPer1M: 0.1, outputCostPer1M: 0.4, tier: 'budget', contextWindow: 1000000 },
+  { pattern: /gemini.*hydrogen/i, inputCostPer1M: 0.15, outputCostPer1M: 0.6, tier: 'budget', contextWindow: 1000000 },
+  { pattern: /gemini.*neon/i, inputCostPer1M: 0.6, outputCostPer1M: 2.5, tier: 'standard', contextWindow: 1000000 },
+  { pattern: /gemini.*(carbon|argon)/i, inputCostPer1M: 2.5, outputCostPer1M: 10.0, tier: 'flagship', contextWindow: 2000000 },
   { pattern: /gemini.*pro/i, inputCostPer1M: 1.25, outputCostPer1M: 5.0, tier: 'standard', contextWindow: 1000000 },
   { pattern: /^gpt-4o-mini/i, inputCostPer1M: 0.15, outputCostPer1M: 0.6, tier: 'budget', contextWindow: 128000 },
   { pattern: /^gpt-4\.1-mini|^gpt-5-mini/i, inputCostPer1M: 0.25, outputCostPer1M: 1.0, tier: 'budget', contextWindow: 128000 },
   { pattern: /^gpt-4o|^gpt-4\.1|^gpt-5/i, inputCostPer1M: 2.5, outputCostPer1M: 10.0, tier: 'flagship', contextWindow: 128000 },
-  { pattern: /^o1|^o3/i, inputCostPer1M: 3.0, outputCostPer1M: 12.0, tier: 'flagship', contextWindow: 200000 },
+  { pattern: /^o1|^o3|^o4/i, inputCostPer1M: 3.0, outputCostPer1M: 12.0, tier: 'flagship', contextWindow: 200000 },
   { pattern: /claude.*haiku/i, inputCostPer1M: 0.25, outputCostPer1M: 1.25, tier: 'budget', contextWindow: 200000 },
   { pattern: /claude.*sonnet/i, inputCostPer1M: 3.0, outputCostPer1M: 15.0, tier: 'standard', contextWindow: 200000 },
   { pattern: /claude.*opus/i, inputCostPer1M: 15.0, outputCostPer1M: 75.0, tier: 'flagship', contextWindow: 200000 },
@@ -255,6 +271,64 @@ export function resolveEffectiveOllamaUrl(stateOverride?: NovaSwarmState): strin
   return gpuNode?.ollamaUrl?.trim() || gpuNode?.url?.trim() || s.settings.ollamaUrl;
 }
 
+/** Per-key concurrency semaphore + 1m RPM/TPM usage counters */
+const activeKeyConcurrency = new Map<string, number>();
+const keyRpmUsage = new Map<string, number[]>();
+const keyTpmUsage = new Map<string, Array<{ ts: number; tokens: number }>>();
+const DEFAULT_MAX_KEY_CONCURRENCY = 4;
+
+/** In-memory resumable request queue for total exhaustion */
+interface QueuedJobItem {
+  summary: QueuedRequestSummary;
+  req: LlmInvokeRequest;
+}
+const pendingLlmQueue: QueuedJobItem[] = [];
+let lastQueueTelegramAlertMs = 0;
+
+function acquireKeySlot(keyId: string): boolean {
+  const curr = activeKeyConcurrency.get(keyId) || 0;
+  if (curr >= DEFAULT_MAX_KEY_CONCURRENCY) {
+    return false;
+  }
+  activeKeyConcurrency.set(keyId, curr + 1);
+  return true;
+}
+
+function releaseKeySlot(keyId: string): void {
+  const curr = activeKeyConcurrency.get(keyId) || 0;
+  if (curr <= 1) activeKeyConcurrency.delete(keyId);
+  else activeKeyConcurrency.set(keyId, curr - 1);
+}
+
+function recordKeyUsage(provider: ProviderId, keyId: string, modelId: string, tokens: number): { rpm: number; tpm: number } {
+  const nowMs = Date.now();
+  const pairKey = `${keyId}::${modelId || '*'}`;
+  const reqs = (keyRpmUsage.get(pairKey) || []).filter((ts) => nowMs - ts < 60_000);
+  reqs.push(nowMs);
+  keyRpmUsage.set(pairKey, reqs);
+
+  const toks = (keyTpmUsage.get(pairKey) || []).filter((x) => nowMs - x.ts < 60_000);
+  if (tokens > 0) toks.push({ ts: nowMs, tokens });
+  keyTpmUsage.set(pairKey, toks);
+
+  const tpm = toks.reduce((acc, x) => acc + x.tokens, 0);
+  updateState((s) => {
+    const k = s.settings.providerKeys[provider]?.find((x) => x.id === keyId);
+    if (k) {
+      k.requestsLastMinute = reqs.length;
+      k.tokensLastMinute = tpm;
+      k.activeConcurrency = activeKeyConcurrency.get(keyId) || 0;
+    }
+    const m = s.keyModelMatrix?.find((x) => x.keyId === keyId && x.modelId === modelId);
+    if (m) {
+      m.requestsLastMinute = reqs.length;
+      m.tokensLastMinute = tpm;
+      m.lastUsedAt = new Date().toISOString();
+    }
+  });
+  return { rpm: reqs.length, tpm };
+}
+
 /** Round-robin cursor per provider */
 const keyCursors: Record<ProviderId, number> = {
   gemini: 0,
@@ -270,18 +344,36 @@ export function resetKeyCursorsForTests(): void {
   keyCursors.anthropic = 0;
   keyCursors.openrouter = 0;
   keyCursors.ollama = 0;
+  activeKeyConcurrency.clear();
+  keyRpmUsage.clear();
+  keyTpmUsage.clear();
+  pendingLlmQueue.length = 0;
+  lastQueueTelegramAlertMs = 0;
   clearResponseCache();
 }
 
-export function addProviderKey(provider: ProviderId, rawKey: string, label?: string): ProviderKeyEntry {
+export function addProviderKey(
+  provider: ProviderId,
+  rawKey: string,
+  label?: string,
+  projectId?: string
+): ProviderKeyEntry {
+  const cleanRaw = rawKey.trim();
   const id = `key-${provider}-${crypto.randomUUID().slice(0, 8)}`;
-  setRawProviderKeySecret(id, rawKey);
+  setRawProviderKeySecret(id, cleanRaw);
   const entry: ProviderKeyEntry = {
     id,
-    label: label?.trim() || `${provider.toUpperCase()} Key`,
-    maskedKey: maskSecret(rawKey),
+    label: label?.trim() || `${provider.toUpperCase()} Kulcs`,
+    maskedKey: maskSecret(cleanRaw),
     enabled: true,
+    projectId: projectId?.trim() || undefined,
     failureCount: 0,
+    rpmLimit: provider === 'gemini' ? 15 : 60,
+    tpmLimit: provider === 'gemini' ? 250_000 : 1_000_000,
+    requestsLastMinute: 0,
+    tokensLastMinute: 0,
+    activeConcurrency: 0,
+    createdAt: new Date().toISOString(),
   };
   updateState((s) => {
     s.settings.providerKeys[provider].push(entry);
@@ -289,17 +381,110 @@ export function addProviderKey(provider: ProviderId, rawKey: string, label?: str
   return entry;
 }
 
+export function addProviderKeysBulk(input: {
+  provider: ProviderId;
+  rawKeysText: string;
+  labelPrefix?: string;
+  projectId?: string;
+}): { added: ProviderKeyEntry[]; skippedDuplicates: number; geminiProjectReport?: GeminiProjectSharingReport } {
+  const parts = input.rawKeysText
+    .split(/[\r\n,;]+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 8);
+
+  const state = getState();
+  const existingSecrets = new Set<string>();
+  for (const existing of state.settings.providerKeys[input.provider] || []) {
+    const raw = resolveEffectiveKeySecret(existing.id);
+    if (raw) existingSecrets.add(raw);
+  }
+
+  const seenBatch = new Set<string>();
+  const added: ProviderKeyEntry[] = [];
+  let skippedDuplicates = 0;
+  let idx = (state.settings.providerKeys[input.provider] || []).length + 1;
+
+  for (const raw of parts) {
+    if (existingSecrets.has(raw) || seenBatch.has(raw)) {
+      skippedDuplicates += 1;
+      continue;
+    }
+    seenBatch.add(raw);
+    const label = input.labelPrefix?.trim()
+      ? `${input.labelPrefix.trim()} #${idx}`
+      : `${input.provider.toUpperCase()} Kulcs #${idx}`;
+    added.push(addProviderKey(input.provider, raw, label, input.projectId));
+    idx += 1;
+  }
+
+  const geminiProjectReport =
+    input.provider === 'gemini'
+      ? analyzeGeminiProjectSharing(getState().settings.providerKeys.gemini)
+      : undefined;
+
+  return { added, skippedDuplicates, geminiProjectReport };
+}
+
+export function updateProviderKeyConfig(
+  provider: ProviderId,
+  keyId: string,
+  patch: { enabled?: boolean; label?: string; projectId?: string }
+): ProviderKeyEntry | null {
+  let updated: ProviderKeyEntry | null = null;
+  updateState((s) => {
+    const k = s.settings.providerKeys[provider]?.find((x) => x.id === keyId);
+    if (!k) return;
+    if (typeof patch.enabled === 'boolean') {
+      k.enabled = patch.enabled;
+      if (patch.enabled) {
+        k.disabledReason = undefined;
+        k.cooldownUntil = undefined;
+      }
+    }
+    if (typeof patch.label === 'string' && patch.label.trim()) {
+      k.label = patch.label.trim();
+    }
+    if (typeof patch.projectId === 'string') {
+      k.projectId = patch.projectId.trim() || undefined;
+    }
+    for (const m of s.keyModelMatrix || []) {
+      if (m.keyId === keyId) {
+        m.keyLabel = k.label;
+        m.projectId = k.projectId;
+        if (patch.enabled === true && m.status === 'disabled_invalid') {
+          m.status = 'available';
+          m.reason = undefined;
+        }
+      }
+    }
+    updated = { ...k };
+  });
+  return updated;
+}
+
 export function removeProviderKey(provider: ProviderId, keyId: string): void {
   updateState((s) => {
     s.settings.providerKeys[provider] = s.settings.providerKeys[provider].filter((k) => k.id !== keyId);
+    s.keyModelMatrix = (s.keyModelMatrix || []).filter((m) => m.keyId !== keyId);
   });
 }
 
-export function resetProviderCooldowns(): void {
+export function resetProviderCooldowns(includeDailyExhausted = true): void {
   updateState((s) => {
     for (const p of Object.keys(s.settings.providerKeys) as ProviderId[]) {
       for (const k of s.settings.providerKeys[p]) {
         k.cooldownUntil = undefined;
+        if (includeDailyExhausted) {
+          k.dailyExhaustedUntil = undefined;
+        }
+      }
+    }
+    for (const m of s.keyModelMatrix || []) {
+      if (m.status === 'rpm_cooldown' || m.status === 'error' || (includeDailyExhausted && m.status === 'daily_exhausted')) {
+        m.status = 'available';
+        m.cooldownUntil = undefined;
+        if (includeDailyExhausted) m.resetAt = undefined;
+        m.reason = undefined;
       }
     }
   });
@@ -315,6 +500,7 @@ export function pickNextPoolKey(
   const enabled = pool.filter((k) => {
     if (!k.enabled || triedIds.has(k.id)) return false;
     if (k.cooldownUntil && Date.parse(k.cooldownUntil) > nowMs) return false;
+    if (k.dailyExhaustedUntil && Date.parse(k.dailyExhaustedUntil) > nowMs) return false;
     return true;
   });
   if (enabled.length === 0) return null;
@@ -361,35 +547,152 @@ export function extractQuotaFromHeaders(provider: ProviderId, headers: Headers):
 
 export interface DiscoveryFetchers {
   fetchFn?: typeof fetch;
+  resolveSecret?: (keyId: string) => string;
+}
+
+function buildDiscoveredMatrixEntry(input: {
+  key: ProviderKeyEntry;
+  provider: ProviderId;
+  model: ModelInfo;
+  prev?: KeyModelMatrixEntry;
+  nowIso: string;
+}): KeyModelMatrixEntry {
+  const prev = input.prev;
+  const nowMs = Date.now();
+  let status: KeyModelMatrixEntry['status'] = 'available';
+  let cooldownUntil: string | undefined;
+  let resetAt: string | undefined;
+  let reason: string | undefined;
+
+  if (!input.key.enabled) {
+    status = 'disabled_invalid';
+    reason = input.key.disabledReason || 'Kulcs letiltva';
+  } else if (prev?.status === 'daily_exhausted' && (!prev.resetAt || Date.parse(prev.resetAt) > nowMs)) {
+    status = 'daily_exhausted';
+    resetAt = prev.resetAt;
+    reason = prev.reason;
+  } else if (prev?.status === 'rpm_cooldown' && prev.cooldownUntil && Date.parse(prev.cooldownUntil) > nowMs) {
+    status = 'rpm_cooldown';
+    cooldownUntil = prev.cooldownUntil;
+    reason = prev.reason;
+  }
+
+  return {
+    keyId: input.key.id,
+    keyLabel: input.key.label,
+    maskedKey: input.key.maskedKey,
+    provider: input.provider,
+    projectId: input.key.projectId,
+    modelId: input.model.id,
+    contextWindow: input.model.contextWindow,
+    capabilities:
+      input.model.capabilities ??
+      inferCapabilitiesFromModelMeta({ id: input.model.id, provider: input.provider }),
+    inputCostPer1M: input.model.inputCostPer1M,
+    outputCostPer1M: input.model.outputCostPer1M,
+    isFree: input.model.isFree,
+    status,
+    cooldownUntil,
+    resetAt,
+    reason,
+    requestsLastMinute: prev?.requestsLastMinute || 0,
+    tokensLastMinute: prev?.tokensLastMinute || 0,
+    rpmLimit: prev?.rpmLimit || input.key.rpmLimit || (input.provider === 'gemini' ? 15 : 60),
+    tpmLimit: prev?.tpmLimit || input.key.tpmLimit || (input.provider === 'gemini' ? 250_000 : 1_000_000),
+    successCount: prev?.successCount || 0,
+    failureCount: prev?.failureCount || 0,
+    verificationPassCount: prev?.verificationPassCount || 0,
+    verificationFailCount: prev?.verificationFailCount || 0,
+    avgLatencyMs: prev?.avgLatencyMs || 0,
+    discoveredAt: input.nowIso,
+    lastUsedAt: prev?.lastUsedAt,
+  };
+}
+
+function handleDiscoveryAuthError(provider: ProviderId, key: ProviderKeyEntry, status: number): void {
+  if (status !== 401 && status !== 403) return;
+  const reason = `HTTP ${status} automatikus tiltás modell-felderítés közben`;
+  updateState((s) => {
+    const ref = s.settings.providerKeys[provider]?.find((k) => k.id === key.id);
+    if (ref) {
+      ref.enabled = false;
+      ref.disabledReason = reason;
+      ref.lastError = reason;
+    }
+  });
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: 'smart-router',
+    sourceAgentName: 'AI Router',
+    message: `API kulcs automatikusan letiltva (${provider} / ${key.label} · ${key.maskedKey}): ${reason}`,
+    verifiedExecution: true,
+  });
 }
 
 export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
   models: ModelInfo[];
+  matrixCount: number;
   errors: string[];
 }> {
   const fetchImpl = deps.fetchFn ?? fetch;
+  const resolveSecret = deps.resolveSecret ?? resolveEffectiveKeySecret;
   const state = getState();
-  const discovered: ModelInfo[] = [];
+  const blocklist = state.settings.modelBlocklist || [];
+  const prevMatrix = state.keyModelMatrix || [];
+  const nextMatrix: KeyModelMatrixEntry[] = [];
+  const dedupModels = new Map<string, ModelInfo>();
   const errors: string[] = [];
+  const nowIso = new Date().toISOString();
 
-  // 1. Gemini
-  const geminiKey = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
-  if (geminiKey) {
+  const registerForKey = (key: ProviderKeyEntry, model: ModelInfo) => {
+    if (isModelBlocked(model.id, blocklist)) return;
+    dedupModels.set(`${model.provider}::${model.id}`, model);
+    const prev = prevMatrix.find((m) => m.keyId === key.id && m.modelId === model.id);
+    nextMatrix.push(
+      buildDiscoveredMatrixEntry({
+        key,
+        provider: model.provider,
+        model,
+        prev,
+        nowIso,
+      })
+    );
+  };
+
+  // 1. Gemini — discover per enabled key individually (no hardcoded fallback list, no legacy regex block)
+  for (const key of state.settings.providerKeys.gemini || []) {
+    if (!key.enabled) continue;
+    const secret = resolveSecret(key.id);
+    if (!secret) continue;
     try {
       const res = await fetchImpl(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(geminiKey.secret)}`
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(secret)}`
       );
       const quota = extractQuotaFromHeaders('gemini', res.headers);
       updateState((s) => {
         s.quotas.gemini = quota;
       });
       if (res.ok) {
-        const data = (await res.json()) as { models?: Array<{ name: string; displayName?: string; inputTokenLimit?: number }> };
+        const data = (await res.json()) as {
+          models?: Array<{
+            name: string;
+            displayName?: string;
+            inputTokenLimit?: number;
+            supportedGenerationMethods?: string[];
+          }>;
+        };
         for (const m of data.models || []) {
           const cleanId = m.name.replace(/^models\//, '');
-          if (!/gemini/i.test(cleanId) || /embedding|aqa|vision-001|1\.0|1\.5|2\.0/i.test(cleanId)) continue;
+          if (m.supportedGenerationMethods && !m.supportedGenerationMethods.some((g) => /generateContent|embedContent/i.test(g))) {
+            continue;
+          }
           const pricing = classifyModelPricing(cleanId, 'gemini');
-          discovered.push({
+          const caps = inferCapabilitiesFromModelMeta({
+            id: cleanId,
+            provider: 'gemini',
+            supportedGenerationMethods: m.supportedGenerationMethods,
+          });
+          registerForKey(key, {
             id: cleanId,
             name: m.displayName || cleanId,
             provider: 'gemini',
@@ -399,80 +702,109 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
             isFree: pricing.isFree,
             tier: pricing.tier,
             source: 'api',
+            capabilities: caps,
           });
         }
       } else {
-        errors.push(`[gemini]: HTTP ${res.status}`);
+        handleDiscoveryAuthError('gemini', key, res.status);
+        errors.push(`[gemini/${key.label}]: HTTP ${res.status}`);
       }
     } catch (err) {
-      errors.push(`[gemini]: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`[gemini/${key.label}]: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  if (!discovered.some((m) => m.provider === 'gemini')) {
-    for (const id of ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-4-neon', 'gemini-4-carbon']) {
-      const pricing = classifyModelPricing(id, 'gemini');
-      discovered.push({
-        id,
-        name: id,
-        provider: 'gemini',
-        ...pricing,
-        source: 'catalog',
+  // 2. OpenRouter — public catalog fallback + per-key discovery
+  const orKeys = (state.settings.providerKeys.openrouter || []).filter((k) => k.enabled);
+  const parseOpenRouterModels = (data: {
+    data?: Array<{
+      id: string;
+      name?: string;
+      context_length?: number;
+      pricing?: { prompt?: string; completion?: string };
+      architecture?: { input_modalities?: string[] };
+      supported_parameters?: string[];
+    }>;
+  }): ModelInfo[] => {
+    const out: ModelInfo[] = [];
+    for (const m of (data.data || []).slice(0, 80)) {
+      const promptPerToken = Number(m.pricing?.prompt ?? NaN);
+      const completionPerToken = Number(m.pricing?.completion ?? NaN);
+      const hasExactPrice = !Number.isNaN(promptPerToken) && !Number.isNaN(completionPerToken);
+      const inputCostPer1M = hasExactPrice ? Number((promptPerToken * 1_000_000).toFixed(4)) : 0;
+      const outputCostPer1M = hasExactPrice ? Number((completionPerToken * 1_000_000).toFixed(4)) : 0;
+      const isFree = hasExactPrice ? inputCostPer1M === 0 && outputCostPer1M === 0 : /:free$/i.test(m.id);
+      const caps = inferCapabilitiesFromModelMeta({
+        id: m.id,
+        provider: 'openrouter',
+        inputModalities: m.architecture?.input_modalities,
+        supportedParameters: m.supported_parameters,
+      });
+      out.push({
+        id: m.id,
+        name: m.name || m.id,
+        provider: 'openrouter',
+        contextWindow: m.context_length || 128000,
+        inputCostPer1M,
+        outputCostPer1M,
+        isFree,
+        tier: isFree ? 'free' : inputCostPer1M <= 0.5 ? 'budget' : 'standard',
+        source: 'api',
+        capabilities: caps,
       });
     }
-  }
+    return out;
+  };
 
-  // 2. OpenRouter
-  const orKey = pickNextPoolKey('openrouter', state.settings.providerKeys.openrouter, new Set());
-  try {
-    const res = await fetchImpl('https://openrouter.ai/api/v1/models', {
-      headers: orKey ? { Authorization: `Bearer ${orKey.secret}` } : undefined,
-    });
-    const quota = extractQuotaFromHeaders('openrouter', res.headers);
-    updateState((s) => {
-      s.quotas.openrouter = quota;
-    });
-    if (res.ok) {
-      const data = (await res.json()) as {
-        data?: Array<{
-          id: string;
-          name?: string;
-          context_length?: number;
-          pricing?: { prompt?: string; completion?: string };
-        }>;
-      };
-      for (const m of (data.data || []).slice(0, 60)) {
-        const promptPerToken = Number(m.pricing?.prompt ?? NaN);
-        const completionPerToken = Number(m.pricing?.completion ?? NaN);
-        const hasExactPrice = !Number.isNaN(promptPerToken) && !Number.isNaN(completionPerToken);
-        const inputCostPer1M = hasExactPrice ? Number((promptPerToken * 1_000_000).toFixed(4)) : 0;
-        const outputCostPer1M = hasExactPrice ? Number((completionPerToken * 1_000_000).toFixed(4)) : 0;
-        const isFree = hasExactPrice ? inputCostPer1M === 0 && outputCostPer1M === 0 : /:free$/i.test(m.id);
-        discovered.push({
-          id: m.id,
-          name: m.name || m.id,
-          provider: 'openrouter',
-          contextWindow: m.context_length || 128000,
-          inputCostPer1M,
-          outputCostPer1M,
-          isFree,
-          tier: isFree ? 'free' : inputCostPer1M <= 0.5 ? 'budget' : 'standard',
-          source: 'api',
-        });
+  if (orKeys.length === 0) {
+    try {
+      const res = await fetchImpl('https://openrouter.ai/api/v1/models');
+      const quota = extractQuotaFromHeaders('openrouter', res.headers);
+      updateState((s) => {
+        s.quotas.openrouter = quota;
+      });
+      if (res.ok) {
+        const parsed = parseOpenRouterModels((await res.json()) as Parameters<typeof parseOpenRouterModels>[0]);
+        for (const mod of parsed) {
+          if (!isModelBlocked(mod.id, blocklist)) dedupModels.set(`openrouter::${mod.id}`, mod);
+        }
       }
-    } else {
-      errors.push(`[openrouter]: HTTP ${res.status}`);
+    } catch (err) {
+      errors.push(`[openrouter]: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } catch (err) {
-    errors.push(`[openrouter]: ${err instanceof Error ? err.message : String(err)}`);
+  } else {
+    for (const key of orKeys) {
+      const secret = resolveSecret(key.id);
+      if (!secret) continue;
+      try {
+        const res = await fetchImpl('https://openrouter.ai/api/v1/models', {
+          headers: { Authorization: `Bearer ${secret}` },
+        });
+        const quota = extractQuotaFromHeaders('openrouter', res.headers);
+        updateState((s) => {
+          s.quotas.openrouter = quota;
+        });
+        if (res.ok) {
+          const parsed = parseOpenRouterModels((await res.json()) as Parameters<typeof parseOpenRouterModels>[0]);
+          for (const mod of parsed) registerForKey(key, mod);
+        } else {
+          handleDiscoveryAuthError('openrouter', key, res.status);
+          errors.push(`[openrouter/${key.label}]: HTTP ${res.status}`);
+        }
+      } catch (err) {
+        errors.push(`[openrouter/${key.label}]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
-  // 3. OpenAI
-  const openaiKey = pickNextPoolKey('openai', state.settings.providerKeys.openai, new Set());
-  if (openaiKey) {
+  // 3. OpenAI — per enabled key
+  for (const key of state.settings.providerKeys.openai || []) {
+    if (!key.enabled) continue;
+    const secret = resolveSecret(key.id);
+    if (!secret) continue;
     try {
       const res = await fetchImpl('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${openaiKey.secret}` },
+        headers: { Authorization: `Bearer ${secret}` },
       });
       const quota = extractQuotaFromHeaders('openai', res.headers);
       updateState((s) => {
@@ -480,25 +812,37 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
       });
       if (res.ok) {
         const data = (await res.json()) as { data?: Array<{ id: string }> };
-        for (const m of (data.data || []).filter((x) => /^(gpt-|o1|o3|o4)/.test(x.id)).slice(0, 25)) {
+        for (const m of (data.data || []).slice(0, 40)) {
+          if (/whisper|tts|dall-e|moderation|babbage|davinci/i.test(m.id)) continue;
           const pricing = classifyModelPricing(m.id, 'openai');
-          discovered.push({ id: m.id, name: m.id, provider: 'openai', ...pricing, source: 'api' });
+          const caps = inferCapabilitiesFromModelMeta({ id: m.id, provider: 'openai' });
+          registerForKey(key, {
+            id: m.id,
+            name: m.id,
+            provider: 'openai',
+            ...pricing,
+            source: 'api',
+            capabilities: caps,
+          });
         }
       } else {
-        errors.push(`[openai]: HTTP ${res.status}`);
+        handleDiscoveryAuthError('openai', key, res.status);
+        errors.push(`[openai/${key.label}]: HTTP ${res.status}`);
       }
     } catch (err) {
-      errors.push(`[openai]: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`[openai/${key.label}]: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // 4. Anthropic
-  const anthropicKey = pickNextPoolKey('anthropic', state.settings.providerKeys.anthropic, new Set());
-  if (anthropicKey) {
+  // 4. Anthropic — per enabled key
+  for (const key of state.settings.providerKeys.anthropic || []) {
+    if (!key.enabled) continue;
+    const secret = resolveSecret(key.id);
+    if (!secret) continue;
     try {
       const res = await fetchImpl('https://api.anthropic.com/v1/models', {
         headers: {
-          'x-api-key': anthropicKey.secret,
+          'x-api-key': secret,
           'anthropic-version': '2023-06-01',
         },
       });
@@ -510,32 +854,41 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
         const data = (await res.json()) as { data?: Array<{ id: string; display_name?: string }> };
         for (const m of data.data || []) {
           const pricing = classifyModelPricing(m.id, 'anthropic');
-          discovered.push({
+          const caps = inferCapabilitiesFromModelMeta({ id: m.id, provider: 'anthropic' });
+          registerForKey(key, {
             id: m.id,
             name: m.display_name || m.id,
             provider: 'anthropic',
             ...pricing,
             source: 'api',
+            capabilities: caps,
           });
         }
       } else {
-        errors.push(`[anthropic]: HTTP ${res.status}`);
+        handleDiscoveryAuthError('anthropic', key, res.status);
+        errors.push(`[anthropic/${key.label}]: HTTP ${res.status}`);
       }
     } catch (err) {
-      errors.push(`[anthropic]: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`[anthropic/${key.label}]: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   // 5. Local Ollama
+  const effectiveOllamaUrl = resolveEffectiveOllamaUrl(state).replace(/\/+$/, '');
+  const localVirtualKey: ProviderKeyEntry = {
+    id: 'local-ollama',
+    label: 'Helyi Ollama',
+    maskedKey: 'local',
+    enabled: true,
+    failureCount: 0,
+  };
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1500);
-    const res = await fetchImpl(`${state.settings.ollamaUrl}/api/tags`, { signal: controller.signal });
-    clearTimeout(timer);
+    const res = await fetchImpl(`${effectiveOllamaUrl}/api/tags`, { signal: AbortSignal.timeout(1800) });
     if (res.ok) {
       const data = (await res.json()) as { models?: Array<{ name: string }> };
       for (const m of data.models || []) {
-        discovered.push({
+        const caps = inferCapabilitiesFromModelMeta({ id: m.name, provider: 'ollama' });
+        registerForKey(localVirtualKey, {
           id: m.name,
           name: `${m.name} (Ollama)`,
           provider: 'ollama',
@@ -545,6 +898,7 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
           isFree: true,
           tier: 'local',
           source: 'api',
+          capabilities: caps,
         });
       }
       updateState((s) => {
@@ -561,25 +915,33 @@ export async function discoverModels(deps: DiscoveryFetchers = {}): Promise<{
       });
     }
   } catch {
-    discovered.push({
-      id: state.settings.ollamaModel,
-      name: `${state.settings.ollamaModel} (Ollama konfigurált)`,
-      provider: 'ollama',
-      contextWindow: state.settings.ollamaNumCtx || 4096,
-      inputCostPer1M: 0,
-      outputCostPer1M: 0,
-      isFree: true,
-      tier: 'local',
-      source: 'catalog',
-    });
+    if (state.settings.ollamaModel) {
+      const caps = inferCapabilitiesFromModelMeta({ id: state.settings.ollamaModel, provider: 'ollama' });
+      registerForKey(localVirtualKey, {
+        id: state.settings.ollamaModel,
+        name: `${state.settings.ollamaModel} (Ollama konfigurált)`,
+        provider: 'ollama',
+        contextWindow: state.settings.ollamaNumCtx || 4096,
+        inputCostPer1M: 0,
+        outputCostPer1M: 0,
+        isFree: true,
+        tier: 'local',
+        source: 'catalog',
+        capabilities: caps,
+      });
+    }
   }
+
+  const discovered = Array.from(dedupModels.values());
+  const boundedMatrix = nextMatrix.slice(0, 400);
 
   updateState((s) => {
     s.discoveredModels = discovered;
-    s.settings.lastModelDiscoveryAt = new Date().toISOString();
+    s.keyModelMatrix = boundedMatrix;
+    s.settings.lastModelDiscoveryAt = nowIso;
   });
 
-  return { models: discovered, errors };
+  return { models: discovered, matrixCount: boundedMatrix.length, errors };
 }
 
 let lastOllamaActivityMs = 0;
@@ -613,7 +975,6 @@ export function parseSelfHealingJson<T = unknown>(rawText: string): T {
   try {
     return JSON.parse(cleaned) as T;
   } catch {
-    // Strip markdown fences or leading/trailing prose
     const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
     let candidate = (fenceMatch ? fenceMatch[1] : cleaned).trim();
     const firstObj = candidate.indexOf('{');
@@ -627,7 +988,6 @@ export function parseSelfHealingJson<T = unknown>(rawText: string): T {
         candidate = candidate.slice(startIdx, endIdx + 1);
       }
     }
-    // Remove trailing commas before } or ]
     const noTrailingCommas = candidate.replace(/,\s*([}\]])/g, '$1');
     return JSON.parse(noTrailingCommas) as T;
   }
@@ -636,7 +996,7 @@ export function parseSelfHealingJson<T = unknown>(rawText: string): T {
 /** M41: Unload Ollama model from RAM immediately (keep_alive: 0) */
 export async function unloadOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
   const s = getState().settings;
-  const baseUrl = s.ollamaUrl.replace(/\/$/, '');
+  const baseUrl = resolveEffectiveOllamaUrl().replace(/\/$/, '');
   try {
     const res = await fetchImpl(`${baseUrl}/api/generate`, {
       method: 'POST',
@@ -663,8 +1023,8 @@ export async function unloadOllamaModel(fetchImpl: typeof fetch = fetch): Promis
 }
 
 export async function checkOllamaIdleUnload(fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  const s = getState().settings;
-  const mins = s.ollamaAutoUnloadMinutes ?? 0;
+  const s = getState();
+  const mins = s.settings.ollamaAutoUnloadMinutes ?? 0;
   if (mins <= 0 || lastOllamaActivityMs === 0) return false;
   if (Date.now() - lastOllamaActivityMs >= mins * 60_000) {
     const out = await unloadOllamaModel(fetchImpl);
@@ -683,9 +1043,10 @@ export async function checkOllamaIdleUnload(fetchImpl: typeof fetch = fetch): Pr
 }
 
 /** M6: Warm up Ollama model into RAM for instant low-latency replies */
-export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string }> {
+export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; model: string; message: string; elapsedMs?: number }> {
   const s = getState().settings;
-  const baseUrl = s.ollamaUrl.replace(/\/$/, '');
+  const baseUrl = resolveEffectiveOllamaUrl().replace(/\/$/, '');
+  const t0 = Date.now();
   try {
     const res = await fetchImpl(`${baseUrl}/api/generate`, {
       method: 'POST',
@@ -702,7 +1063,12 @@ export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<
       return { ok: false, model: s.ollamaModel, message: `Ollama HTTP ${res.status}` };
     }
     lastOllamaActivityMs = Date.now();
-    return { ok: true, model: s.ollamaModel, message: `${s.ollamaModel} előtöltve (${s.ollamaKeepAlive || '5m'}, num_ctx=${s.ollamaNumCtx || 2048}).` };
+    return {
+      ok: true,
+      model: s.ollamaModel,
+      elapsedMs: Date.now() - t0,
+      message: `${s.ollamaModel} előtöltve (${s.ollamaKeepAlive || '5m'}, num_ctx=${s.ollamaNumCtx || 2048}).`,
+    };
   } catch (err) {
     return {
       ok: false,
@@ -710,6 +1076,118 @@ export async function warmOllamaModel(fetchImpl: typeof fetch = fetch): Promise<
       message: `Ollama nem érhető el: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+/** Centralized Ollama & Swarm Mesh helpers (so zero files outside router.ts touch AI/Ollama endpoints) */
+export async function listInstalledOllamaModelsViaRouter(
+  ollamaUrl?: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ reachable: boolean; models: Array<{ name: string; size?: number }> }> {
+  const baseUrl = (ollamaUrl || resolveEffectiveOllamaUrl()).replace(/\/+$/, '');
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return { reachable: false, models: [] };
+    const data = (await res.json()) as { models?: Array<{ name?: string; size?: number }> };
+    return {
+      reachable: true,
+      models: (data.models || []).filter((m): m is { name: string; size?: number } => Boolean(m.name)),
+    };
+  } catch {
+    return { reachable: false, models: [] };
+  }
+}
+
+export async function pullOllamaModelViaRouter(
+  modelName: string,
+  ollamaUrl?: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ ok: boolean; error?: string }> {
+  const baseUrl = (ollamaUrl || resolveEffectiveOllamaUrl()).replace(/\/+$/, '');
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName, stream: false }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function invokeOllamaBenchmarkDirect(
+  model: string,
+  ollamaUrl?: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ text: string; tokensPerSec: number; latencyMs: number }> {
+  const s = getState().settings;
+  const baseUrl = (ollamaUrl || resolveEffectiveOllamaUrl()).replace(/\/+$/, '');
+  const t0 = Date.now();
+  const res = await withOllamaMutex(() =>
+    fetchImpl(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt: 'Válaszolj pontosan három szóban: Hardver teszt rendben.',
+        stream: false,
+        keep_alive: s.ollamaKeepAlive || '5m',
+        options: { num_ctx: Math.min(2048, s.ollamaNumCtx || 2048), temperature: 0.1 },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    })
+  );
+  if (!res.ok) {
+    throw new Error(`Ollama benchmark HTTP ${res.status}: ${await res.text()}`);
+  }
+  const json = (await res.json()) as {
+    response?: string;
+    eval_count?: number;
+    eval_duration?: number;
+  };
+  const latencyMs = Math.max(1, Date.now() - t0);
+  const tokensPerSec =
+    json.eval_count && json.eval_duration && json.eval_duration > 0
+      ? Number((json.eval_count / (json.eval_duration / 1e9)).toFixed(2))
+      : Number(((Math.max(4, (json.response || '').split(/\s+/).length * 1.4)) / (latencyMs / 1000)).toFixed(2));
+  lastOllamaActivityMs = Date.now();
+  return {
+    text: json.response || '',
+    tokensPerSec,
+    latencyMs,
+  };
+}
+
+export async function invokeMeshNodeViaRouter(
+  input: {
+    url: string;
+    model: string;
+    prompt: string;
+    isOllamaUrl: boolean;
+  },
+  fetchImpl: typeof fetch = fetch
+): Promise<{ text: string }> {
+  const cleanUrl = input.url.replace(/\/+$/, '');
+  const targetUrl = input.isOllamaUrl ? `${cleanUrl}/api/generate` : `${cleanUrl}/v1/chat/completions`;
+  const body = input.isOllamaUrl
+    ? JSON.stringify({ model: input.model, prompt: input.prompt, stream: false })
+    : JSON.stringify({ model: input.model, messages: [{ role: 'user', content: input.prompt }] });
+
+  const res = await fetchImpl(targetUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as {
+    response?: string;
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const text = json.response || json.choices?.[0]?.message?.content || JSON.stringify(json);
+  return { text };
 }
 
 export interface InlineMediaInput {
@@ -739,6 +1217,7 @@ export interface LlmInvokeRequest {
   prompt: string;
   systemInstruction?: string;
   complexity?: 'simple' | 'complex';
+  taskType?: TaskType;
   preset?: ExecutionPreset;
   preferredProvider?: ProviderId;
   preferredModel?: string;
@@ -755,6 +1234,15 @@ export interface LlmInvokeResult {
   provider: ProviderId;
   model: string;
   keyId: string;
+  keyLabel?: string;
+  maskedKey?: string;
+  taskType?: TaskType;
+  switchReason?: string;
+  degradedMode?: boolean;
+  strictVerificationRequired?: boolean;
+  queued?: boolean;
+  queueId?: string;
+  errorSummary?: string;
   costUsd: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -829,16 +1317,7 @@ export function selectModelForProvider(
     return flagship.id;
   }
 
-  switch (provider) {
-    case 'gemini':
-      return complexity === 'simple' ? 'gemini-4-hydrogen' : 'gemini-4-neon';
-    case 'openrouter':
-      return 'meta-llama/llama-3.3-70b-instruct:free';
-    case 'openai':
-      return complexity === 'simple' ? 'gpt-4o-mini' : 'gpt-4o';
-    case 'anthropic':
-      return complexity === 'simple' ? 'claude-3-5-haiku-latest' : 'claude-3-7-sonnet-latest';
-  }
+  return '';
 }
 
 export async function defaultCallProvider(params: ProviderCallParams): Promise<ProviderCallOutput> {
@@ -846,6 +1325,9 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     params.preset === 'precise' ? 0.1 : params.preset === 'deep' ? 0.45 : 0.7;
 
   if (params.provider === 'gemini') {
+    if (!params.model) {
+      throw new Error('Nincs felfedezett Gemini modell ehhez a kulcshoz — futtasd a Modellfelderítést!');
+    }
     const ai = new GoogleGenAI({
       apiKey: params.apiKey,
       httpOptions: {
@@ -867,9 +1349,9 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
     if (params.systemInstruction) {
       config.systemInstruction = params.systemInstruction;
     }
-    if (params.preset === 'deep' && /gemini-4|gemini-3/i.test(params.model)) {
+    if (params.preset === 'deep' && /gemini-(2\.5|3|4)/i.test(params.model)) {
       config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
-    } else if (params.preset === 'fast' && /gemini-4|gemini-3/i.test(params.model)) {
+    } else if (params.preset === 'fast' && /gemini-(2\.5|3|4)/i.test(params.model)) {
       config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
     }
     if (params.tools && params.tools.length > 0) {
@@ -1022,6 +1504,9 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
   }
 
   if (params.provider === 'openrouter' || params.provider === 'openai') {
+    if (!params.model) {
+      throw new Error(`Nincs felfedezett ${params.provider} modell ehhez a kulcshoz — futtasd a Modellfelderítést!`);
+    }
     const url =
       params.provider === 'openrouter'
         ? 'https://openrouter.ai/api/v1/chat/completions'
@@ -1124,6 +1609,9 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
   }
 
   // Anthropic
+  if (!params.model) {
+    throw new Error('Nincs felfedezett Anthropic modell ehhez a kulcshoz — futtasd a Modellfelderítést!');
+  }
   const anthropicContent: unknown =
     params.images && params.images.length > 0
       ? [
@@ -1191,6 +1679,38 @@ export async function defaultCallProvider(params: ProviderCallParams): Promise<P
   };
 }
 
+function appendRoutedCallLog(entry: Omit<RoutedCallLogEntry, 'id' | 'timestamp'>): void {
+  const full: RoutedCallLogEntry = {
+    id: `rcl-${crypto.randomUUID().slice(0, 8)}`,
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+  updateState((s) => {
+    s.routedCallLogs = s.routedCallLogs || [];
+    s.routedCallLogs.unshift(full);
+    s.routedCallLogs = s.routedCallLogs.slice(0, 100);
+  });
+}
+
+/** Feedback loop: reward or penalize models based on downstream verification outcome */
+export function reportModelVerificationOutcome(
+  provider: ProviderId,
+  modelId: string,
+  keyId: string,
+  passed: boolean
+): void {
+  updateState((s) => {
+    s.keyModelMatrix = s.keyModelMatrix || [];
+    const target = s.keyModelMatrix.find(
+      (m) => m.provider === provider && m.modelId === modelId && (keyId ? m.keyId === keyId : true)
+    );
+    if (target) {
+      if (passed) target.verificationPassCount = (target.verificationPassCount || 0) + 1;
+      else target.verificationFailCount = (target.verificationFailCount || 0) + 1;
+    }
+  });
+}
+
 export async function computeOllamaEmbedding(
   text: string,
   settingsOverride?: Settings,
@@ -1199,115 +1719,215 @@ export async function computeOllamaEmbedding(
   const s = settingsOverride ?? getState().settings;
   if (s.embeddingMode !== 'ollama') return null;
   const model = s.ollamaEmbeddingModel?.trim() || 'nomic-embed-text';
-  const baseUrl = s.ollamaUrl.replace(/\/$/, '');
+  const baseUrl = resolveEffectiveOllamaUrl().replace(/\/$/, '');
+  const t0 = Date.now();
 
-  try {
-    const res = await fetchImpl(`${baseUrl}/api/embed`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: text }),
-      signal: AbortSignal.timeout(2500),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { embeddings?: number[][]; embedding?: number[] };
-      if (Array.isArray(data.embeddings?.[0]) && data.embeddings[0].length > 0) {
-        return data.embeddings[0];
+  const tryEmbed = async (): Promise<number[] | null> => {
+    try {
+      const res = await fetchImpl(`${baseUrl}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: text }),
+        signal: AbortSignal.timeout(2500),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { embeddings?: number[][]; embedding?: number[] };
+        if (Array.isArray(data.embeddings?.[0]) && data.embeddings[0].length > 0) {
+          return data.embeddings[0];
+        }
+        if (Array.isArray(data.embedding) && data.embedding.length > 0) {
+          return data.embedding;
+        }
       }
-      if (Array.isArray(data.embedding) && data.embedding.length > 0) {
-        return data.embedding;
-      }
+    } catch {
+      // Fallback to legacy endpoint
     }
-  } catch {
-    // Fallback
-  }
+    try {
+      const legacyRes = await fetchImpl(`${baseUrl}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, prompt: text }),
+        signal: AbortSignal.timeout(2500),
+      });
+      if (!legacyRes.ok) return null;
+      const data = (await legacyRes.json()) as { embedding?: number[] };
+      return Array.isArray(data.embedding) && data.embedding.length > 0 ? data.embedding : null;
+    } catch {
+      return null;
+    }
+  };
 
-  try {
-    const legacyRes = await fetchImpl(`${baseUrl}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: text }),
-      signal: AbortSignal.timeout(2500),
-    });
-    if (!legacyRes.ok) return null;
-    const data = (await legacyRes.json()) as { embedding?: number[] };
-    return Array.isArray(data.embedding) && data.embedding.length > 0 ? data.embedding : null;
-  } catch {
-    return null;
-  }
+  const vec = await withOllamaMutex(tryEmbed);
+  appendRoutedCallLog({
+    taskType: 'embedding',
+    provider: 'ollama',
+    modelId: model,
+    keyId: 'local-ollama',
+    keyLabel: 'Helyi Ollama',
+    maskedKey: 'local',
+    switchReason: 'beágyazás (router)',
+    degradedMode: false,
+    strictVerificationRequired: false,
+    latencyMs: Math.max(1, Date.now() - t0),
+    inputTokens: estimateTokens(text),
+    outputTokens: 0,
+    costUsd: 0,
+    ok: vec !== null,
+  });
+  return vec;
 }
 
-/** Ú4: Real Image Generation via Gemini ('gemini-3.1-flash-lite-image') saved into MediaArtifacts */
+/** Pick an enabled cloud key for media/transcription tasks with least-loaded rotation */
+function selectCloudKeyForMedia(provider: ProviderId): { entry: ProviderKeyEntry; secret: string } | null {
+  const state = getState();
+  const pool = state.settings.providerKeys[provider] || [];
+  const candidates = selectLeastLoadedKeysForModel({
+    provider,
+    modelId: '',
+    keys: pool,
+    matrix: state.keyModelMatrix || [],
+    concurrencyMap: activeKeyConcurrency,
+    rpmUsageMap: keyRpmUsage,
+    tpmUsageMap: keyTpmUsage,
+    cursor: keyCursors[provider],
+  });
+  for (const c of candidates) {
+    const secret = resolveEffectiveKeySecret(c.key.id);
+    if (secret) {
+      keyCursors[provider] = (keyCursors[provider] + 1) % Math.max(1, pool.length);
+      return { entry: c.key, secret };
+    }
+  }
+  return null;
+}
+
+/** Ú4: Real Image Generation via Gemini routed through central router pipeline */
 export async function generateImageArtifactWithGemini(params: {
   prompt: string;
   aspectRatio?: '1:1' | '16:9' | '4:3' | '3:4' | '9:16';
   agentId?: string;
 }): Promise<MediaArtifact> {
-  const state = getState();
-  const picked = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
+  const picked = selectCloudKeyForMedia('gemini');
   if (!picked) {
-    throw new Error('Képgeneráláshoz legalább egy aktív Gemini API kulcs szükséges.');
+    throw new Error('Képgeneráláshoz legalább egy aktív, nem kimerült Gemini API kulcs szükséges.');
   }
-  const ai = new GoogleGenAI({
-    apiKey: picked.secret,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-  });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite-image',
-    contents: params.prompt,
-    config: {
-      responseModalities: ['IMAGE', 'TEXT'],
-      imageConfig: {
-        aspectRatio: params.aspectRatio || '1:1',
+  const imageModelCandidates = getState().discoveredModels.filter(
+    (m) => m.provider === 'gemini' && /image/i.test(m.id)
+  );
+  const chosenModel = imageModelCandidates[0]?.id || 'gemini-2.5-flash-image';
+
+  const t0 = Date.now();
+  acquireKeySlot(picked.entry.id);
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: picked.secret,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    });
+
+    const response = await ai.models.generateContent({
+      model: chosenModel,
+      contents: params.prompt,
+      config: {
+        responseModalities: ['IMAGE', 'TEXT'],
+        imageConfig: {
+          aspectRatio: params.aspectRatio || '1:1',
+        },
       },
-    },
-  });
+    });
 
-  const candidates = response.candidates || [];
-  let mimeType = 'image/png';
-  let b64 = '';
-  for (const c of candidates) {
-    for (const part of c.content?.parts || []) {
-      if (part.inlineData?.data) {
-        b64 = part.inlineData.data;
-        mimeType = part.inlineData.mimeType || 'image/png';
-        break;
+    const candidates = response.candidates || [];
+    let mimeType = 'image/png';
+    let b64 = '';
+    for (const c of candidates) {
+      for (const part of c.content?.parts || []) {
+        if (part.inlineData?.data) {
+          b64 = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || 'image/png';
+          break;
+        }
       }
+      if (b64) break;
     }
-    if (b64) break;
+
+    if (!b64) {
+      throw new Error('A Gemini képgeneráló modell nem adott vissza képadatot (ellenőrizd a jogosultságot vagy promptot).');
+    }
+
+    recordKeyUsage('gemini', picked.entry.id, chosenModel, estimateTokens(params.prompt));
+    appendRoutedCallLog({
+      taskType: 'vision',
+      provider: 'gemini',
+      modelId: chosenModel,
+      keyId: picked.entry.id,
+      keyLabel: picked.entry.label,
+      maskedKey: picked.entry.maskedKey,
+      projectId: picked.entry.projectId,
+      switchReason: 'képgenerálás (router)',
+      degradedMode: false,
+      strictVerificationRequired: false,
+      latencyMs: Math.max(1, Date.now() - t0),
+      inputTokens: estimateTokens(params.prompt),
+      outputTokens: 256,
+      costUsd: 0,
+      ok: true,
+    });
+
+    const artifact: MediaArtifact = {
+      id: `art-img-${crypto.randomUUID().slice(0, 8)}`,
+      kind: 'image',
+      title: params.prompt.slice(0, 64),
+      mimeType,
+      urlOrContent: `data:${mimeType};base64,${b64}`,
+      agentId: params.agentId,
+      createdAt: new Date().toISOString(),
+    };
+
+    updateState((s) => {
+      s.artifacts.unshift(artifact);
+      s.artifacts = s.artifacts.slice(0, 50);
+    });
+
+    appendAuditLog({
+      type: 'action',
+      sourceAgentId: params.agentId || 'media-studio',
+      sourceAgentName: 'Képstúdió',
+      message: `Kép generálva (${chosenModel}): "${params.prompt.slice(0, 60)}"`,
+      verifiedExecution: true,
+    });
+
+    return artifact;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const classified = classifyProviderError(msg);
+    if (classified.kind === 'auth_invalid') {
+      updateProviderKeyConfig('gemini', picked.entry.id, { enabled: false });
+    }
+    appendRoutedCallLog({
+      taskType: 'vision',
+      provider: 'gemini',
+      modelId: chosenModel,
+      keyId: picked.entry.id,
+      keyLabel: picked.entry.label,
+      maskedKey: picked.entry.maskedKey,
+      projectId: picked.entry.projectId,
+      switchReason: classified.reason,
+      degradedMode: false,
+      strictVerificationRequired: false,
+      latencyMs: Math.max(1, Date.now() - t0),
+      inputTokens: estimateTokens(params.prompt),
+      outputTokens: 0,
+      costUsd: 0,
+      ok: false,
+      error: msg.slice(0, 180),
+    });
+    throw err;
+  } finally {
+    releaseKeySlot(picked.entry.id);
   }
-
-  if (!b64) {
-    throw new Error('A Gemini képgeneráló modell nem adott vissza képadatot (ellenőrizd a jogosultságot vagy promptot).');
-  }
-
-  const artifact: MediaArtifact = {
-    id: `art-img-${crypto.randomUUID().slice(0, 8)}`,
-    kind: 'image',
-    title: params.prompt.slice(0, 64),
-    mimeType,
-    urlOrContent: `data:${mimeType};base64,${b64}`,
-    agentId: params.agentId,
-    createdAt: new Date().toISOString(),
-  };
-
-  updateState((s) => {
-    s.artifacts.unshift(artifact);
-    s.artifacts = s.artifacts.slice(0, 50);
-  });
-
-  appendAuditLog({
-    type: 'action',
-    sourceAgentId: params.agentId || 'media-studio',
-    sourceAgentName: 'Képstúdió',
-    message: `Kép generálva (gemini-3.1-flash-lite-image): "${params.prompt.slice(0, 60)}"`,
-    verifiedExecution: true,
-  });
-
-  return artifact;
 }
 
-/** Ú5: Speech-to-Text via local whisper-cli / whisper binary first, then Gemini multimodal audio */
+/** Ú5: Speech-to-Text via local whisper-cli / whisper binary first, then Gemini audio routed centrally */
 export async function transcribeAudioBuffer(params: {
   dataBase64: string;
   mimeType: string;
@@ -1336,31 +1956,135 @@ export async function transcribeAudioBuffer(params: {
     }
   }
 
-  // 2. Fallback to Gemini cloud multimodal transcription
-  const state = getState();
-  const picked = pickNextPoolKey('gemini', state.settings.providerKeys.gemini, new Set());
+  // 2. Fallback to Gemini cloud multimodal transcription through router pool
+  const picked = selectCloudKeyForMedia('gemini');
   if (!picked) {
     throw new Error('Sem lokális whisper bináris, sem aktív Gemini API kulcs nem érhető el a hangátíráshoz.');
   }
-  const ai = new GoogleGenAI({
-    apiKey: picked.secret,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-  });
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.5-transcribe',
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: 'Írd le pontosan szó szerint a hangfelvételt magyarul vagy az elhangzott nyelven. Csak a szöveget add vissza.' },
-          { inlineData: { mimeType: params.mimeType || 'audio/webm', data: params.dataBase64 } },
-        ],
-      },
-    ],
-  });
+  const audioModelCandidates = getState().discoveredModels.filter(
+    (m) => m.provider === 'gemini' && (m.capabilities?.audio || /flash/i.test(m.id))
+  );
+  const chosenModel = audioModelCandidates[0]?.id || 'gemini-2.5-flash';
+  const t0 = Date.now();
+  acquireKeySlot(picked.entry.id);
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: picked.secret,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    });
+    const response = await ai.models.generateContent({
+      model: chosenModel,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Írd le pontosan szó szerint a hangfelvételt magyarul vagy az elhangzott nyelven. Csak a szöveget add vissza.' },
+            { inlineData: { mimeType: params.mimeType || 'audio/webm', data: params.dataBase64 } },
+          ],
+        },
+      ],
+    });
+    const outText = (response.text || '').trim();
+    recordKeyUsage('gemini', picked.entry.id, chosenModel, estimateTokens(outText));
+    appendRoutedCallLog({
+      taskType: 'audio',
+      provider: 'gemini',
+      modelId: chosenModel,
+      keyId: picked.entry.id,
+      keyLabel: picked.entry.label,
+      maskedKey: picked.entry.maskedKey,
+      projectId: picked.entry.projectId,
+      switchReason: 'hangátírás (router)',
+      degradedMode: false,
+      strictVerificationRequired: false,
+      latencyMs: Math.max(1, Date.now() - t0),
+      inputTokens: 128,
+      outputTokens: estimateTokens(outText),
+      costUsd: 0,
+      ok: true,
+    });
+    return {
+      text: outText,
+      engine: chosenModel,
+    };
+  } finally {
+    releaseKeySlot(picked.entry.id);
+  }
+}
+
+export function getModelRankingsPreview(taskType: TaskType = 'simple_fast'): RankedModelCandidate[] {
+  const s = getState();
+  return rankModelsForTask({
+    state: s,
+    taskType,
+    estimatedPromptTokens: 200,
+  }).slice(0, 15);
+}
+
+export function getLlmQueueStatus(): QueuedRequestSummary[] {
+  return [...(getState().queuedLlmRequests || [])];
+}
+
+export async function processLlmRequestQueueTick(deps: RouterDependencies = {}): Promise<{
+  processed: number;
+  completed: number;
+  remaining: number;
+}> {
+  if (pendingLlmQueue.length === 0) {
+    return { processed: 0, completed: 0, remaining: getState().queuedLlmRequests?.length || 0 };
+  }
+
+  let processed = 0;
+  let completed = 0;
+  const nowMs = Date.now();
+  const snapshot = [...pendingLlmQueue];
+
+  for (const job of snapshot) {
+    if (job.summary.readyAt && Date.parse(job.summary.readyAt) > nowMs) continue;
+    processed += 1;
+    job.summary.status = 'processing';
+    job.summary.attempts += 1;
+    updateState((s) => {
+      const ref = s.queuedLlmRequests?.find((q) => q.id === job.summary.id);
+      if (ref) {
+        ref.status = 'processing';
+        ref.attempts = job.summary.attempts;
+      }
+    });
+
+    const res = await invokeWithFailoverInternal({ ...job.req, bypassCache: true }, deps, undefined, true);
+    if (!res.queued) {
+      completed += 1;
+      const idx = pendingLlmQueue.findIndex((x) => x.summary.id === job.summary.id);
+      if (idx >= 0) pendingLlmQueue.splice(idx, 1);
+      updateState((s) => {
+        s.queuedLlmRequests = (s.queuedLlmRequests || []).filter((q) => q.id !== job.summary.id);
+      });
+      appendAuditLog({
+        type: 'system',
+        sourceAgentId: 'smart-router',
+        sourceAgentName: 'AI Router Sor',
+        message: `Sorban álló kérés automatikusan lefutott (${res.provider}/${res.model || 'local'}, ${job.summary.id}).`,
+        verifiedExecution: true,
+      });
+    } else {
+      job.summary.status = 'queued';
+      job.summary.readyAt = new Date(Date.now() + 15_000).toISOString();
+      updateState((s) => {
+        const ref = s.queuedLlmRequests?.find((q) => q.id === job.summary.id);
+        if (ref) {
+          ref.status = 'queued';
+          ref.readyAt = job.summary.readyAt;
+          ref.lastReason = res.errorSummary || ref.lastReason;
+        }
+      });
+    }
+  }
+
   return {
-    text: (response.text || '').trim(),
-    engine: 'gemini-3.5-transcribe',
+    processed,
+    completed,
+    remaining: pendingLlmQueue.length,
   };
 }
 
@@ -1379,10 +2103,35 @@ export async function invokeWithFailover(
   return invokeWithFailoverInternal(req, deps, undefined);
 }
 
+function findEarliestReadyAtIso(state: NovaSwarmState): string {
+  const futureTimestamps: number[] = [];
+  const nowMs = Date.now();
+  for (const p of Object.keys(state.settings.providerKeys) as ProviderId[]) {
+    for (const k of state.settings.providerKeys[p] || []) {
+      if (!k.enabled) continue;
+      if (k.cooldownUntil) {
+        const ms = Date.parse(k.cooldownUntil);
+        if (ms > nowMs) futureTimestamps.push(ms);
+      }
+      if (k.dailyExhaustedUntil) {
+        const ms = Date.parse(k.dailyExhaustedUntil);
+        if (ms > nowMs) futureTimestamps.push(ms);
+      }
+    }
+  }
+  for (const m of state.keyModelMatrix || []) {
+    const ms = Date.parse(m.cooldownUntil || m.resetAt || '');
+    if (ms > nowMs) futureTimestamps.push(ms);
+  }
+  const earliest = futureTimestamps.length > 0 ? Math.min(...futureTimestamps) : nowMs + 30_000;
+  return new Date(earliest).toISOString();
+}
+
 async function invokeWithFailoverInternal(
   req: LlmInvokeRequest,
   deps: RouterDependencies = {},
-  onChunk?: (delta: string) => void
+  onChunk?: (delta: string) => void,
+  fromQueueRetry = false
 ): Promise<LlmInvokeResult> {
   const state = getState();
   const callProvider = deps.callProvider ?? defaultCallProvider;
@@ -1390,6 +2139,15 @@ async function invokeWithFailoverInternal(
   const resolveSecret = deps.resolveSecret ?? resolveEffectiveKeySecret;
 
   const effectivePreset = req.preset ?? state.settings.defaultPreset ?? 'fast';
+  const taskType = classifyTaskType({
+    prompt: req.prompt,
+    systemInstruction: req.systemInstruction,
+    complexity: req.complexity,
+    taskType: req.taskType,
+    hasImages: Boolean(req.images && req.images.length > 0),
+    hasAudio: Boolean(req.audio),
+    hasTools: Boolean(req.tools && req.tools.length > 0),
+  });
 
   // Input Guardrails
   const inputGuard = evaluateGuardrails(req.prompt, 'input', state.settings);
@@ -1420,23 +2178,51 @@ async function invokeWithFailoverInternal(
     }
   }
 
-  // Enforce Global Daily Cost Limit (M78 Soft Downgrade supported)
+  // Enforce Global Daily Cost Limit (Failover to Local Ollama + Exception Alert)
   let forceOllama = state.settings.ollamaOnlyMode;
   if (state.settings.dailyCostLimitEnabled) {
     const ratio = state.settings.dailySpendUsd / Math.max(0.01, state.settings.dailyCostLimitUsd);
+    const shouldFallback =
+      state.settings.totalAutonomyEnabled ||
+      state.settings.dailyCloudCostFallbackToOllama !== false ||
+      state.settings.softDowngradeOnBudget;
     if (ratio >= 1.0) {
-      if (state.settings.softDowngradeOnBudget && !state.settings.ollamaOnlyMode) {
+      if (shouldFallback && !state.settings.ollamaOnlyMode) {
         forceOllama = true;
         appendAuditLog({
-          type: 'system',
+          type: 'security',
           sourceAgentId: 'budget-guard',
           sourceAgentName: 'Költséglimit Őr',
-          message: `Napi költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)}) — Soft Downgrade aktív: lokális Ollama használata.`,
+          message: `Napi felhő költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}) — automatikus átállás lokális Ollama-ra.`,
+          verifiedExecution: true,
         });
-      } else {
-        throw new Error(
-          `Napi globális költséglimit elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). Új hívások leállítva.`
-        );
+        const budgetAlertKey = `budget-fallback-${state.settings.dailySpendDate}`;
+        if (
+          !(state.autonomyDecisions || []).some(
+            (d) => d.category === 'budget_failover' && d.decision.includes(budgetAlertKey)
+          )
+        ) {
+          try {
+            const ta = await import('../security/totalAutonomy');
+            ta.recordAutonomyDecision({
+              agentId: 'budget-guard',
+              category: 'budget_failover',
+              decision: `Automatikus átállás lokális Ollama-ra (${budgetAlertKey})`,
+              rationale: `Napi felhő költés ($${state.settings.dailySpendUsd.toFixed(4)}) elérte a keretet ($${state.settings.dailyCostLimitUsd.toFixed(2)}).`,
+              rejectedAlternatives: ['További fizetős felhős API hívások indítása'],
+              outcome: 'applied',
+              highImpact: true,
+            });
+            await ta.notifyExceptionToTelegram(
+              `[Költséglimit Failover] Napi felhő keret elérve ($${state.settings.dailySpendUsd.toFixed(4)} / $${state.settings.dailyCostLimitUsd.toFixed(2)}). A rendszer automatikusan helyi Ollama-ra váltott.`,
+              true
+            );
+          } catch {
+            // non-fatal alert/log failure
+          }
+        }
+      } else if (!state.settings.ollamaOnlyMode) {
+        forceOllama = true;
       }
     } else if (ratio >= 0.85) {
       forceOllama = true;
@@ -1449,7 +2235,6 @@ async function invokeWithFailoverInternal(
     }
   }
 
-  // M39, M77 & M80: Build target candidate chain + circuit breaker + TTFT/tokps metrics
   const recordProviderHealth = (
     provider: ProviderId,
     ok: boolean,
@@ -1490,52 +2275,25 @@ async function invokeWithFailoverInternal(
   };
 
   const agentRef = req.agentId ? state.agents.find((a) => a.id === req.agentId) : undefined;
-  const rawSteps: Array<{ provider: ProviderId; model?: string }> = [];
+  const effectivePreferredProvider = forceOllama
+    ? 'ollama'
+    : req.preferredProvider || agentRef?.providerId || undefined;
+  const effectivePreferredModel = forceOllama
+    ? state.settings.ollamaModel
+    : req.preferredModel || agentRef?.modelId || undefined;
 
-  if (forceOllama) {
-    rawSteps.push({ provider: 'ollama', model: req.preferredModel });
-  } else {
-    if (req.preferredProvider) {
-      rawSteps.push({ provider: req.preferredProvider, model: req.preferredModel });
-    }
-    if (agentRef?.modelChain && agentRef.modelChain.length > 0) {
-      for (const link of agentRef.modelChain) {
-        if (link?.providerId) {
-          rawSteps.push({ provider: link.providerId, model: link.modelId });
-        }
-      }
-    }
-    const baseProviders: ProviderId[] = [
-      state.settings.primaryProvider,
-      state.settings.secondaryProvider,
-      'ollama',
-    ];
-    // M39: When no explicit preferredProvider is forced and agent has no modelChain, adaptively rank healthy/fast providers higher
-    if (!req.preferredProvider && (!agentRef?.modelChain || agentRef.modelChain.length === 0) && state.gatewayAnalytics.providerHealth) {
-      const healthMap = state.gatewayAnalytics.providerHealth;
-      baseProviders.sort((a, b) => {
-        if (a === 'ollama' && b !== 'ollama') return 1;
-        if (b === 'ollama' && a !== 'ollama') return -1;
-        const ha = healthMap[a];
-        const hb = healthMap[b];
-        if (!ha || ha.totalCalls < 2 || !hb || hb.totalCalls < 2) return 0;
-        const errRateA = ha.failedCalls / ha.totalCalls;
-        const errRateB = hb.failedCalls / hb.totalCalls;
-        if (Math.abs(errRateA - errRateB) > 0.15) return errRateA - errRateB;
-        return (ha.avgLatencyMs || 9999) - (hb.avgLatencyMs || 9999);
-      });
-    }
-    for (const bp of baseProviders) {
-      rawSteps.push({ provider: bp, model: bp === req.preferredProvider ? req.preferredModel : undefined });
-    }
-  }
-
-  const seenStep = new Set<string>();
-  const targetChain = rawSteps.filter((st) => {
-    const key = `${st.provider}:${st.model || 'auto'}`;
-    if (seenStep.has(key)) return false;
-    seenStep.add(key);
-    return true;
+  const estimatedPromptTokens = estimateTokens(req.prompt) + estimateTokens(req.systemInstruction || '');
+  const rankedModels = rankModelsForTask({
+    state: forceOllama
+      ? { ...state, settings: { ...state.settings, ollamaOnlyMode: true } }
+      : state,
+    taskType,
+    estimatedPromptTokens,
+    preferredProvider: effectivePreferredProvider,
+    preferredModel: effectivePreferredModel,
+    requiresVision: Boolean(req.images && req.images.length > 0),
+    requiresAudio: Boolean(req.audio),
+    requiresTools: Boolean(req.tools && req.tools.length > 0),
   });
 
   const allowCache =
@@ -1546,17 +2304,15 @@ async function invokeWithFailoverInternal(
     !req.audio &&
     (!req.tools || req.tools.length === 0);
 
-  const firstStep = targetChain[0];
-  const primaryCandidateModel = selectModelForProvider(
-    firstStep.provider,
-    req.complexity ?? 'simple',
-    state,
-    firstStep.model
-  );
+  const primaryTop = rankedModels[0] || {
+    provider: state.settings.primaryProvider,
+    modelId: selectModelForProvider(state.settings.primaryProvider, req.complexity ?? 'simple', state, req.preferredModel),
+  };
+
   if (allowCache) {
     const cacheKey = makeCacheKey(
-      firstStep.provider,
-      primaryCandidateModel,
+      primaryTop.provider,
+      primaryTop.modelId,
       req.prompt,
       req.systemInstruction,
       effectivePreset
@@ -1567,11 +2323,33 @@ async function invokeWithFailoverInternal(
         s.gatewayAnalytics.cacheHits += 1;
         s.gatewayAnalytics.savedUsd = Number((s.gatewayAnalytics.savedUsd + cached.estimatedCostUsd).toFixed(6));
       });
+      appendRoutedCallLog({
+        taskType,
+        provider: cached.provider,
+        modelId: cached.model,
+        keyId: 'cache-lru',
+        keyLabel: 'LRU Cache',
+        maskedKey: 'cache',
+        switchReason: 'cache találat',
+        degradedMode: false,
+        strictVerificationRequired: false,
+        cached: true,
+        latencyMs: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        ok: true,
+      });
       return {
         text: cached.text,
         provider: cached.provider,
         model: cached.model,
         keyId: 'cache-lru',
+        keyLabel: 'LRU Cache',
+        taskType,
+        switchReason: 'cache találat',
+        degradedMode: false,
+        strictVerificationRequired: false,
         costUsd: 0,
         cached: true,
         attempts: [{ provider: cached.provider, model: cached.model, keyId: 'cache-lru', ok: true }],
@@ -1584,13 +2362,19 @@ async function invokeWithFailoverInternal(
 
   const attempts: LlmInvokeResult['attempts'] = [];
   const failureSummaries: string[] = [];
-  let backoffMs = 150;
+  let switchReason = '';
+  let sawCloudAttempt = false;
 
-  for (const stepTarget of targetChain) {
-    const provider = stepTarget.provider;
-    const model = selectModelForProvider(provider, req.complexity ?? 'simple', state, stepTarget.model);
+  // Iterate Model 1 (across all its least-loaded available keys) -> Model 2 (across all keys) -> ... -> Local Ollama fallback
+  for (let mIdx = 0; mIdx < rankedModels.length; mIdx++) {
+    const cand = rankedModels[mIdx];
+    const provider = cand.provider;
+    const model =
+      cand.modelId ||
+      selectModelForProvider(provider, req.complexity ?? 'simple', state, req.preferredModel);
     const pricing = classifyModelPricing(model, provider);
-    const contextWin = provider === 'ollama' ? state.settings.ollamaNumCtx || 2048 : pricing.contextWindow;
+    const contextWin =
+      provider === 'ollama' ? state.settings.ollamaNumCtx || 2048 : cand.contextWindow || pricing.contextWindow;
     const diet = applyContextDiet(req.prompt, contextWin);
 
     if (provider === 'ollama') {
@@ -1599,6 +2383,9 @@ async function invokeWithFailoverInternal(
         req.systemInstruction,
         Boolean(state.settings.compactLocalPrompt)
       );
+      const isDegradedFallback =
+        sawCloudAttempt || state.settings.primaryProvider !== 'ollama' || Boolean(state.settings.dailyCostLimitEnabled && state.settings.dailySpendUsd >= state.settings.dailyCostLimitUsd);
+      const strictVerificationRequired = true;
       try {
         const res = await withOllamaMutex(() =>
           callProvider({
@@ -1619,15 +2406,37 @@ async function invokeWithFailoverInternal(
           })
         );
         lastOllamaActivityMs = Date.now();
-        const elapsed = Date.now() - t0;
+        const elapsed = Math.max(1, Date.now() - t0);
         recordProviderHealth('ollama', true, elapsed, res.outputTokens ?? estimateTokens(res.text), elapsed);
         const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: true });
+        const reasonOut = switchReason || (isDegradedFallback ? 'felhő kvóta kimerült -> helyi Ollama (degraded)' : cand.reason);
+        appendRoutedCallLog({
+          taskType,
+          provider,
+          modelId: model,
+          keyId: 'local-ollama',
+          keyLabel: 'Helyi Ollama',
+          maskedKey: 'local',
+          switchReason: reasonOut,
+          degradedMode: isDegradedFallback,
+          strictVerificationRequired,
+          latencyMs: elapsed,
+          inputTokens: res.inputTokens,
+          outputTokens: res.outputTokens,
+          costUsd: 0,
+          ok: true,
+        });
         return {
           text: outGuard.sanitizedText,
           provider,
           model,
           keyId: 'local-ollama',
+          keyLabel: 'Helyi Ollama',
+          taskType,
+          switchReason: reasonOut,
+          degradedMode: isDegradedFallback,
+          strictVerificationRequired,
           costUsd: 0,
           inputTokens: res.inputTokens,
           outputTokens: res.outputTokens,
@@ -1635,134 +2444,385 @@ async function invokeWithFailoverInternal(
           attempts,
         };
       } catch (err) {
-        recordProviderHealth('ollama', false, Date.now() - t0);
+        recordProviderHealth('ollama', false, Math.max(1, Date.now() - t0));
         const msg = err instanceof Error ? err.message : String(err);
         attempts.push({ provider, model, keyId: 'local-ollama', ok: false, error: msg });
         failureSummaries.push(`[ollama]: ${msg}`);
+        switchReason = `ollama hiba -> következő jelölt`;
         continue;
       }
     }
 
-    const pool = state.settings.providerKeys[provider] || [];
-    if (pool.filter((k) => k.enabled).length === 0) {
-      failureSummaries.push(`[${provider}]: nincs konfigurált aktív API kulcs`);
+    // Cloud provider: iterate least-loaded available keys for THIS model before switching to next model
+    const currentSnapshot = getState();
+    const pool = currentSnapshot.settings.providerKeys[provider] || [];
+    const orderedKeyCandidates = selectLeastLoadedKeysForModel({
+      provider,
+      modelId: model,
+      keys: pool,
+      matrix: currentSnapshot.keyModelMatrix || [],
+      concurrencyMap: activeKeyConcurrency,
+      rpmUsageMap: keyRpmUsage,
+      tpmUsageMap: keyTpmUsage,
+      cursor: keyCursors[provider],
+    });
+
+    if (orderedKeyCandidates.length === 0) {
+      if (pool.filter((k) => k.enabled).length === 0) {
+        failureSummaries.push(`[${provider}]: nincs konfigurált aktív API kulcs`);
+      } else {
+        failureSummaries.push(`[${provider}/${model || 'auto'}]: minden kulcs pihenőn / napi limiten`);
+      }
       continue;
     }
 
-    const triedIds = new Set<string>();
-    while (true) {
-      const picked = pickNextPoolKey(provider, pool, triedIds, resolveSecret);
-      if (!picked) break;
-      triedIds.add(picked.entry.id);
+    keyCursors[provider] = (keyCursors[provider] + 1) % Math.max(1, pool.length);
 
-      const t0 = Date.now();
+    for (const keyCand of orderedKeyCandidates) {
+      const secret = resolveSecret(keyCand.key.id);
+      if (!secret) continue;
+      if (!acquireKeySlot(keyCand.key.id)) {
+        switchReason = `${keyCand.key.label} párhuzamossági sor teli`;
+        continue;
+      }
+
+      sawCloudAttempt = true;
+      let maxRetries5xx = 2;
+      let attempt5xx = 0;
+
       try {
-        const res = await callProvider({
-          provider,
-          model,
-          apiKey: picked.secret,
-          prompt: diet.trimmedPrompt,
-          systemInstruction: req.systemInstruction,
-          ollamaUrl: state.settings.ollamaUrl,
-          preset: effectivePreset,
-          images: req.images,
-          audio: req.audio,
-          tools: req.tools,
-          toolChoice: req.toolChoice,
-          onChunk,
-        });
+        while (true) {
+          const t0 = Date.now();
+          try {
+            const callStartReason =
+              keyCand.preemptivelyThrottled && orderedKeyCandidates.length > 1
+                ? 'előrelátó teherelosztás (>=80% RPM/TPM)'
+                : switchReason || cand.reason;
 
-        recordProviderHealth(provider, true, Date.now() - t0);
-        const outGuard = evaluateGuardrails(res.text, 'output', state.settings);
-        const costUsd = Number(
-          (
-            (res.inputTokens / 1_000_000) * pricing.inputCostPer1M +
-            (res.outputTokens / 1_000_000) * pricing.outputCostPer1M
-          ).toFixed(6)
-        );
+            const res = await callProvider({
+              provider,
+              model,
+              apiKey: secret,
+              prompt: diet.trimmedPrompt,
+              systemInstruction: req.systemInstruction,
+              ollamaUrl: currentSnapshot.settings.ollamaUrl,
+              preset: effectivePreset,
+              images: req.images,
+              audio: req.audio,
+              tools: req.tools,
+              toolChoice: req.toolChoice,
+              onChunk,
+            });
 
-        updateState((s) => {
-          s.settings.dailySpendUsd = Number((s.settings.dailySpendUsd + costUsd).toFixed(6));
-          s.gatewayAnalytics.spendByProvider[provider] = Number(
-            ((s.gatewayAnalytics.spendByProvider[provider] ?? 0) + costUsd).toFixed(6)
-          );
-          s.gatewayAnalytics.spendByModel[model] = Number(
-            ((s.gatewayAnalytics.spendByModel[model] ?? 0) + costUsd).toFixed(6)
-          );
-          if (req.agentId) {
-            const ag = s.agents.find((a) => a.id === req.agentId);
-            if (ag) ag.dailySpendUsd = Number(((ag.dailySpendUsd ?? 0) + costUsd).toFixed(6));
-          }
-          const keyRef = s.settings.providerKeys[provider].find((k) => k.id === picked.entry.id);
-          if (keyRef) {
-            keyRef.lastUsedAt = new Date().toISOString();
-            keyRef.lastError = undefined;
-            keyRef.cooldownUntil = undefined;
-          }
-          if (res.headers) {
-            s.quotas[provider] = extractQuotaFromHeaders(provider, res.headers);
-          }
-        });
+            const latencyMs = Math.max(1, Date.now() - t0);
+            recordProviderHealth(provider, true, latencyMs, res.outputTokens, latencyMs);
+            recordKeyUsage(provider, keyCand.key.id, model, (res.inputTokens || 0) + (res.outputTokens || 0));
 
-        if (allowCache && (!res.toolCalls || res.toolCalls.length === 0)) {
-          if (responseCache.size >= MAX_CACHE_ENTRIES) {
-            const firstKey = responseCache.keys().next().value;
-            if (firstKey) responseCache.delete(firstKey);
-          }
-          const cacheKey = makeCacheKey(
-            firstStep.provider,
-            primaryCandidateModel,
-            req.prompt,
-            req.systemInstruction,
-            effectivePreset
-          );
-          const normPrompt = (req.prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();
-          responseCache.set(cacheKey, {
-            text: outGuard.sanitizedText,
-            provider,
-            model,
-            estimatedCostUsd: costUsd,
-            expiresAt: Date.now() + Math.max(10, state.settings.responseCacheTtlSec) * 1000,
-            normPrompt,
-            trigrams: computeTrigramFreq(normPrompt),
-            preset: effectivePreset,
-          });
-        }
+            const outGuard = evaluateGuardrails(res.text, 'output', currentSnapshot.settings);
+            const costUsd = Number(
+              (
+                (res.inputTokens / 1_000_000) * (cand.inputCostPer1M || pricing.inputCostPer1M) +
+                (res.outputTokens / 1_000_000) * (cand.outputCostPer1M || pricing.outputCostPer1M)
+              ).toFixed(6)
+            );
 
-        attempts.push({ provider, model, keyId: picked.entry.id, ok: true });
-        return {
-          text: outGuard.sanitizedText,
-          provider,
-          model,
-          keyId: picked.entry.id,
-          costUsd,
-          inputTokens: res.inputTokens,
-          outputTokens: res.outputTokens,
-          toolCalls: res.toolCalls,
-          attempts,
-        };
-      } catch (err) {
-        recordProviderHealth(provider, false, Date.now() - t0);
-        const msg = err instanceof Error ? err.message : String(err);
-        const isCooldownWorthy = /\b(429|500|502|503|504|rate limit|quota)\b/i.test(msg);
-        updateState((s) => {
-          const keyRef = s.settings.providerKeys[provider].find((k) => k.id === picked.entry.id);
-          if (keyRef) {
-            keyRef.failureCount += 1;
-            keyRef.lastError = msg;
-            if (isCooldownWorthy) {
-              keyRef.cooldownUntil = new Date(Date.now() + 60_000).toISOString();
+            updateState((s) => {
+              s.settings.dailySpendUsd = Number((s.settings.dailySpendUsd + costUsd).toFixed(6));
+              s.gatewayAnalytics.spendByProvider[provider] = Number(
+                ((s.gatewayAnalytics.spendByProvider[provider] ?? 0) + costUsd).toFixed(6)
+              );
+              s.gatewayAnalytics.spendByModel[model || 'auto'] = Number(
+                ((s.gatewayAnalytics.spendByModel[model || 'auto'] ?? 0) + costUsd).toFixed(6)
+              );
+              if (req.agentId) {
+                const ag = s.agents.find((a) => a.id === req.agentId);
+                if (ag) ag.dailySpendUsd = Number(((ag.dailySpendUsd ?? 0) + costUsd).toFixed(6));
+              }
+              const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+              if (keyRef) {
+                keyRef.lastUsedAt = new Date().toISOString();
+                keyRef.lastError = undefined;
+                keyRef.cooldownUntil = undefined;
+              }
+              if (res.headers) {
+                s.quotas[provider] = extractQuotaFromHeaders(provider, res.headers);
+              }
+              const mat = s.keyModelMatrix?.find((m) => m.keyId === keyCand.key.id && m.modelId === model);
+              if (mat) {
+                mat.status = 'available';
+                mat.cooldownUntil = undefined;
+                mat.reason = undefined;
+                mat.successCount = (mat.successCount || 0) + 1;
+                mat.avgLatencyMs = mat.avgLatencyMs > 0 ? Math.round((mat.avgLatencyMs * 0.7) + (latencyMs * 0.3)) : latencyMs;
+              }
+            });
+
+            if (allowCache && (!res.toolCalls || res.toolCalls.length === 0)) {
+              if (responseCache.size >= MAX_CACHE_ENTRIES) {
+                const firstKey = responseCache.keys().next().value;
+                if (firstKey) responseCache.delete(firstKey);
+              }
+              const cacheKey = makeCacheKey(
+                primaryTop.provider,
+                primaryTop.modelId,
+                req.prompt,
+                req.systemInstruction,
+                effectivePreset
+              );
+              const normPrompt = (req.prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();
+              responseCache.set(cacheKey, {
+                text: outGuard.sanitizedText,
+                provider,
+                model,
+                estimatedCostUsd: costUsd,
+                expiresAt: Date.now() + Math.max(10, currentSnapshot.settings.responseCacheTtlSec) * 1000,
+                normPrompt,
+                trigrams: computeTrigramFreq(normPrompt),
+                preset: effectivePreset,
+              });
             }
+
+            attempts.push({ provider, model, keyId: keyCand.key.id, ok: true });
+            appendRoutedCallLog({
+              taskType,
+              provider,
+              modelId: model,
+              keyId: keyCand.key.id,
+              keyLabel: keyCand.key.label,
+              maskedKey: keyCand.key.maskedKey,
+              projectId: keyCand.key.projectId,
+              switchReason: callStartReason,
+              degradedMode: false,
+              strictVerificationRequired: false,
+              latencyMs,
+              inputTokens: res.inputTokens,
+              outputTokens: res.outputTokens,
+              costUsd,
+              ok: true,
+            });
+
+            return {
+              text: outGuard.sanitizedText,
+              provider,
+              model,
+              keyId: keyCand.key.id,
+              keyLabel: keyCand.key.label,
+              maskedKey: keyCand.key.maskedKey,
+              taskType,
+              switchReason: callStartReason,
+              degradedMode: false,
+              strictVerificationRequired: false,
+              costUsd,
+              inputTokens: res.inputTokens,
+              outputTokens: res.outputTokens,
+              toolCalls: res.toolCalls,
+              attempts,
+            };
+          } catch (err) {
+            const elapsed = Math.max(1, Date.now() - t0);
+            const msg = err instanceof Error ? err.message : String(err);
+            const maybeStatus = (err as { status?: number })?.status;
+            const maybeHeaders = (err as { headers?: Headers | Record<string, string> })?.headers;
+            const classified = classifyProviderError(msg, maybeStatus, maybeHeaders);
+
+            if (classified.kind === 'transient_5xx' && attempt5xx < maxRetries5xx) {
+              attempt5xx += 1;
+              await sleep(250 * attempt5xx);
+              continue;
+            }
+
+            recordProviderHealth(provider, false, elapsed);
+
+            if (classified.kind === 'auth_invalid') {
+              updateState((s) => {
+                const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+                if (keyRef) {
+                  keyRef.enabled = false;
+                  keyRef.failureCount += 1;
+                  keyRef.lastError = msg;
+                  keyRef.disabledReason = classified.reason;
+                }
+                for (const m of s.keyModelMatrix || []) {
+                  if (m.keyId === keyCand.key.id) {
+                    m.status = 'disabled_invalid';
+                    m.reason = classified.reason;
+                    m.failureCount = (m.failureCount || 0) + 1;
+                  }
+                }
+              });
+              appendAuditLog({
+                type: 'security',
+                sourceAgentId: 'smart-router',
+                sourceAgentName: 'AI Router',
+                message: `Hibás kulcs automatikusan letiltva: ${provider}/${keyCand.key.label} (${keyCand.key.maskedKey}) — ${classified.reason}`,
+                verifiedExecution: true,
+              });
+              void import('../telegram/bot')
+                .then((tg) =>
+                  tg.sendTelegramMessage(
+                    `🔑 API kulcs automatikusan letiltva (${provider}/${keyCand.key.label} · ${keyCand.key.maskedKey}): ${classified.reason}`
+                  )
+                )
+                .catch(() => {});
+              switchReason = `${keyCand.key.label} 401/403 letiltva -> következő kulcs`;
+            } else if (classified.kind === 'daily_exhausted') {
+              const resetIso = classified.resetAtIso || new Date(Date.now() + 3_600_000).toISOString();
+              updateState((s) => {
+                const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+                if (keyRef) {
+                  keyRef.failureCount += 1;
+                  keyRef.lastError = msg;
+                }
+                const matEntries = (s.keyModelMatrix || []).filter((m) => m.keyId === keyCand.key.id);
+                const mat = matEntries.find((m) => m.modelId === model);
+                if (mat) {
+                  mat.status = 'daily_exhausted';
+                  mat.resetAt = resetIso;
+                  mat.reason = classified.reason;
+                  mat.failureCount = (mat.failureCount || 0) + 1;
+                }
+                if (matEntries.length === 0 || matEntries.every((m) => m.status === 'daily_exhausted')) {
+                  if (keyRef) keyRef.dailyExhaustedUntil = resetIso;
+                }
+              });
+              switchReason = `${keyCand.key.label} napi kvóta kimerült -> váltás`;
+            } else if (classified.kind === 'rpm_cooldown') {
+              const untilIso = new Date(Date.now() + classified.retryAfterMs).toISOString();
+              updateState((s) => {
+                const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+                if (keyRef) {
+                  keyRef.failureCount += 1;
+                  keyRef.lastError = msg;
+                  keyRef.cooldownUntil = untilIso;
+                }
+                const mat = s.keyModelMatrix?.find((m) => m.keyId === keyCand.key.id && m.modelId === model);
+                if (mat) {
+                  mat.status = 'rpm_cooldown';
+                  mat.cooldownUntil = untilIso;
+                  mat.reason = classified.reason;
+                  mat.failureCount = (mat.failureCount || 0) + 1;
+                }
+              });
+              switchReason = `${keyCand.key.label} (${classified.reason}) -> váltás`;
+            } else if (classified.kind === 'transient_5xx') {
+              updateState((s) => {
+                const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+                if (keyRef) {
+                  keyRef.failureCount += 1;
+                  keyRef.lastError = msg;
+                }
+              });
+              switchReason = `${keyCand.key.label} 5xx átmeneti hiba -> következő`;
+            } else {
+              updateState((s) => {
+                const keyRef = s.settings.providerKeys[provider].find((k) => k.id === keyCand.key.id);
+                if (keyRef) {
+                  keyRef.failureCount += 1;
+                  keyRef.lastError = msg;
+                }
+              });
+              switchReason = `${keyCand.key.label} hiba -> váltás`;
+            }
+
+            attempts.push({ provider, model, keyId: keyCand.key.id, ok: false, error: msg });
+            failureSummaries.push(`[${provider}/${keyCand.key.label}]: ${msg}`);
+            break;
           }
-        });
-        attempts.push({ provider, model, keyId: picked.entry.id, ok: false, error: msg });
-        failureSummaries.push(`[${provider}/${picked.entry.label}]: ${msg}`);
-        await sleep(backoffMs);
-        backoffMs = Math.min(backoffMs * 2, 4000);
+        }
+      } finally {
+        releaseKeySlot(keyCand.key.id);
       }
     }
   }
 
-  throw new Error(failureSummaries.join(' | ') || 'Nincs elérhető AI szolgáltató a failover láncban.');
-}
+  // All models, keys & local Ollama exhausted -> Enqueue cleanly instead of throwing unhandled exception!
+  const latestState = getState();
+  const readyAtIso = findEarliestReadyAtIso(latestState);
+  const errorSummary = failureSummaries.join(' | ') || 'Minden elérhető AI modell és kulcs ideiglenesen kimerült.';
+  const queueId = `llmq-${crypto.randomUUID().slice(0, 8)}`;
 
+  if (!fromQueueRetry) {
+    const queueSummary: QueuedRequestSummary = {
+      id: queueId,
+      taskType,
+      promptPreview: req.prompt.slice(0, 120),
+      agentId: req.agentId,
+      createdAt: new Date().toISOString(),
+      readyAt: readyAtIso,
+      attempts: attempts.length,
+      status: 'queued',
+      lastReason: errorSummary.slice(0, 220),
+    };
+    pendingLlmQueue.push({ summary: queueSummary, req });
+    if (pendingLlmQueue.length > 50) pendingLlmQueue.shift();
+
+    updateState((s) => {
+      s.queuedLlmRequests = s.queuedLlmRequests || [];
+      s.queuedLlmRequests.unshift(queueSummary);
+      s.queuedLlmRequests = s.queuedLlmRequests.slice(0, 50);
+    });
+
+    appendAuditLog({
+      type: 'system',
+      sourceAgentId: req.agentId || 'smart-router',
+      sourceAgentName: 'AI Router Sor',
+      message: `Minden modell és kulcs kimerült; kérés várólistára téve (${queueId}, becsült folytatás: ${readyAtIso}).`,
+      verifiedExecution: true,
+    });
+
+    if (Date.now() - lastQueueTelegramAlertMs > 300_000) {
+      lastQueueTelegramAlertMs = Date.now();
+      void import('../telegram/bot')
+        .then((tg) =>
+          tg.sendTelegramMessage(
+            `⏳ [AI Router Várólista] Minden felhő-kulcs és helyi Ollama átmenetileg kimerült. Kérés sorba állítva (${queueId}), automatikus folytatás amint felszabadul a keret (${new Date(readyAtIso).toLocaleTimeString('hu-HU')}).`
+          )
+        )
+        .catch(() => {});
+    }
+  }
+
+  appendRoutedCallLog({
+    taskType,
+    provider: primaryTop.provider,
+    modelId: primaryTop.modelId || 'queued',
+    keyId: 'queue',
+    keyLabel: 'Várólista',
+    maskedKey: 'queue',
+    switchReason: 'minden jelölt kimerült -> sorba állítva',
+    degradedMode: true,
+    strictVerificationRequired: true,
+    queued: true,
+    latencyMs: 1,
+    inputTokens: estimateTokens(req.prompt),
+    outputTokens: 0,
+    costUsd: 0,
+    ok: false,
+    error: errorSummary.slice(0, 240),
+  });
+
+  const queuedText = [
+    `⏳ A kérés várólistára került (${queueId}), mert minden felhő API kulcs és a helyi tartalék átmenetileg kimerült.`,
+    `Automatikus folytatás amint felszabadul a kvóta (becsült időpont: ${readyAtIso}).`,
+    `Próbált csatornák: ${errorSummary}`,
+  ].join(' ');
+
+  return {
+    text: queuedText,
+    provider: primaryTop.provider,
+    model: primaryTop.modelId || 'queued',
+    keyId: 'queue',
+    keyLabel: 'Várólista',
+    taskType,
+    switchReason: 'minden csatorna kimerült -> sorba állítva',
+    degradedMode: true,
+    strictVerificationRequired: true,
+    queued: true,
+    queueId,
+    errorSummary,
+    costUsd: 0,
+    inputTokens: estimateTokens(req.prompt),
+    outputTokens: 0,
+    attempts,
+  };
+}

@@ -324,7 +324,7 @@ export const OrgAgentsView: React.FC<Props> = ({
   const [role, setRole] = useState('');
   const [parentAgentId, setParentAgentId] = useState<string>('');
   const [providerId, setProviderId] = useState<ProviderId>('gemini');
-  const [modelId, setModelId] = useState('gemini-4-hydrogen');
+  const [modelId, setModelId] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [hostExecutionEnabled, setHostExecutionEnabled] = useState(true);
@@ -590,6 +590,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                 type="text"
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
+                placeholder="Automatikus (router választ)"
                 className="w-full px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
               />
             </div>

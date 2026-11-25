@@ -221,20 +221,19 @@ test('AI Gateway: OpenAI /v1/chat/completions proxy, SSE stream, Virtual Keys (R
     server.close();
   }
 
-  // 4. Key Cooldown on 429 + resetProviderCooldowns()
+  // 4. Key Cooldown on 429 + resetProviderCooldowns() (queues cleanly on exhaustion)
   clearResponseCache();
-  await assert.rejects(() =>
-    invokeWithFailover(
-      { prompt: 'Trigger rate limit cooldown', complexity: 'simple' },
-      {
-        resolveSecret: () => 'fake-oa-secret',
-        sleep: async () => {},
-        callProvider: async () => {
-          throw new Error('HTTP 429 Too Many Requests');
-        },
-      }
-    )
+  const limitRes = await invokeWithFailover(
+    { prompt: 'Trigger rate limit cooldown', complexity: 'simple' },
+    {
+      resolveSecret: () => 'fake-oa-secret',
+      sleep: async () => {},
+      callProvider: async () => {
+        throw new Error('HTTP 429 Too Many Requests');
+      },
+    }
   );
+  assert.equal(limitRes.queued, true);
   assert.ok(state.settings.providerKeys.openai[0].cooldownUntil);
   resetProviderCooldowns();
   assert.equal(state.settings.providerKeys.openai[0].cooldownUntil, undefined);
