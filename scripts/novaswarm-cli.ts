@@ -1,8 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Ú56: NovaSwarm Terminal CLI Bridge
+ * Ú56 + Local Recovery: NovaSwarm Terminal CLI Bridge
  * Usage:
  *   novaswarm status
+ *   novaswarm set-password [--generate] [--password <pw>]
+ *   novaswarm remove-password [--yes]
+ *   novaswarm reset-login-lock
+ *   novaswarm autonomy-status
+ *   novaswarm ollama-reselect
  *   novaswarm ask "<kérdés>"
  *   novaswarm mission "<cél>"
  *   novaswarm kanban
@@ -10,13 +15,27 @@
  *   novaswarm doctor
  *   novaswarm backup
  */
+import crypto from 'node:crypto';
+import readline from 'node:readline';
+import {
+  consumeOneTimeSetupCode,
+  resetAllLoginLocks,
+} from '../server/security/auth';
 import {
   activateEmergencyLockdown,
   getTotalAutonomySummary,
   restoreSecuritySnapshot,
   unlockEmergencyLockdown,
 } from '../server/security/totalAutonomy';
-import { getState } from '../server/state/store';
+import {
+  appendAuditLog,
+  clearWebAuthPassword,
+  getState,
+  hasWebAuthPassword,
+  normalizePasswordInput,
+  setWebAuthPassword,
+  updateState,
+} from '../server/state/store';
 import { reselectOllamaSuite } from '../server/system/ollamaSelector';
 
 const BASE_URL = (process.env.NOVASWARM_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
@@ -38,9 +57,184 @@ async function callApi<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: u
   return data;
 }
 
+export function generateCliPassword(length = 18): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^&*-_+=';
+  const bytes = crypto.randomBytes(length);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return out;
+}
+
+export function cliSetOperatorPassword(rawPassword: string, actor = 'cli-set-password'): {
+  webAuthEnabled: boolean;
+  webAuthHasPassword: boolean;
+} {
+  getState();
+  const normalized = normalizePasswordInput(rawPassword);
+  if (normalized.length < 12) {
+    throw new Error('Az operátori jelszónak legalább 12 karakter hosszúnak kell lennie.');
+  }
+  setWebAuthPassword(normalized);
+  consumeOneTimeSetupCode();
+  const hasPw = hasWebAuthPassword();
+  updateState((s) => {
+    s.settings.webAuthHasPassword = hasPw;
+    s.settings.webAuthEnabled = hasPw;
+    s.settings.onboardingCompleted = true;
+  });
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: actor,
+    sourceAgentName: 'Helyi CLI Jelszókezelő',
+    message: 'Operátori webes jelszó beállítva / lecserélve helyi CLI paranccsal (LAN zár AKTÍV).',
+    verifiedExecution: true,
+  });
+  return {
+    webAuthEnabled: getState().settings.webAuthEnabled,
+    webAuthHasPassword: hasPw,
+  };
+}
+
+export function cliRemoveOperatorPassword(actor = 'cli-remove-password'): {
+  webAuthEnabled: boolean;
+  webAuthHasPassword: boolean;
+} {
+  getState();
+  clearWebAuthPassword();
+  updateState((s) => {
+    s.settings.webAuthHasPassword = false;
+    s.settings.webAuthEnabled = false;
+  });
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: actor,
+    sourceAgentName: 'Helyi CLI Jelszókezelő',
+    message: 'Operátori webes jelszó eltávolítva helyi CLI paranccsal — jelszó nélküli LAN mód AKTÍV.',
+    verifiedExecution: true,
+    passwordlessMode: true,
+  });
+  return {
+    webAuthEnabled: getState().settings.webAuthEnabled,
+    webAuthHasPassword: hasWebAuthPassword(),
+  };
+}
+
+export function cliResetLoginLocks(actor = 'cli-reset-login-lock'): { clearedCount: number } {
+  getState();
+  const clearedCount = resetAllLoginLocks(actor);
+  return { clearedCount };
+}
+
+function readHiddenLineFromTty(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error('Nem interaktív terminál — használd a --generate vagy --password kapcsolót.'));
+      return;
+    }
+    process.stdout.write(prompt);
+    const stdin = process.stdin;
+    const prevRaw = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    let buf = '';
+    const onData = (ch: string) => {
+      for (const c of ch) {
+        if (c === '\r' || c === '\n') {
+          stdin.setRawMode(Boolean(prevRaw));
+          stdin.pause();
+          stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          resolve(buf);
+          return;
+        }
+        if (c === '\u0003') {
+          stdin.setRawMode(Boolean(prevRaw));
+          stdin.pause();
+          stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          reject(new Error('Megszakítva (Ctrl+C).'));
+          return;
+        }
+        if (c === '\u007f' || c === '\b') {
+          buf = buf.slice(0, -1);
+          continue;
+        }
+        buf += c;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+function askVisibleLine(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(prompt, (ans) => {
+      rl.close();
+      resolve(ans.trim());
+    });
+  });
+}
+
 async function main() {
   const [, , cmd = 'help', ...rest] = process.argv;
   const argText = rest.join(' ').trim();
+
+  if (cmd === 'set-password') {
+    let pw = '';
+    let generated = false;
+    if (rest.includes('--generate')) {
+      pw = generateCliPassword(18);
+      generated = true;
+    } else {
+      const idx = rest.indexOf('--password');
+      if (idx >= 0 && rest[idx + 1] !== undefined) {
+        pw = rest[idx + 1];
+      } else if (process.env.NOVASWARM_NEW_PASSWORD) {
+        pw = process.env.NOVASWARM_NEW_PASSWORD;
+      } else {
+        const p1 = await readHiddenLineFromTty('Új operátori jelszó (min. 12 karakter): ');
+        const p2 = await readHiddenLineFromTty('Új operátori jelszó megerősítése: ');
+        if (normalizePasswordInput(p1) !== normalizePasswordInput(p2)) {
+          throw new Error('A két megadott jelszó nem egyezik.');
+        }
+        pw = p1;
+      }
+    }
+
+    cliSetOperatorPassword(pw);
+    if (generated) {
+      console.log(`✅ Új generált operátori jelszó (mentsd el most, többé nem jelenik meg): ${pw}`);
+    } else {
+      console.log('✅ Operátori jelszó sikeresen beállítva (LAN WebUI zár aktív).');
+    }
+    return;
+  }
+
+  if (cmd === 'remove-password') {
+    const confirmed = rest.includes('--yes') || rest.includes('-y');
+    if (!confirmed) {
+      const ans = await askVisibleLine(
+        'Biztosan törlöd a webes jelszót (bárki elérheti a felületet a helyi hálózaton)? [i/N]: '
+      );
+      if (!/^[iy]/i.test(ans)) {
+        console.log('Művelet megszakítva.');
+        return;
+      }
+    }
+    cliRemoveOperatorPassword();
+    console.log('⚠️ Webes jelszó eltávolítva — a felület most jelszó nélküli LAN módban működik.');
+    return;
+  }
+
+  if (cmd === 'reset-login-lock') {
+    const out = cliResetLoginLocks();
+    console.log(`🔓 Bejelentkezési zárak feloldva (${out.clearedCount} IP rekord törölve).`);
+    return;
+  }
 
   if (cmd === 'lockdown') {
     const reason = argText || 'CLI vészleállítás';
@@ -236,11 +430,14 @@ async function main() {
 
   console.log(`NovaSwarm CLI (Cél: ${BASE_URL})`);
   console.log(
-    'Parancsok: status | autonomy-status | ollama-reselect | lockdown [ok] | unlock <jelszó> | restore-security [lépés] | ask "<szöveg>" | mission "<cél>" | kanban | weather [város] | doctor | backup'
+    'Parancsok: status | set-password [--generate] | remove-password [--yes] | reset-login-lock | autonomy-status | ollama-reselect | lockdown [ok] | unlock <jelszó> | restore-security [lépés] | ask "<szöveg>" | mission "<cél>" | kanban | weather [város] | doctor | backup'
   );
 }
 
-main().catch((err) => {
-  console.error('HIBA:', err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+const isMain = Boolean(process.argv[1] && process.argv[1].endsWith('novaswarm-cli.ts'));
+if (isMain) {
+  main().catch((err) => {
+    console.error('HIBA:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

@@ -76,9 +76,12 @@ export const McpSkillsView: React.FC<Props> = ({
   const [skillName, setSkillName] = useState('');
   const [skillDesc, setSkillDesc] = useState('');
   const [skillCode, setSkillCode] = useState('console.log("Skill sandbox verification OK");');
+  const [skillTestCode, setSkillTestCode] = useState('');
   const [pitfallDrafts, setPitfallDrafts] = useState<Record<string, string>>({});
   const [ghSkillUrl, setGhSkillUrl] = useState('');
   const [ghSkillMsg, setGhSkillMsg] = useState<string | null>(null);
+  const [mcpDiscoveryQuery, setMcpDiscoveryQuery] = useState('');
+  const [mcpRoiMsg, setMcpRoiMsg] = useState<string | null>(null);
 
   // Multi-Channel Connectors & Bidirectional Polling (M18)
   const [chType, setChType] = useState<ChannelConnectorType>('discord');
@@ -197,11 +200,48 @@ export const McpSkillsView: React.FC<Props> = ({
     await fetch('/api/skills', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: skillName, description: skillDesc, code: skillCode }),
+      body: JSON.stringify({
+        name: skillName,
+        description: skillDesc,
+        code: skillCode,
+        testCode: skillTestCode.trim() || undefined,
+      }),
     });
     setSkillName('');
     setSkillDesc('');
+    setSkillTestCode('');
     await onRefreshState();
+  };
+
+  const handleRunSkillSelfTest = async (skillId: string) => {
+    await fetch(`/api/skills/${skillId}/test`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    await onRefreshState();
+  };
+
+  const handleEvaluateMcpRoi = async () => {
+    setMcpRoiMsg('MCP ROI kiértékelés fut...');
+    const res = await fetch('/api/mcp/evaluate-roi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        capabilityQuery: mcpDiscoveryQuery.trim() || undefined,
+        catalogUrl: catalogUrl.trim() || undefined,
+      }),
+    });
+    const data = (await res.json()) as {
+      evaluations?: Array<{ name: string; roiVerdict: string }>;
+      newlyInstalled?: Array<{ name: string }>;
+      disabledLowValueIds?: string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      setMcpRoiMsg(data.error || 'Hiba az MCP ROI értékelésnél.');
+    } else {
+      const inst = data.newlyInstalled?.length ? ` · Új telepítés: ${data.newlyInstalled.map((x) => x.name).join(', ')}` : '';
+      const dis = data.disabledLowValueIds?.length ? ` · Letiltva: ${data.disabledLowValueIds.length}` : '';
+      setMcpRoiMsg(`Kiértékelve (${data.evaluations?.length ?? 0} szerver)${inst}${dis}`);
+      await onRefreshState();
+    }
   };
 
   const handleAddPitfall = async (skillId: string) => {
@@ -359,6 +399,29 @@ export const McpSkillsView: React.FC<Props> = ({
                         </span>
                       </div>
                       <div className="text-xs text-slate-600 mt-1">{srv.lastCheckMessage}</div>
+                      {(srv.metrics || srv.roiNote) && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                          {srv.roiVerdict && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-mono font-semibold ${
+                                srv.roiVerdict === 'worth_it'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : srv.roiVerdict === 'low_value'
+                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}
+                            >
+                              ROI: {srv.roiVerdict === 'worth_it' ? 'MEGÉRI' : srv.roiVerdict === 'low_value' ? 'ALACSONY' : 'TESZTELENDŐ'}
+                            </span>
+                          )}
+                          {srv.metrics && (
+                            <span className="font-mono text-slate-500 tabular-nums">
+                              Hívások: {srv.metrics.successCalls}/{srv.metrics.totalCalls} · Átlag: {srv.metrics.avgLatencyMs}ms
+                            </span>
+                          )}
+                          {srv.roiNote && <span className="text-slate-600">{srv.roiNote}</span>}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
@@ -594,11 +657,32 @@ export const McpSkillsView: React.FC<Props> = ({
                 </button>
               </div>
             ))}
+            <div className="pt-2 border-t border-slate-200 space-y-2">
+              <div className="text-xs font-semibold text-slate-700">Autonóm MCP Képesség-Felderítés &amp; ROI Értékelés</div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={mcpDiscoveryQuery}
+                  onChange={(e) => setMcpDiscoveryQuery(e.target.value)}
+                  placeholder="Keresett képesség (pl. naptár, postgres, github)..."
+                  className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleEvaluateMcpRoi()}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white hover:bg-slate-50 rounded-lg whitespace-nowrap shrink-0"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Felderítés &amp; ROI
+                </button>
+              </div>
+              {mcpRoiMsg && <div className="text-[11px] font-mono text-slate-700">{mcpRoiMsg}</div>}
+            </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <h3 className="text-base font-semibold text-slate-900">
-              Skill Gyár (Sandbox Ellenőrzés & Buktatók)
+              Skill Gyár (Sandbox Ellenőrzés, Önteszt &amp; Buktatók)
             </h3>
             <form onSubmit={handleCreateSkill} className="space-y-2">
               <input
@@ -621,11 +705,18 @@ export const McpSkillsView: React.FC<Props> = ({
                 onChange={(e) => setSkillCode(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
+              <textarea
+                rows={2}
+                value={skillTestCode}
+                onChange={(e) => setSkillTestCode(e.target.value)}
+                placeholder="Opcionális automatikus egységteszt (üresen hagyva automatikusan generálódik)..."
+                className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
+              />
               <button
                 type="submit"
                 className="w-full px-3 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
-                Dry-Run Sandbox Teszt & Aktiválás
+                Dry-Run Sandbox + Egységteszt &amp; Aktiválás
               </button>
             </form>
 
@@ -675,16 +766,33 @@ export const McpSkillsView: React.FC<Props> = ({
             <div className="space-y-2.5 pt-2 max-h-[280px] overflow-y-auto">
               {skills.map((sk) => (
                 <div key={sk.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
-                  <div className="flex justify-between font-semibold">
+                  <div className="flex flex-wrap justify-between items-center gap-2 font-semibold">
                     <span>{sk.name}</span>
                     <span className="font-mono tabular-nums flex items-center gap-2">
                       <span className="text-slate-500">használat: {sk.usageCount ?? 0}</span>
+                      {sk.testPassed !== undefined && (
+                        <span className={sk.testPassed ? 'text-emerald-700' : 'text-red-700'}>
+                          teszt: {sk.testPassed ? 'OK' : 'HIBA'}
+                        </span>
+                      )}
                       <span className={sk.status === 'verified' ? 'text-emerald-700' : 'text-red-700'}>
                         {sk.status}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleRunSkillSelfTest(sk.id)}
+                        className="px-2 py-0.5 text-[10px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
+                      >
+                        Önteszt
+                      </button>
                     </span>
                   </div>
                   <div className="font-mono text-[11px] text-slate-600 whitespace-pre-wrap">{sk.sandboxReport}</div>
+                  {sk.testReport && (
+                    <div className="font-mono text-[11px] text-slate-700 bg-white border border-slate-200 rounded p-1.5 whitespace-pre-wrap">
+                      {sk.testReport}
+                    </div>
+                  )}
 
                   {sk.pitfalls && sk.pitfalls.length > 0 && (
                     <div className="space-y-1 pt-1 border-t border-slate-200">

@@ -14,6 +14,7 @@ import {
   appendAuditLog,
   getState,
   hasWebAuthPassword,
+  normalizePasswordInput,
   updateState,
   verifyAuditLogChain,
   verifyWebAuthPassword,
@@ -259,7 +260,7 @@ export async function unlockEmergencyLockdown(params: {
         retryAfterSeconds: rate.retryAfterSeconds,
       };
     }
-    const pw = (params.password || '').trim();
+    const pw = normalizePasswordInput(params.password || '');
     if (!pw || !verifyWebAuthPassword(pw)) {
       const fail = recordLoginFailure(ip, Date.now(), 'Hibás jelszó LOCKDOWN feloldásnál');
       return {
@@ -856,7 +857,7 @@ export async function toggleTotalAutonomyMode(params: {
           retryAfterSeconds: rate.retryAfterSeconds,
         };
       }
-      const pw = (params.password || '').trim();
+      const pw = normalizePasswordInput(params.password || '');
       if (!pw || !verifyWebAuthPassword(pw)) {
         const fail = recordLoginFailure(ip, Date.now(), 'Hibás jelszó Totális autonómia aktiválásához');
         return {

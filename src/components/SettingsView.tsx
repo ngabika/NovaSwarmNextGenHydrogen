@@ -1728,7 +1728,7 @@ export const SettingsView: React.FC<Props> = ({
       </form>
 
       {/* LAN Operator Auth Lock Section */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+      <div id="lan-operator-password-section" className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-slate-700" />
@@ -1737,14 +1737,14 @@ export const SettingsView: React.FC<Props> = ({
           </div>
           <span
             className={`text-xs font-mono font-semibold ${
-              settings.webAuthEnabled ? 'text-emerald-700' : 'text-slate-500'
+              settings.webAuthEnabled ? 'text-emerald-700' : 'text-amber-700'
             }`}
           >
-            {settings.webAuthEnabled ? 'VÉDELEM AKTÍV' : 'Nyitott (Helyi mód)'}
+            {settings.webAuthEnabled ? 'VÉDELEM AKTÍV' : 'Nyitott (Jelszó nélküli LAN mód)'}
           </span>
         </div>
         <p className="text-xs text-slate-600">
-          Titkosított munkamenet-sütivel védi a felületet és minden API-hívást (min. 8 karakteres jelszó ajánlott).
+          Titkosított munkamenet-sütivel védi a felületet és minden API-hívást (min. 8 karakteres, erős jelszó javasolt).
         </p>
         {authMsg && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800">
@@ -1752,7 +1752,7 @@ export const SettingsView: React.FC<Props> = ({
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {!settings.webAuthHasPassword && (
+          {!settings.webAuthHasPassword && settings.webAuthEnabled && (
             <input
               type="text"
               value={setupCode}
@@ -1763,6 +1763,7 @@ export const SettingsView: React.FC<Props> = ({
             />
           )}
           <input
+            id="operator-password-input"
             type="password"
             value={operatorPassword}
             onChange={(e) => setOperatorPassword(e.target.value)}

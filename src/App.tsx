@@ -124,10 +124,40 @@ export default function App() {
   // LAN Operator Auth Gate
   const [authLocked, setAuthLocked] = useState(false);
   const [authSetupRequired, setAuthSetupRequired] = useState(false);
+  const [authMissingPassword, setAuthMissingPassword] = useState(false);
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState(false);
-  const [passwordBannerDismissed, setPasswordBannerDismissed] = useState(false);
+  const [passwordBannerSnoozedUntil, setPasswordBannerSnoozedUntil] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('novaswarm_pw_banner_snooze_until');
+      const parsed = raw ? Number(raw) : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const navigateToPasswordSetup = useCallback(() => {
+    setActiveTab('settings');
+    setTimeout(() => {
+      const el = document.getElementById('operator-password-input') || document.getElementById('lan-operator-password-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el instanceof HTMLInputElement) el.focus();
+      }
+    }, 120);
+  }, []);
+
+  const snoozePasswordBanner7Days = useCallback(() => {
+    const until = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    setPasswordBannerSnoozedUntil(until);
+    try {
+      localStorage.setItem('novaswarm_pw_banner_snooze_until', String(until));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, []);
 
   const tryFetchState = useCallback(async (): Promise<boolean> => {
     try {
@@ -135,6 +165,16 @@ export default function App() {
       if (res.status === 401) {
         const errBody = (await res.json().catch(() => ({}))) as { code?: string };
         setAuthSetupRequired(errBody.code === 'AUTH_SETUP_REQUIRED');
+        setAuthMissingPassword(errBody.code === 'NO_PASSWORD_CONFIGURED');
+        try {
+          const stRes = await fetch('/api/auth/status');
+          if (stRes.ok) {
+            const st = (await stRes.json()) as { missingPasswordState?: boolean };
+            if (st.missingPasswordState) setAuthMissingPassword(true);
+          }
+        } catch {
+          // ignore status probe failure
+        }
         setAuthLocked(true);
         setLoadError(null);
         return true;
@@ -155,6 +195,7 @@ export default function App() {
       };
       setAuthLocked(false);
       setAuthSetupRequired(false);
+      setAuthMissingPassword(false);
       setState(data.state);
       setHardware(data.hardware);
       setTerminalSessions(data.terminalSessions || []);
@@ -411,7 +452,9 @@ export default function App() {
             <h1 className="text-base font-bold">NovaSwarm LAN Operátori Zár</h1>
           </div>
           <p className="text-xs text-slate-600">
-            {authSetupRequired
+            {authMissingPassword
+              ? "Félbehagyott telepítés: nincs beállított operátori jelszó. Állíts be jelszót helyben vagy a 'novaswarm set-password' paranccsal."
+              : authSetupRequired
               ? 'Első indítás: még nincs beállítva operátori jelszó. Nyisd meg a vezérlőpultot helyi (localhost) címről a kezdő jelszó megadásához.'
               : 'Add meg a beállított operátori jelszót a vezérlőpult feloldásához.'}
           </p>
@@ -835,29 +878,50 @@ export default function App() {
           </div>
         </header>
 
-        {state.settings.webAuthEnabled && !state.settings.webAuthHasPassword && !passwordBannerDismissed && (
-          <div className="bg-sky-50 dark:bg-sky-950/50 border-b border-sky-200 dark:border-sky-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-sky-900 dark:text-sky-100">
-            <span className="inline-flex items-center gap-2 font-medium">
-              <KeyRound className="h-3.5 w-3.5 shrink-0" />
-              Ajánlott beállítás: adj meg egy belépési jelszót, hogy hálózatról se férhessen hozzá idegen a vezérlőpulthoz.
+        {!state.settings.webAuthEnabled && Date.now() >= passwordBannerSnoozedUntil && (
+          <div
+            role="status"
+            data-testid="passwordless-lan-banner"
+            className="bg-amber-100 dark:bg-amber-950/70 border-b border-amber-300 dark:border-amber-800 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-950 dark:text-amber-100"
+          >
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <KeyRound className="h-4 w-4 shrink-0 text-amber-800 dark:text-amber-300" />
+              A felület jelszó nélkül elérhető a helyi hálózaton: bárki irányíthatja az ágenst.
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setActiveTab('settings')}
-                className="px-2.5 py-1 text-[11px] font-semibold bg-sky-700 text-white rounded hover:bg-sky-800"
+                onClick={navigateToPasswordSetup}
+                className="px-3 py-1 text-[11px] font-semibold bg-amber-900 text-white rounded hover:bg-amber-950 whitespace-nowrap"
               >
                 Jelszó beállítása
               </button>
               <button
                 type="button"
-                aria-label="Értesítés bezárása"
-                onClick={() => setPasswordBannerDismissed(true)}
-                className="text-sky-700 dark:text-sky-300 hover:opacity-80"
+                aria-label="Figyelmeztetés elrejtése 7 napra"
+                onClick={snoozePasswordBanner7Days}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-amber-900 dark:text-amber-200 hover:bg-amber-200/60 dark:hover:bg-amber-900/40 rounded"
               >
                 <X className="h-3.5 w-3.5" />
+                <span>Elrejtés 7 napra</span>
               </button>
             </div>
+          </div>
+        )}
+
+        {state.settings.webAuthEnabled && !state.settings.webAuthHasPassword && (
+          <div className="bg-red-50 dark:bg-red-950/60 border-b border-red-300 dark:border-red-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-red-900 dark:text-red-100">
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <KeyRound className="h-3.5 w-3.5 shrink-0" />
+              Félbehagyott telepítés: a webes zár be van kapcsolva, de nincs beállított jelszó. Állíts be jelszót vagy futtasd a novaswarm set-password parancsot.
+            </span>
+            <button
+              type="button"
+              onClick={navigateToPasswordSetup}
+              className="px-2.5 py-1 text-[11px] font-semibold bg-red-700 text-white rounded hover:bg-red-800"
+            >
+              Jelszó beállítása
+            </button>
           </div>
         )}
 

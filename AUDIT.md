@@ -2,13 +2,13 @@
 
 **Vizsgált kódbázis:** `https://github.com/ngabika/NovaSwarmNextGenHydrogen` (helyi munkakönyvtár)  
 **Futtatókörnyezet az ellenőrzéskor:** Linux, Node.js `v22.23.5`, csomagkezelő: `npm`  
-**Audit dátuma:** 2026-11-25
+**Audit dátuma:** 2026-11-26
 
 ---
 
 ## 1. Felderítés és Állapotfelmérés
 
-Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/**`, `src/**`, `scripts/**`, `tests/**`, `install.sh`, `update.sh`, `uninstall.sh`, `package.json`, `vite.config.ts`, `tsconfig.json`, `.env.example`, `.gitignore`, `README.md`.
+Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/**`, `src/**`, `scripts/**`, `tests/**`, `install.sh`, `update.sh`, `uninstall.sh`, `package.json`, `package-lock.json`, `vite.config.ts`, `tsconfig.json`, `.env.example`, `.gitignore`, `README.md`.
 
 ### Alapellenőrzések eredménye
 | Ellenőrzés | Eredmény | Megjegyzés |
@@ -16,10 +16,11 @@ Végigellenőrzött fájlok és könyvtárak: `server.ts`, `server/**`, `shared/
 | `node -v` | `v22.23.5` | Megfelel a `node:sqlite` által megkövetelt `22.5+` verziónak. |
 | `npm run lint` (`tsc --noEmit`) | Sikeres (0 hiba) | TypeScript típusellenőrzés hiba nélkül lefut. |
 | `npm run build` (`vite build`) | Sikeres | A kliens és PWA csomag hiba nélkül lefordul. |
-| `bash -n install.sh update.sh` | Sikeres (0 hiba) | Szintaktikai ellenőrzés rendben; éles Debian/Pi `apt`/`visudo`/`systemd` és valódi `ollama pull` végrehajtás **nem ellenőrizhető** ebben a konténerben. |
-| `npm test` | **123 teszt: 119 sikeres, 0 hiba, 4 `SKIP`** | Eredeti tesztek + `security_audit_fixes.test.ts` + `security_audit_fixes_pass2.test.ts` + `sandbox_js_isolation_pass3.test.ts` + `full_autonomy_profile.test.ts` (7 teszt) + `total_autonomy.test.ts` (7 teszt) + `lan_devices_adapters.test.ts` (3 teszt) + **`smart_routing_and_ollama.test.ts` (7 teszt)**. A 4 `SKIP` jelű teszt a valós `docker`/`bwrap` konténerfuttatást ugorja át, mert ebben a konténerben nincs `docker`/`bwrap` és nincs `sudo`/fizikai Ollama/GPU sem. |
+| `bash -n install.sh update.sh uninstall.sh scripts/check-hygiene.sh` | Sikeres (0 hiba) | Szintaktikai és repó-higiénia ellenőrzés rendben; éles Debian/Pi `apt`/`visudo`/`systemd`/`chattr +a` végrehajtás **nem ellenőrizhető** ebben a konténerben. |
+| `npm ci --dry-run` | Sikeres (0 hiba) | A `package.json` és `package-lock.json` (`novaswarm`) egységesen szinkronban van; `bun.lock` eltávolítva. |
+| `npm test` | **132 teszt: 128 sikeres, 0 hiba, 4 `SKIP`** | Tartalmazza az új `installer_e2e.test.ts`, `cli_and_audit_chain.test.ts`, `repo_hygiene.test.ts` és `smart_features_v9.test.ts` regressziós teszteket is. A 4 `SKIP` jelű teszt a hiányzó helyi `docker`/`bwrap` binárisok miatt marad ki ebben a konténerben. |
 | `npm audit` | 4 `moderate`, 0 `high`, 0 `critical` | Mind a 4 mérsékelt jelzés a `vite-plugin-pwa -> workbox-build -> glob / minimatch` dev/build láncból jön; `--force` főverzió-visszalépést (`vite-plugin-pwa@1.1.0`) okozna. |
-| Git repo / commit történet | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a múltbeli commitokban maradt titkok (`git log --all`), a `feature/smart-routing-local-ollama` branch és a commitok csak a felhasználó saját git-másolatában hozhatók létre. |
+| Git repo / `fix/installer-and-recovery` branch | **nem ellenőrizhető** | A vizsgált munkakönyvtárban nem található `.git` könyvtár, így a branch, pontonkénti commitok és `git push` csak a felhasználó saját git-másolatában hozhatók létre. |
 
 ---
 
@@ -136,6 +137,18 @@ Jelmagyarázat a státuszokhoz: **javítva** | **részben javítva** | **nyitva*
 | SR2 | `server/providers/smartRouting.ts`, `server/providers/router.ts`, `server/agents/engine.ts`, `server/telegram/bot.ts`, `src/components/ModelsRouterView.tsx` | **Magas** | Többkulcsos széf + tömeges bevitel + `projectId` + Gemini projekt-kvóta figyelmeztetés, kulcsonkénti modellfelderítés (`keyModelMatrix`, 24h auto-frissítés), `TaskType` rangsorolás + felhasználói `modelBlocklist` + verifikációs visszacsatolás, `Modell1 -> legkevésbé terhelt Kulcs1..N -> Modell2 -> Helyi Ollama (degradált mód + szigorú verifikáció) -> Várólista + automata folytatás`, 80% RPM/TPM előreáltás, párhuzamossági szemafór, `401/403` auto-tiltás, `Retry-After` és napi limit megkülönböztetés, `/kulcsok` parancs és teljes átláthatósági UI. | Mind a 6 viselkedési, hiba-, terheléselosztási, verifikációs és maszkolási forgatókönyv egységtesztekkel igazolva (`smart_routing_and_ollama.test.ts` #2–#6). Valós külső Gemini/OpenRouter/OpenAI/Anthropic API hálózat és élő kulcskvóták **nem ellenőrizhetők** (mock `callProvider`/`fetchFn` segítségével tesztelve). | **javítva** *(logika tesztelve; élő külső API **nem ellenőrizhető**)* |
 | SR3 | `config/ollama-models.json`, `server/system/ollamaSelector.ts`, `server/system/hardwareOptimizer.ts`, `scripts/novaswarm-cli.ts`, `install.sh`, `update.sh` | **Magas** | Hardver-érzékeny helyi Ollama modellválasztó (arch, AVX2/NEON, szabad/összes RAM, swap/zram, GPU VRAM, lemez szabad hely és típus, SD-kímélő mód), `tok/s` benchmark (`ollamaBenchmark`), hiányzó registry jelölt esetén automata visszalépés, tisztítási javaslat, offline telepítésnél `ollamaPendingPullModels` késleltetett letöltés és `novaswarm ollama-reselect` CLI parancs. | Szintaxis (`bash -n install.sh update.sh`) és 6 hardverprofil-szimuláció + benchmark + lépcsős visszalépés (`smart_routing_and_ollama.test.ts` #7) igazolva. Valódi Raspberry Pi / NVIDIA GPU hardver és éles `ollama pull` letöltés **nem ellenőrizhető** ebben a konténerben. | **javítva** *(szimulálva tesztelve; fizikai hardver/pull **nem ellenőrizhető**)* |
 
+### 2.15. Telepítő Javítások, Opcionális LAN Jelszó, CLI Helyreállítás, Append-Only Audit & Okos Funkciók (`fix/installer-and-recovery`)
+| # | Hely (`fájl:sor`) | Súlyosság | Leírás & Fix | Státusz |
+|---|---|---|---|---|
+| IR0 | `install.sh`, `scripts/install-configure.ts`, `server/security/auth.ts`, `server/routes/api.ts`, `src/App.tsx`, `src/components/SettingsView.tsx` | **Magas** | **Opcionális webes jelszó a telepítőben:** `--no-password`, `--password`, `--generate-password`, Enter vagy nem-interaktív módban `webAuthEnabled: false`, `onboardingCompleted: true`, setup-kód nem blokkol. A Web UI tetején elrejthető (7 napra szundizható) figyelmeztető szalag („Jelszó beállítása”) és az auditnaplóban `[JELSZÓ NÉLKÜLI LAN MÓD]` címke jelenik meg. Tesztelve: `installer_e2e.test.ts`. | **javítva** |
+| IR1 | `install.sh`, `update.sh`, `server/state/store.ts`, `server/security/autonomyProfile.ts`, `server/security/totalAutonomy.ts` | **Kritikus** | **Telepítői hibák javítása:** nem létező `initStateStore` eltávolítva, `install-configure.ts` szigorúan `RUN_USER` alatt fut elnyelt hibák nélkül (`npm ci` + `npm run build` + `tsx` ellenőrzéssel), a speciális karakterű (`$`, `` ` ``, `"`, `'`, `\`, szóköz, ékezet) jelszavak egységes `normalizePasswordInput()` normalizálással környezeti változón keresztül adódnak át. Tesztelve: `installer_e2e.test.ts`. | **javítva** |
+| IR2 | `server/routes/api.ts`, `server/security/auth.ts`, `src/App.tsx` | **Magas** | **Félbehagyott telepítés & perzisztens login zár:** `webAuthEnabled: true` jelszó-hash nélküli állapotban a `POST /api/auth/login` explicit `NO_PASSWORD_CONFIGURED` (401) hibát ad a `novaswarm set-password` útmutatóval; a `.login-locks.json` lemezre mentődik. Tesztelve: `installer_e2e.test.ts`. | **javítva** |
+| IR3–IR4 | `server/state/store.ts`, `scripts/novaswarm-cli.ts`, `server/security/auth.ts` | **Magas** | **Cache szinkron & CLI jelszó-helyreállítás:** `getState()` ellenőrzi a `.state.json` `mtimeMs`-t és újratölt külső CLI változáskor újraindítás nélkül; beépítve a `novaswarm set-password [--generate]`, `remove-password`, `reset-login-lock` parancs. Tesztelve: `cli_and_audit_chain.test.ts`. | **javítva** |
+| IR5 | `server/state/store.ts`, `server/selfmod/gitGuard.ts`, `server/infra/batch4PiHardwareAndNet.ts`, `server/routes/api.ts`, `install.sh` | **Magas** | **Hamisításbiztos külső `audit-chain.jsonl`:** külön append-only HMAC-SHA256 láncolt JSONL napló rotációval (`rotation_anchor`), `GET /api/audit/chain-verify` ellenőrzéssel, ágenses/fájlkezelős tiltólistával és `install.sh` `chattr +a` védelemmel (ha a fájlrendszer támogatja). Tesztelve: `cli_and_audit_chain.test.ts`. *(Valódi `chattr +a` kernel-attribútum ebben a konténerben **nem ellenőrizhető**.)* | **javítva** *(logika tesztelve; `chattr +a` **nem ellenőrizhető**)* |
+| IR6 | `install.sh`, `update.sh`, `uninstall.sh` | **Magas** | **Zöld/Piros élő E2E próba & systemd/uninstall védelem:** `install.sh` az átadás előtt tényleges HTTP `/healthz` + auth + `/api/state` E2E próbát futtat, systemd `ExecStartPre` ellenőrzi a `tsx` meglétét; `uninstall.sh` külön `--service-only` módot kínál és nem törli a `node_modules`-t kifejezett jóváhagyás nélkül. *(Éles systemd/apt futtatás **nem ellenőrizhető**.)* | **javítva** *(szintaxis + `install-configure` E2E tesztelve; éles systemd **nem ellenőrizhető**)* |
+| IR7–IR8 | `.gitignore`, `package-lock.json`, `scripts/check-hygiene.sh`, `README.md` | **Közepes** | **Repo higiénia & dokumentáció:** `bun.lock` törölve, `package-lock.json` neve szinkronban (`novaswarm`), `.gitignore` és `check-hygiene.sh` frissítve; README kiegészítve a Telepítő vs Kézi táblázattal, CLI helyreállítással és Hibaelhárítással. Tesztelve: `repo_hygiene.test.ts`. | **javítva** |
+| IR9a–c | `server/skills/loader.ts`, `server/dreaming/engine.ts`, `server/agents/autonomyOrchestrator.ts`, `server/mcp/manager.ts`, `src/components/McpSkillsView.tsx`, `src/components/AutonomyCenterView.tsx` | **Közepes** | **9a)** Kötelező sandboxolt skill egységteszt (`testCode`, `testPassed`, `testReport`) elutasítja a hibás asserteket. **9b)** Heti önértékelő benchmark költség + solved/failed + automata Kanban célok (`autoGeneratedGoals`) + Telegram jelentés. **9c)** MCP telemetria, autonóm katalógus-felderítés és alacsony ROI automatikus letiltása. Tesztelve: `smart_features_v9.test.ts`. | **javítva** |
+
 ---
 
 ## 3. Funkció-Felülvizsgálat (~560 README ígéret vs. Valós Kód)
@@ -174,14 +187,14 @@ A korábbi iterációkban a README több mint ~560 elnevezett (`Mxxx`, `Úxxx`, 
 
 Mivel ebben a futtatókörnyezetben nincs `.git` könyvtár, nincs `sudo`/`bubblewrap` és nincsenek fizikai LAN eszközeid, az alábbi lépéseket futtasd le egyszer a saját gépeden:
 
-1. **Külön `feature/smart-routing-local-ollama` branch, commitok és Pull Request létrehozása:**
+1. **Külön `fix/installer-and-recovery` branch, pontonkénti commitok és Pull Request létrehozása:**
    ```bash
-   git checkout -b feature/smart-routing-local-ollama
-   git rm --cached -r --ignore-unmatch .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log
+   git checkout -b fix/installer-and-recovery
+   git rm --cached -r --ignore-unmatch bun.lock .state.json .state.json.bak* .secrets.key .secrets.vault.json .config.json dev-dist novaswarm.sqlite* .novaswarm-setup.log .login-locks.json audit-chain.jsonl*
    git add -A
-   git commit -m "feat: central intelligent multi-key AI router, key-model matrix, queue, and hardware-aware local Ollama selector"
-   git push -u origin feature/smart-routing-local-ollama
-   # Ezután nyiss Pull Requestet GitHubon a feature/smart-routing-local-ollama -> main ágra!
+   git commit -m "fix(installer,auth,audit,ux): optional LAN password, E2E verification, CLI recovery, audit-chain.jsonl, hygiene & smart v9 checks"
+   git push -u origin fix/installer-and-recovery
+   # Ezután nyiss Pull Requestet GitHubon a fix/installer-and-recovery -> main ágra!
    ```
 
 2. **Éles telepítés / Ollama újraválasztás a célhardveren:**

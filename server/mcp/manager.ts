@@ -21,6 +21,7 @@ export interface CatalogTemplate {
   args?: string[];
   kind: 'mcp' | 'skill';
   code?: string;
+  capabilities?: string[];
 }
 
 export function registerMcpServer(input: {
@@ -31,6 +32,9 @@ export function registerMcpServer(input: {
   command?: string;
   args?: string[];
   authType: McpAuthType;
+  capabilities?: string[];
+  autoDiscovered?: boolean;
+  enabled?: boolean;
 }): McpServer {
   const transport: McpTransport = input.transport || 'http';
   const server: McpServer = {
@@ -45,6 +49,11 @@ export function registerMcpServer(input: {
     hasCredentials: false,
     oauthConfigured: false,
     status: input.authType === 'oauth2' ? 'not_configured' : 'untested',
+    enabled: input.enabled ?? true,
+    capabilities: Array.isArray(input.capabilities) ? input.capabilities.map((c) => c.trim()).filter(Boolean) : undefined,
+    metrics: { totalCalls: 0, successCalls: 0, avgLatencyMs: 0, lastCalledAt: null },
+    roiVerdict: 'untested',
+    autoDiscovered: Boolean(input.autoDiscovered),
     lastCheckedAt: null,
     lastCheckMessage:
       input.authType === 'oauth2'
@@ -64,6 +73,99 @@ export function registerMcpServer(input: {
   });
 
   return server;
+}
+
+export function recordMcpCallOutcome(mcpId: string, ok: boolean, latencyMs: number): void {
+  const safeLatency = Math.max(0, Math.round(latencyMs));
+  updateState((s) => {
+    const srv = s.mcpServers.find((m) => m.id === mcpId);
+    if (!srv) return;
+    const prev = srv.metrics ?? { totalCalls: 0, successCalls: 0, avgLatencyMs: 0, lastCalledAt: null };
+    const nextTotal = prev.totalCalls + 1;
+    const nextSuccess = prev.successCalls + (ok ? 1 : 0);
+    const nextAvg =
+      nextTotal === 1
+        ? safeLatency
+        : Math.round((prev.avgLatencyMs * prev.totalCalls + safeLatency) / nextTotal);
+    srv.metrics = {
+      totalCalls: nextTotal,
+      successCalls: nextSuccess,
+      avgLatencyMs: nextAvg,
+      lastCalledAt: new Date().toISOString(),
+    };
+  });
+}
+
+export async function autonomousDiscoverAndInstallMcp(opts: {
+  capabilityQuery: string;
+  catalogUrl?: string;
+  catalogItems?: CatalogTemplate[];
+  autoTest?: boolean;
+}): Promise<{
+  installed: McpServer[];
+  skipped: string[];
+  candidateCount: number;
+}> {
+  const queryTerms = opts.capabilityQuery
+    .toLowerCase()
+    .split(/[^a-z0-9áéíóöőúüű_-]+/i)
+    .filter((t) => t.length >= 2);
+  if (queryTerms.length === 0) {
+    return { installed: [], skipped: ['Üres képesség-lekérdezés.'], candidateCount: 0 };
+  }
+
+  let catalog: CatalogTemplate[] = opts.catalogItems ? [...opts.catalogItems] : [];
+  if (opts.catalogUrl?.trim()) {
+    const fetched = await fetchExternalCatalog(opts.catalogUrl.trim());
+    catalog = [...catalog, ...fetched];
+  }
+
+  const existingNames = new Set(getState().mcpServers.map((m) => m.name.toLowerCase()));
+  const installed: McpServer[] = [];
+  const skipped: string[] = [];
+
+  for (const item of catalog) {
+    if (item.kind !== 'mcp' && item.kind !== undefined) continue;
+    const hay = `${item.name} ${item.description} ${(item.capabilities || []).join(' ')}`.toLowerCase();
+    const matches = queryTerms.some((term) => hay.includes(term));
+    if (!matches) continue;
+    if (existingNames.has(item.name.trim().toLowerCase())) {
+      skipped.push(`${item.name} (már telepítve)`);
+      continue;
+    }
+
+    const created = registerMcpServer({
+      name: item.name,
+      description: item.description,
+      endpointUrl: item.endpointUrl,
+      transport: item.transport || 'http',
+      command: item.command,
+      args: item.args,
+      authType: item.authType || 'none',
+      capabilities: item.capabilities,
+      autoDiscovered: true,
+      enabled: true,
+    });
+    existingNames.add(created.name.toLowerCase());
+
+    if (opts.autoTest !== false && created.authType === 'none') {
+      await testMcpConnection(created.id).catch(() => {});
+    }
+    const refreshed = getState().mcpServers.find((m) => m.id === created.id) || created;
+    installed.push(refreshed);
+  }
+
+  if (installed.length > 0) {
+    appendAuditLog({
+      type: 'action',
+      sourceAgentId: 'mcp-autodiscover',
+      sourceAgentName: 'Autonóm MCP Felderítő',
+      message: `Autonóm MCP telepítés (${opts.capabilityQuery}): ${installed.map((i) => i.name).join(', ')}`,
+      verifiedExecution: true,
+    });
+  }
+
+  return { installed, skipped, candidateCount: catalog.length };
 }
 
 export function updateMcpCredentials(
@@ -458,39 +560,48 @@ export async function callMcpTool(
     error?: { message?: string };
   };
 
-  if (srv.transport === 'stdio') {
-    if (!srv.command?.trim()) throw new Error(`MCP stdio parancs hiányzik (${srv.name}).`);
-    data = (await invokeStdioJsonRpc(
-      srv.command,
-      srv.args || [],
-      'tools/call',
-      { name: toolName.trim(), arguments: args },
-      creds || undefined
-    )) as typeof data;
-  } else {
-    const urlCheck = validateSafeOutboundUrl(srv.endpointUrl);
-    if (!urlCheck.ok) {
-      throw new Error(urlCheck.reason || 'Tiltott MCP HTTP URL (SSRF védelem).');
+  const startedAt = Date.now();
+  try {
+    if (srv.transport === 'stdio') {
+      if (!srv.command?.trim()) throw new Error(`MCP stdio parancs hiányzik (${srv.name}).`);
+      data = (await invokeStdioJsonRpc(
+        srv.command,
+        srv.args || [],
+        'tools/call',
+        { name: toolName.trim(), arguments: args },
+        creds || undefined
+      )) as typeof data;
+    } else {
+      const urlCheck = validateSafeOutboundUrl(srv.endpointUrl);
+      if (!urlCheck.ok) {
+        throw new Error(urlCheck.reason || 'Tiltott MCP HTTP URL (SSRF védelem).');
+      }
+      const headers = buildMcpAuthHeaders(srv, creds);
+      const res = await fetchImpl(srv.endpointUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/call',
+          params: { name: toolName.trim(), arguments: args },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        throw new Error(`MCP tools/call sikertelen (${srv.name}/${toolName}): HTTP ${res.status}`);
+      }
+      data = (await res.json()) as typeof data;
     }
-    const headers = buildMcpAuthHeaders(srv, creds);
-    const res = await fetchImpl(srv.endpointUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: { name: toolName.trim(), arguments: args },
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) {
-      throw new Error(`MCP tools/call sikertelen (${srv.name}/${toolName}): HTTP ${res.status}`);
-    }
-    data = (await res.json()) as typeof data;
+  } catch (err) {
+    recordMcpCallOutcome(mcpId, false, Date.now() - startedAt);
+    throw err;
   }
 
+  const latencyMs = Date.now() - startedAt;
+
   if (data.error?.message) {
+    recordMcpCallOutcome(mcpId, false, latencyMs);
     return { ok: false, output: `MCP hiba: ${data.error.message}`, raw: data };
   }
 
@@ -505,11 +616,12 @@ export async function callMcpTool(
   }
 
   const ok = !resObj?.isError;
+  recordMcpCallOutcome(mcpId, ok, latencyMs);
   appendAuditLog({
     type: 'action',
     sourceAgentId: 'mcp-manager',
     sourceAgentName: 'MCP Eszköz Hívás',
-    message: `MCP [${srv.name}] -> ${toolName}: ${ok ? 'OK' : 'ERR'} (${output.slice(0, 100)})`,
+    message: `MCP [${srv.name}] -> ${toolName}: ${ok ? 'OK' : 'ERR'} (${latencyMs}ms, ${output.slice(0, 100)})`,
     verifiedExecution: true,
   });
 

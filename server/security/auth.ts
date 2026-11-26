@@ -28,6 +28,53 @@ const MAX_LOGIN_TRACKED_IPS = 2000;
 const BASE_LOCK_MS = 60_000; // 1 minute after 5 failed attempts
 const MAX_LOCK_MS = 60 * 60_000; // cap at 60 minutes
 
+function getLoginLocksPath(): string {
+  const override = process.env.NOVASWARM_LOGIN_LOCKS_PATH?.trim();
+  if (override) return override;
+  const dataDir = process.env.NOVASWARM_DATA_DIR?.trim() || process.cwd();
+  return path.join(dataDir, '.login-locks.json');
+}
+
+function syncLoginAttemptsFromDisk(): void {
+  const lockPath = getLoginLocksPath();
+  if (!fs.existsSync(lockPath)) {
+    loginAttempts.clear();
+    return;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as Record<string, LoginAttemptRecord>;
+    loginAttempts.clear();
+    if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) {
+        if (v && typeof v.failures === 'number' && typeof v.lockedUntilMs === 'number') {
+          loginAttempts.set(k, v);
+        }
+      }
+    }
+  } catch {
+    // keep current map on transient read error
+  }
+}
+
+function persistLoginAttemptsToDisk(): void {
+  const lockPath = getLoginLocksPath();
+  try {
+    const obj: Record<string, LoginAttemptRecord> = {};
+    for (const [k, v] of loginAttempts.entries()) {
+      obj[k] = v;
+    }
+    const dir = path.dirname(lockPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tmp = `${lockPath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, lockPath);
+  } catch {
+    // non-fatal best effort
+  }
+}
+
 interface OneTimeSetupState {
   code: string;
   digestHex: string;
@@ -38,7 +85,10 @@ interface OneTimeSetupState {
 let activeSetupCode: OneTimeSetupState | null = null;
 
 function getSetupLogPath(): string {
-  return process.env.NOVASWARM_SETUP_LOG_PATH?.trim() || path.join(process.cwd(), SETUP_LOG_FILENAME);
+  const override = process.env.NOVASWARM_SETUP_LOG_PATH?.trim();
+  if (override) return override;
+  const dataDir = process.env.NOVASWARM_DATA_DIR?.trim() || process.cwd();
+  return path.join(dataDir, SETUP_LOG_FILENAME);
 }
 
 export function normalizeClientIp(ip?: string): string {
@@ -56,6 +106,7 @@ export function checkLoginRateLimit(
   ip: string,
   nowMs = Date.now()
 ): { allowed: boolean; retryAfterSeconds: number; failures: number } {
+  syncLoginAttemptsFromDisk();
   const key = normalizeClientIp(ip);
   const rec = loginAttempts.get(key);
   if (!rec) return { allowed: true, retryAfterSeconds: 0, failures: 0 };
@@ -74,6 +125,7 @@ export function recordLoginFailure(
   nowMs = Date.now(),
   reason = 'Hibás operátori jelszó'
 ): { failures: number; lockedUntilMs: number; retryAfterSeconds: number } {
+  syncLoginAttemptsFromDisk();
   const key = normalizeClientIp(ip);
   if (!loginAttempts.has(key) && loginAttempts.size >= MAX_LOGIN_TRACKED_IPS) {
     const oldestKey = loginAttempts.keys().next().value;
@@ -90,6 +142,7 @@ export function recordLoginFailure(
     retryAfterSeconds = Math.ceil(lockMs / 1000);
   }
   loginAttempts.set(key, { failures, lockedUntilMs, lastAttemptMs: nowMs });
+  persistLoginAttemptsToDisk();
 
   appendAuditLog({
     type: 'security',
@@ -107,11 +160,31 @@ export function recordLoginFailure(
 }
 
 export function clearLoginFailures(ip: string): void {
-  loginAttempts.delete(normalizeClientIp(ip));
+  syncLoginAttemptsFromDisk();
+  const key = normalizeClientIp(ip);
+  if (loginAttempts.delete(key)) {
+    persistLoginAttemptsToDisk();
+  }
+}
+
+export function resetAllLoginLocks(actorLabel = 'cli-recovery'): number {
+  syncLoginAttemptsFromDisk();
+  const clearedCount = loginAttempts.size;
+  loginAttempts.clear();
+  persistLoginAttemptsToDisk();
+  appendAuditLog({
+    type: 'security',
+    sourceAgentId: actorLabel,
+    sourceAgentName: 'Hitelesítés Helyreállítás',
+    message: `Bejelentkezési IP zárak manuálisan törölve (${clearedCount} IP rekord feloldva).`,
+    verifiedExecution: true,
+    metadata: { clearedCount },
+  });
+  return clearedCount;
 }
 
 export function ensureOneTimeSetupCode(): string | null {
-  if (hasWebAuthPassword()) {
+  if (!getState().settings.webAuthEnabled || hasWebAuthPassword()) {
     return null;
   }
   if (activeSetupCode && !activeSetupCode.used) {
@@ -141,7 +214,7 @@ export function ensureOneTimeSetupCode(): string | null {
 }
 
 export function getActiveOneTimeSetupCodeForTests(): string | null {
-  if (hasWebAuthPassword()) return null;
+  if (!getState().settings.webAuthEnabled || hasWebAuthPassword()) return null;
   return activeSetupCode && !activeSetupCode.used ? activeSetupCode.code : null;
 }
 
@@ -189,6 +262,14 @@ export function verifyAndConsumeOneTimeSetupCode(candidate?: string): boolean {
 export function resetAuthSecurityStateForTests(): void {
   loginAttempts.clear();
   activeSetupCode = null;
+  try {
+    const lockPath = getLoginLocksPath();
+    if (fs.existsSync(lockPath)) {
+      fs.rmSync(lockPath, { force: true });
+    }
+  } catch {
+    // ignore cleanup error
+  }
 }
 
 export function parseCookieHeader(cookieHeader?: string): Record<string, string> {

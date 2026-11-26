@@ -810,8 +810,18 @@ export const MemoryDreamingView: React.FC<Props> = ({
                     <pre className="p-2 bg-white border border-slate-200 rounded font-mono text-[11px] overflow-x-auto">
                       {d.suggestedCode}
                     </pre>
+                    {d.testCode && (
+                      <pre className="p-2 bg-emerald-50/50 border border-emerald-200 rounded font-mono text-[10px] overflow-x-auto text-slate-700">
+                        {`// Egységteszt\n${d.testCode}`}
+                      </pre>
+                    )}
+                    {d.testReport && (
+                      <div className="font-mono text-[10px] text-slate-600 whitespace-pre-wrap">{d.testReport}</div>
+                    )}
                     {d.promotedSkillId ? (
-                      <div className="font-mono text-emerald-700">Előléptetve ({d.promotedSkillId})</div>
+                      <div className="font-mono text-emerald-700">
+                        Előléptetve ({d.promotedSkillId}) {d.testPassed === true ? '· Önteszt OK ✅' : ''}
+                      </div>
                     ) : (
                       <button
                         type="button"
@@ -821,7 +831,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                         }}
                         className="px-3 py-1 bg-slate-900 text-white rounded font-medium"
                       >
-                        1-Kattintásos Skill Aktiválás
+                        1-Kattintásos Skill Aktiválás &amp; Teszt
                       </button>
                     )}
                   </div>

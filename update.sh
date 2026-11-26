@@ -44,8 +44,14 @@ if [ -f package-lock.json ]; then
 else
   npm install --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
 fi
+TSX_BIN="${NOVASWARM_DIR}/node_modules/.bin/tsx"
+if [ ! -x "${TSX_BIN}" ]; then
+  echo "HIBA: hiányzik a tsx — futtasd: cd ${NOVASWARM_DIR} && npm ci" >&2
+  exit 1
+fi
+
 if ! npm run lint || ! npm run build; then
-  echo "HIBA: A build sikertelen. Visszaállítás az előző állapotra..."
+  echo "HIBA: A build vagy a típusellenőrzés sikertelen. Visszaállítás az előző állapotra..."
   if [[ "${PREV_COMMIT}" =~ ^[0-9a-f]{7,40}$ ]]; then
     git reset --hard "${PREV_COMMIT}"
     npm run build || true
@@ -54,18 +60,17 @@ if ! npm run lint || ! npm run build; then
 fi
 
 echo "[4/5] Nem-roncsoló adatmigráció, függő Ollama letöltések és biztonsági ellenőrzés..."
-npx tsx -e "
-import { initStateStore, getState, migrateStateNonDestructive, updateState } from './server/state/store.ts';
+NOVASWARM_DATA_DIR="${NOVASWARM_DIR}" "${TSX_BIN}" -e "
+import { getState, migrateStateNonDestructive, updateState } from './server/state/store.ts';
 import { pullOllamaModelViaRouter, listInstalledOllamaModelsViaRouter } from './server/providers/router.ts';
 async function run() {
   migrateStateNonDestructive();
-  initStateStore();
   const s = getState();
   const pending = s.settings.ollamaPendingPullModels || [];
   if (pending.length > 0) {
     const probe = await listInstalledOllamaModelsViaRouter();
     if (probe.reachable) {
-      const done = [];
+      const done: string[] = [];
       for (const m of pending) {
         if (probe.models.some((x) => x.name === m || x.name.startsWith(m + ':')) || (await pullOllamaModelViaRouter(m)).ok) {
           done.push(m);
@@ -80,14 +85,21 @@ async function run() {
   }
   console.log('Migráció kész. Hardverbővítés esetén futtasd: novaswarm ollama-reselect');
 }
-run().catch(() => {});
-"
-chmod 600 .secrets.vault.json .secrets.key .state.json .config.json 2>/dev/null || true
+run().catch((err) => { console.error(err); process.exit(1); });
+" || { echo "HIBA: Az adatmigráció sikertelen!" >&2; exit 1; }
+
+chmod 600 .secrets.vault.json .secrets.key .state.json .config.json .login-locks.json 2>/dev/null || true
 
 LOCKDOWN_PRESENT=0
 if [ -f /etc/novaswarm/LOCKDOWN ] || [ -f "${HOME}/.novaswarm/LOCKDOWN" ]; then
   LOCKDOWN_PRESENT=1
 fi
+
+APP_PORT="${PORT:-}"
+if [ -z "${APP_PORT}" ] && [ -f .env ]; then
+  APP_PORT=$(grep -E '^PORT=' .env | tail -n 1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+fi
+APP_PORT="${APP_PORT:-3000}"
 
 echo "[5/5] Szolgáltatás újraindítása..."
 if [ "${LOCKDOWN_PRESENT}" -eq 1 ]; then
@@ -97,11 +109,13 @@ elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
   $SUDO systemctl restart "${SERVICE_NAME}"
   sleep 2
-  if curl -fsS "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null 2>&1; then
-    echo "✅ /healthz rendben frissítés után."
+  if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null 2>&1; then
+    echo "✅ /healthz rendben frissítés után (port ${APP_PORT})."
   else
-    echo "⚠️ FIGYELEM: /healthz nem válaszolt frissítés után!"
+    echo "❌ HIBA: /healthz nem válaszolt frissítés után (port ${APP_PORT})!" >&2
+    exit 1
   fi
 fi
 
 echo "NovaSwarm frissítés sikeresen lefutott."
+

@@ -31,21 +31,44 @@ import { syncAuditEntryToWal, syncMessageToWal } from './sqliteWal';
 
 export const CURRENT_SCHEMA_VERSION = 13;
 
-const ROOT_DIR = process.cwd();
-const STATE_PATH = path.join(ROOT_DIR, '.state.json');
-const CONFIG_PATH = path.join(ROOT_DIR, '.config.json');
-const SECRETS_PATH = path.join(ROOT_DIR, '.secrets.vault.json');
-const SECRETS_KEY_PATH = path.join(ROOT_DIR, '.secrets.key');
+function getDataDir(): string {
+  return process.env.NOVASWARM_DATA_DIR?.trim() || process.cwd();
+}
+
+function getStatePath(): string {
+  return path.join(getDataDir(), '.state.json');
+}
+
+function getConfigPath(): string {
+  return path.join(getDataDir(), '.config.json');
+}
+
+function getSecretsPath(): string {
+  return path.join(getDataDir(), '.secrets.vault.json');
+}
+
+function getSecretsKeyPath(): string {
+  return path.join(getDataDir(), '.secrets.key');
+}
+
+export function getAuditJsonlPath(): string {
+  return process.env.NOVASWARM_AUDIT_JSONL_PATH?.trim() || path.join(getDataDir(), 'audit-chain.jsonl');
+}
 
 let cachedMasterKeyHex: string | null = null;
+let cachedMasterKeyFilePath: string | null = null;
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function normalizePasswordInput(raw: string): string {
+  return String(raw ?? '').normalize('NFC').trim();
+}
+
 /** Legacy deterministic KDF kept read-only for migrating pre-audit vaults */
 function getLegacyDeterministicVaultKey(): Buffer {
-  const seed = `${os.hostname()}:${os.userInfo().username}:${ROOT_DIR}:novaswarm-vault-v1`;
+  const seed = `${os.hostname()}:${os.userInfo().username}:${getDataDir()}:novaswarm-vault-v1`;
   return crypto.createHash('sha256').update(seed).digest();
 }
 
@@ -53,27 +76,31 @@ function getLegacyDeterministicVaultKey(): Buffer {
 function getMasterKeyMaterial(): string {
   const envKey = process.env.NOVASWARM_MASTER_KEY?.trim();
   if (envKey && envKey.length >= 16) return envKey;
-  if (cachedMasterKeyHex) return cachedMasterKeyHex;
+  const keyPath = getSecretsKeyPath();
+  if (cachedMasterKeyHex && cachedMasterKeyFilePath === keyPath) return cachedMasterKeyHex;
 
   try {
-    if (fs.existsSync(SECRETS_KEY_PATH)) {
-      const raw = fs.readFileSync(SECRETS_KEY_PATH, 'utf8').trim();
+    if (fs.existsSync(keyPath)) {
+      const raw = fs.readFileSync(keyPath, 'utf8').trim();
       if (/^[0-9a-f]{32,}$/i.test(raw)) {
         try {
-          fs.chmodSync(SECRETS_KEY_PATH, 0o600);
+          fs.chmodSync(keyPath, 0o600);
         } catch {
           // ignore on non-POSIX FS
         }
         cachedMasterKeyHex = raw;
+        cachedMasterKeyFilePath = keyPath;
         return cachedMasterKeyHex;
       }
     }
     const generated = crypto.randomBytes(32).toString('hex');
-    atomicWriteFileSync(SECRETS_KEY_PATH, `${generated}\n`);
+    atomicWriteFileSync(keyPath, `${generated}\n`);
     cachedMasterKeyHex = generated;
+    cachedMasterKeyFilePath = keyPath;
     return generated;
   } catch {
     cachedMasterKeyHex = crypto.randomBytes(32).toString('hex');
+    cachedMasterKeyFilePath = keyPath;
     return cachedMasterKeyHex;
   }
 }
@@ -157,18 +184,19 @@ interface SecretVault {
 }
 
 function loadSecretVault(): SecretVault {
-  if (!fs.existsSync(SECRETS_PATH)) {
+  const secretsPath = getSecretsPath();
+  if (!fs.existsSync(secretsPath)) {
     return { providerKeys: {}, mcpCredentials: {} };
   }
   try {
-    return JSON.parse(fs.readFileSync(SECRETS_PATH, 'utf8')) as SecretVault;
+    return JSON.parse(fs.readFileSync(secretsPath, 'utf8')) as SecretVault;
   } catch {
     return { providerKeys: {}, mcpCredentials: {} };
   }
 }
 
 function saveSecretVault(vault: SecretVault): void {
-  atomicWriteFileSync(SECRETS_PATH, JSON.stringify(vault, null, 2));
+  atomicWriteFileSync(getSecretsPath(), JSON.stringify(vault, null, 2));
 }
 
 export function setNamedSecret(name: string, plaintext: string): void {
@@ -311,16 +339,20 @@ export function getFederationPeerToken(peerId: string): string {
 
 export function setWebAuthPassword(plaintext: string): void {
   const vault = loadSecretVault();
-  const trimmed = plaintext.trim();
-  if (!trimmed) {
+  const normalized = normalizePasswordInput(plaintext);
+  if (!normalized) {
     delete vault.webAuthPasswordHash;
     saveSecretVault(vault);
     return;
   }
   const salt = crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(trimmed, salt, 32).toString('hex');
+  const derived = crypto.scryptSync(normalized, salt, 32).toString('hex');
   vault.webAuthPasswordHash = `${salt}:${derived}`;
   saveSecretVault(vault);
+}
+
+export function clearWebAuthPassword(): void {
+  setWebAuthPassword('');
 }
 
 export function hasWebAuthPassword(): boolean {
@@ -332,9 +364,11 @@ export function verifyWebAuthPassword(plaintext: string): boolean {
   const vault = loadSecretVault();
   const stored = vault.webAuthPasswordHash;
   if (!stored) return false;
+  const normalized = normalizePasswordInput(plaintext);
+  if (!normalized) return false;
   const [salt, expectedHex] = stored.split(':');
   if (!salt || !expectedHex) return false;
-  const actualBuf = crypto.scryptSync(plaintext, salt, 32);
+  const actualBuf = crypto.scryptSync(normalized, salt, 32);
   const expectedBuf = Buffer.from(expectedHex, 'hex');
   if (actualBuf.length !== expectedBuf.length) return false;
   return crypto.timingSafeEqual(actualBuf, expectedBuf);
@@ -998,10 +1032,15 @@ export function createInitialState(): NovaSwarmState {
 }
 
 let cachedState: NovaSwarmState | null = null;
+let loadedStateMtimeMs: number | null = null;
+let loadedStatePath: string | null = null;
+let inMemoryTestMode = false;
+let preserveInMemoryTestMode = false;
 
 export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): NovaSwarmState {
+  const statePath = getStatePath();
   const base = createInitialState();
-  const source = existing ?? (fs.existsSync(STATE_PATH) ? JSON.parse(fs.readFileSync(STATE_PATH, 'utf8')) : {});
+  const source = existing ?? (fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : {});
 
   const mergedSettings: Settings = {
     ...base.settings,
@@ -1328,6 +1367,23 @@ export function migrateStateNonDestructive(existing?: Partial<NovaSwarmState>): 
 }
 
 export function getState(): NovaSwarmState {
+  const statePath = getStatePath();
+  if (cachedState && !inMemoryTestMode) {
+    // Check if an external process (e.g., CLI recovery tool) modified .state.json on disk
+    try {
+      if (statePath !== loadedStatePath) {
+        cachedState = null;
+      } else if (fs.existsSync(statePath)) {
+        const diskMtime = fs.statSync(statePath).mtimeMs;
+        if (loadedStateMtimeMs === null || Math.abs(diskMtime - loadedStateMtimeMs) > 0.0005) {
+          cachedState = null;
+        }
+      }
+    } catch {
+      // ignore stat errors and keep cachedState
+    }
+  }
+
   if (cachedState) {
     if (cachedState.settings.dailySpendDate !== todayIsoDate()) {
       cachedState.settings.dailySpendDate = todayIsoDate();
@@ -1340,11 +1396,18 @@ export function getState(): NovaSwarmState {
     return cachedState;
   }
 
-  for (const candidate of [STATE_PATH, `${STATE_PATH}.bak1`, `${STATE_PATH}.bak2`, `${STATE_PATH}.bak3`]) {
+  for (const candidate of [statePath, `${statePath}.bak1`, `${statePath}.bak2`, `${statePath}.bak3`]) {
     if (!fs.existsSync(candidate)) continue;
     try {
       const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as Partial<NovaSwarmState>;
       cachedState = migrateStateNonDestructive(parsed);
+      inMemoryTestMode = false;
+      try {
+        loadedStatePath = statePath;
+        loadedStateMtimeMs = fs.existsSync(statePath) ? fs.statSync(statePath).mtimeMs : null;
+      } catch {
+        loadedStateMtimeMs = null;
+      }
       return cachedState;
     } catch {
       // try older generation backup
@@ -1357,7 +1420,7 @@ export function getState(): NovaSwarmState {
 }
 
 /** M264: 3-generation atomic rotating state backup (.bak1 -> .bak2 -> .bak3) */
-export function rotateStateBackupGenerations(targetPath = STATE_PATH): void {
+export function rotateStateBackupGenerations(targetPath = getStatePath()): void {
   try {
     if (!fs.existsSync(targetPath)) return;
     const bak1 = `${targetPath}.bak1`;
@@ -1379,9 +1442,22 @@ export function rotateStateBackupGenerations(targetPath = STATE_PATH): void {
 }
 
 export function saveState(state: NovaSwarmState): void {
+  const statePath = getStatePath();
+  const configPath = getConfigPath();
   cachedState = state;
-  rotateStateBackupGenerations(STATE_PATH);
-  atomicWriteFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+  if (preserveInMemoryTestMode && !process.env.NOVASWARM_DATA_DIR) {
+    inMemoryTestMode = true;
+    return;
+  }
+  inMemoryTestMode = preserveInMemoryTestMode;
+  rotateStateBackupGenerations(statePath);
+  atomicWriteFileSync(statePath, JSON.stringify(state, null, 2));
+  try {
+    loadedStatePath = statePath;
+    loadedStateMtimeMs = fs.statSync(statePath).mtimeMs;
+  } catch {
+    loadedStateMtimeMs = null;
+  }
 
   const nonSecretConfig = {
     schemaVersion: state.settings.schemaVersion,
@@ -1430,7 +1506,7 @@ export function saveState(state: NovaSwarmState): void {
     mqttBrokerHost: state.settings.mqttBrokerHost,
     mqttBrokerPort: state.settings.mqttBrokerPort,
   };
-  atomicWriteFileSync(CONFIG_PATH, JSON.stringify(nonSecretConfig, null, 2));
+  atomicWriteFileSync(configPath, JSON.stringify(nonSecretConfig, null, 2));
 }
 
 export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarmState {
@@ -1450,6 +1526,161 @@ export function updateState(mutator: (draft: NovaSwarmState) => void): NovaSwarm
 function computeAuditHash(entry: AuditLogEntry, prevHash: string): string {
   const payload = `${prevHash}|${entry.id}|${entry.timestamp}|${entry.type}|${entry.sourceAgentId}|${entry.message}`;
   return crypto.createHmac('sha256', getAuditHmacKey()).update(payload).digest('hex');
+}
+
+interface AuditJsonlAnchorRecord {
+  kind: 'rotation_anchor';
+  timestamp: string;
+  anchorPrevHash: string;
+  rotatedArchive?: string;
+}
+
+interface AuditJsonlEntryRecord {
+  kind: 'entry';
+  jsonlPrevHash: string;
+  jsonlHash: string;
+  entry: AuditLogEntry;
+}
+
+interface ParsedAuditJsonlLine {
+  kind?: string;
+  jsonlPrevHash?: string;
+  jsonlHash?: string;
+  anchorPrevHash?: string;
+  entry?: AuditLogEntry;
+}
+
+function readLastJsonlHash(jsonlPath: string): string {
+  if (!fs.existsSync(jsonlPath)) return 'GENESIS';
+  try {
+    const raw = fs.readFileSync(jsonlPath, 'utf8').trim();
+    if (!raw) return 'GENESIS';
+    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const parsed = JSON.parse(lines[i]) as ParsedAuditJsonlLine;
+      if (parsed.kind === 'entry' && typeof parsed.jsonlHash === 'string') {
+        return parsed.jsonlHash;
+      }
+      if (parsed.kind === 'rotation_anchor' && typeof parsed.anchorPrevHash === 'string') {
+        return parsed.anchorPrevHash;
+      }
+    }
+  } catch {
+    // fallback if tail unreadable
+  }
+  return 'GENESIS';
+}
+
+export function appendAuditJsonlEntry(entry: AuditLogEntry, targetPath = getAuditJsonlPath()): void {
+  try {
+    const dir = path.dirname(targetPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const jsonlPrevHash = readLastJsonlHash(targetPath);
+    const jsonlHash = computeAuditHash(entry, jsonlPrevHash);
+    const record: AuditJsonlEntryRecord = {
+      kind: 'entry',
+      jsonlPrevHash,
+      jsonlHash,
+      entry,
+    };
+    fs.appendFileSync(targetPath, `${JSON.stringify(record)}\n`, {
+      encoding: 'utf8',
+      flag: 'a',
+      mode: 0o600,
+    });
+  } catch {
+    // non-fatal best effort if directory cannot be written
+  }
+}
+
+export function verifyAuditJsonlChain(targetPath = getAuditJsonlPath()): {
+  exists: boolean;
+  valid: boolean;
+  checkedEntries: number;
+  brokenLines: number[];
+  lastHash: string;
+} {
+  if (!fs.existsSync(targetPath)) {
+    return { exists: false, valid: true, checkedEntries: 0, brokenLines: [], lastHash: 'GENESIS' };
+  }
+  const raw = fs.readFileSync(targetPath, 'utf8');
+  const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+  let expectedPrev = 'GENESIS';
+  let checkedEntries = 0;
+  const brokenLines: number[] = [];
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const lineNo = idx + 1;
+    try {
+      const parsed = JSON.parse(lines[idx]) as ParsedAuditJsonlLine;
+      if (parsed.kind === 'rotation_anchor' && typeof parsed.anchorPrevHash === 'string') {
+        expectedPrev = parsed.anchorPrevHash;
+        continue;
+      }
+      if (parsed.kind !== 'entry' || !parsed.entry || typeof parsed.jsonlHash !== 'string') {
+        brokenLines.push(lineNo);
+        continue;
+      }
+      checkedEntries += 1;
+      if (parsed.jsonlPrevHash !== expectedPrev) {
+        brokenLines.push(lineNo);
+      }
+      const recomputed = computeAuditHash(parsed.entry, expectedPrev);
+      if (recomputed !== parsed.jsonlHash) {
+        if (!brokenLines.includes(lineNo)) brokenLines.push(lineNo);
+      }
+      expectedPrev = parsed.jsonlHash;
+    } catch {
+      brokenLines.push(lineNo);
+    }
+  }
+
+  return {
+    exists: true,
+    valid: brokenLines.length === 0,
+    checkedEntries,
+    brokenLines,
+    lastHash: expectedPrev,
+  };
+}
+
+export function rotateAuditJsonlLog(targetPath = getAuditJsonlPath()): {
+  rotated: boolean;
+  archivePath?: string;
+  anchorPrevHash: string;
+  error?: string;
+} {
+  if (!fs.existsSync(targetPath)) {
+    return { rotated: false, anchorPrevHash: 'GENESIS' };
+  }
+  const verifyBefore = verifyAuditJsonlChain(targetPath);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dir = path.dirname(targetPath);
+  const base = path.basename(targetPath, '.jsonl');
+  const archivePath = path.join(dir, `${base}.${stamp}.jsonl`);
+  try {
+    fs.renameSync(targetPath, archivePath);
+    const anchor: AuditJsonlAnchorRecord = {
+      kind: 'rotation_anchor',
+      timestamp: new Date().toISOString(),
+      anchorPrevHash: verifyBefore.lastHash,
+      rotatedArchive: path.basename(archivePath),
+    };
+    fs.appendFileSync(targetPath, `${JSON.stringify(anchor)}\n`, {
+      encoding: 'utf8',
+      flag: 'a',
+      mode: 0o600,
+    });
+    return { rotated: true, archivePath, anchorPrevHash: verifyBefore.lastHash };
+  } catch (err) {
+    return {
+      rotated: false,
+      anchorPrevHash: verifyBefore.lastHash,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export function verifyAuditLogChain(): {
@@ -1485,10 +1716,23 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | '
   let full!: AuditLogEntry;
 
   updateState((s) => {
+    const isPasswordless = !s.settings.webAuthEnabled;
+    const tagPrefix = '[JELSZÓ NÉLKÜLI LAN MÓD]';
+    const shouldTagMsg =
+      isPasswordless &&
+      (entry.type === 'security' || entry.type === 'action' || entry.type === 'terminal' || entry.type === 'system') &&
+      !entry.message.includes(tagPrefix);
+    const finalMessage = shouldTagMsg ? `${entry.message} ${tagPrefix}` : entry.message;
+
     const lastChained = [...s.auditLogs].reverse().find((x) => Boolean(x.hash));
     const prevHash = lastChained?.hash || s.auditChainAnchor?.prevHash || 'GENESIS';
     const baseEntry: AuditLogEntry = {
       ...entry,
+      message: finalMessage,
+      passwordlessMode: isPasswordless || entry.passwordlessMode ? true : undefined,
+      metadata: isPasswordless
+        ? { ...(entry.metadata || {}), passwordlessMode: true }
+        : entry.metadata,
       id,
       timestamp,
       prevHash,
@@ -1519,6 +1763,9 @@ export function appendAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp' | '
     }
   });
 
+  if (!preserveInMemoryTestMode || process.env.NOVASWARM_DATA_DIR || process.env.NOVASWARM_AUDIT_JSONL_PATH) {
+    appendAuditJsonlEntry(full);
+  }
   syncAuditEntryToWal(full);
   novaBus.emitEvent('audit:appended', { id: full.id, type: full.type, message: full.message });
   return full;
@@ -1625,9 +1872,25 @@ export function clearOrResetAppData(opts?: { keepSecretsAndSettings?: boolean })
 }
 
 export function resetInMemoryStateForTests(customState?: NovaSwarmState): void {
-  cachedState = customState ?? createInitialState();
+  if (customState !== undefined) {
+    cachedState = customState;
+    inMemoryTestMode = true;
+    preserveInMemoryTestMode = true;
+  } else {
+    cachedState = null;
+    inMemoryTestMode = false;
+    preserveInMemoryTestMode = false;
+  }
+  loadedStateMtimeMs = null;
+  loadedStatePath = getStatePath();
 }
 
 export function getStatePaths() {
-  return { STATE_PATH, CONFIG_PATH, SECRETS_PATH };
+  return {
+    STATE_PATH: getStatePath(),
+    CONFIG_PATH: getConfigPath(),
+    SECRETS_PATH: getSecretsPath(),
+    SECRETS_KEY_PATH: getSecretsKeyPath(),
+    AUDIT_JSONL_PATH: getAuditJsonlPath(),
+  };
 }

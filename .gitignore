@@ -12,6 +12,9 @@ coverage/
 .secrets*
 .migrated-away
 *.bak*
+.novaswarm-setup.log
+.login-locks.json
+audit-chain.jsonl*
 dev-dist/
 /memory-vault/
 /backups/
@@ -19,3 +22,4 @@ dev-dist/
 /rag-docs/
 /novaswarm.sqlite*
 .playwright-cli/
+

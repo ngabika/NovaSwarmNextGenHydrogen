@@ -1032,7 +1032,9 @@ export const ModelsRouterView: React.FC<Props> = ({
                     </span>
                   </div>
                   {keys.length === 0 ? (
-                    <div className="text-[11px] text-slate-500">Nincs hozzáadott kulcs</div>
+                    <div className="text-[11px] text-slate-500">
+                      {p === 'ollama' ? 'Helyi motor — API kulcs nem szükséges' : 'Nincs hozzáadott kulcs'}
+                    </div>
                   ) : (
                     keys.map((k) => {
                       const inCooldown = Boolean(k.cooldownUntil && Date.parse(k.cooldownUntil) > Date.now());

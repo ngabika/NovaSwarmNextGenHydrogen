@@ -8,6 +8,7 @@ import {
   appendAuditLog,
   getState,
   hasWebAuthPassword,
+  normalizePasswordInput,
   updateState,
   verifyWebAuthPassword,
 } from '../state/store';
@@ -537,7 +538,7 @@ export async function toggleFullAutonomyProfile(params: {
       };
     }
 
-    const pw = (params.password || '').trim();
+    const pw = normalizePasswordInput(params.password || '');
     if (!pw || !verifyWebAuthPassword(pw)) {
       const fail = recordLoginFailure(ip, Date.now(), 'Hibás operátori jelszó Teljes autonómia profil aktiváláshoz');
       return {

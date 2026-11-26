@@ -157,11 +157,16 @@ export function promoteDreamSkillDraft(draftId: string) {
     name: draft.name,
     description: draft.description,
     code: draft.suggestedCode,
+    testCode: draft.testCode,
     createdByAgentId: 'dreaming-engine',
   });
   updateState((s) => {
     const ref = s.dreamSkillDrafts.find((d) => d.id === draftId);
-    if (ref) ref.promotedSkillId = sk.id;
+    if (ref) {
+      ref.promotedSkillId = sk.id;
+      ref.testPassed = sk.testPassed;
+      ref.testReport = sk.testReport;
+    }
   });
   return sk;
 }
@@ -275,6 +280,7 @@ export async function runDreamingCycle(opts: DreamCycleOptions = {}): Promise<Dr
         description: `Álmodási REM ciklus által javasolt segéd-skill (${themes.join(', ') || 'általános'}).`,
         theme: topTheme,
         suggestedCode: `export function run(input) {\n  const text = String(input || '').trim();\n  return { ok: true, theme: ${JSON.stringify(topTheme)}, summary: text.slice(0, 240) };\n}\nconsole.log(JSON.stringify(run('healthcheck')));`,
+        testCode: `const res = run('dream-verify');\nif (!res || res.ok !== true || res.theme !== ${JSON.stringify(topTheme)}) {\n  throw new Error('Álom skill önellenőrző teszt elbukott');\n}\nconsole.log('DREAM_SKILL_TEST_OK');`,
         createdAt: new Date().toISOString(),
       };
       updateState((s) => {

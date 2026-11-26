@@ -124,7 +124,9 @@ import {
   updateEmailConfig,
 } from '../integrations/ecosystem';
 import {
+  autonomousDiscoverAndInstallMcp,
   buildGoogleOAuthUrl,
+  type CatalogTemplate,
   fetchExternalCatalog,
   listMcpTools,
   registerMcpServer,
@@ -266,6 +268,7 @@ import {
 } from '../network/deviceDiscoveryAndAdapters';
 import {
   buildOrRefreshWorldModel,
+  evaluateMcpRoiAndDiscover,
   runGoalLoopCycle,
   runWeeklySelfEvaluationBenchmark,
 } from '../agents/autonomyOrchestrator';
@@ -277,16 +280,19 @@ import {
   rollbackSelfModToCommit,
   SecretLeakDetectedError,
 } from '../selfmod/gitGuard';
-import { addSkillPitfall, createAndValidateSkill } from '../skills/loader';
+import { addSkillPitfall, createAndValidateSkill, runSkillSelfTest } from '../skills/loader';
 import {
   appendAuditLog,
   getState,
   hasWebAuthPassword,
+  normalizePasswordInput,
   setAgentTelegramTokenSecret,
   setNamedSecret,
   setTelegramTokenSecret,
   setWebAuthPassword,
   updateState,
+  verifyAuditJsonlChain,
+  verifyAuditLogChain,
 } from '../state/store';
 import {
   addUptimeTarget,
@@ -377,19 +383,34 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   router.get('/auth/status', (req, res) => {
     const s = getState().settings;
     const hasPw = hasWebAuthPassword();
-    if (!hasPw) {
+    const missingPasswordState = Boolean(s.webAuthEnabled && !hasPw);
+    if (missingPasswordState) {
       ensureOneTimeSetupCode();
     }
     res.json({
       webAuthEnabled: s.webAuthEnabled,
       webAuthHasPassword: hasPw,
-      authClaimRequired: Boolean(s.webAuthEnabled && !hasPw),
-      setupCodeRequired: !hasPw,
+      missingPasswordState,
+      authClaimRequired: missingPasswordState,
+      setupCodeRequired: missingPasswordState,
       authenticated: isRequestAuthorized(req.headers),
     });
   });
 
   router.post('/auth/login', (req, res) => {
+    const s = getState().settings;
+    const hasPw = hasWebAuthPassword();
+    if (!s.webAuthEnabled && !hasPw) {
+      return res.json({ ok: true, authenticated: true, passwordlessMode: true });
+    }
+    if (s.webAuthEnabled && !hasPw) {
+      return res.status(401).json({
+        error:
+          "Félbehagyott telepítés: nincs beállított operátori jelszó. Állíts be jelszót helyben vagy a 'novaswarm set-password' paranccsal.",
+        code: 'NO_PASSWORD_CONFIGURED',
+      });
+    }
+
     const clientIp = extractClientIp(req);
     const rateCheck = checkLoginRateLimit(clientIp);
     if (!rateCheck.allowed) {
@@ -409,8 +430,9 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
 
     const { password } = req.body as { password?: string };
-    if (!password) return res.status(400).json({ error: 'Jelszó megadása kötelező.' });
-    const token = authenticateOperatorPassword(password);
+    const normalizedPw = normalizePasswordInput(password || '');
+    if (!normalizedPw) return res.status(400).json({ error: 'Jelszó megadása kötelező.' });
+    const token = authenticateOperatorPassword(normalizedPw);
     if (!token) {
       const fail = recordLoginFailure(clientIp);
       return res.status(401).json({
@@ -438,6 +460,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
 
   router.post('/auth/password', (req, res) => {
     const alreadyHasPw = hasWebAuthPassword();
+    const currentSettings = getState().settings;
     if (alreadyHasPw && !isRequestAuthorized(req.headers)) {
       return res.status(401).json({
         error: 'A jelszó módosításához vagy a zár átkapcsolásához meglévő operátori bejelentkezés szükséges.',
@@ -451,7 +474,9 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       setupCode?: string;
     };
 
-    if (!alreadyHasPw) {
+    // Only enforce one-time setup code if webAuthEnabled is already locked on without a password;
+    // in intentional passwordless LAN mode (!webAuthEnabled), setting an initial password from the banner/settings works directly.
+    if (!alreadyHasPw && currentSettings.webAuthEnabled) {
       const clientIp = extractClientIp(req);
       const rateCheck = checkLoginRateLimit(clientIp);
       if (!rateCheck.allowed) {
@@ -472,18 +497,29 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       }
     }
 
-    if (typeof password === 'string' && password.trim().length > 0) {
-      if (password.trim().length < 8) {
+    const normalizedPw = normalizePasswordInput(typeof password === 'string' ? password : '');
+    if (normalizedPw.length > 0) {
+      if (normalizedPw.length < 8) {
         return res.status(400).json({ error: 'A jelszónak legalább 8 karakterből kell állnia.' });
       }
-      setWebAuthPassword(password.trim());
+      setWebAuthPassword(normalizedPw);
       if (!alreadyHasPw) {
         consumeOneTimeSetupCode();
         appendAuditLog({
           type: 'security',
           sourceAgentId: 'web-auth',
           sourceAgentName: 'Web Hitelesítés',
-          message: 'Első operátori jelszó beállítva az egyszeri setup-kód felhasználásával (kód érvénytelenítve).',
+          message: currentSettings.webAuthEnabled
+            ? 'Első operátori jelszó beállítva az egyszeri setup-kód felhasználásával (kód érvénytelenítve).'
+            : 'Operátori jelszó beállítva jelszó nélküli LAN módból — LAN webes zár bekapcsolva.',
+          verifiedExecution: true,
+        });
+      } else {
+        appendAuditLog({
+          type: 'security',
+          sourceAgentId: 'web-auth',
+          sourceAgentName: 'Web Hitelesítés',
+          message: 'Operátori jelszó módosítva.',
           verifiedExecution: true,
         });
       }
@@ -629,8 +665,9 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       if (!body.firstAgent?.name?.trim()) {
         return res.status(400).json({ error: 'Az első ágens neve kötelező.' });
       }
-      if (body.operatorPassword && body.operatorPassword.trim().length > 0) {
-        if (!hasWebAuthPassword()) {
+      const normalizedOnboardPw = normalizePasswordInput(body.operatorPassword || '');
+      if (normalizedOnboardPw.length > 0) {
+        if (!hasWebAuthPassword() && currentState.settings.webAuthEnabled) {
           if (!verifyOneTimeSetupCode(body.setupCode)) {
             return res.status(403).json({
               error:
@@ -639,11 +676,11 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
             });
           }
         }
-        if (body.operatorPassword.trim().length < 8) {
+        if (normalizedOnboardPw.length < 8) {
           return res.status(400).json({ error: 'Az operátori jelszónak legalább 8 karakterből kell állnia.' });
         }
         const hadPw = hasWebAuthPassword();
-        setWebAuthPassword(body.operatorPassword.trim());
+        setWebAuthPassword(normalizedOnboardPw);
         if (!hadPw) {
           consumeOneTimeSetupCode();
         }
@@ -2236,10 +2273,11 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
   // Skills Factory & MCP
   router.post('/skills', (req, res) => {
     try {
-      const { name, description, code, createdByAgentId, pitfalls } = req.body as {
+      const { name, description, code, testCode, createdByAgentId, pitfalls } = req.body as {
         name: string;
         description: string;
         code: string;
+        testCode?: string;
         createdByAgentId?: string;
         pitfalls?: string[];
       };
@@ -2250,9 +2288,22 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
         name,
         description: description || '',
         code,
+        testCode,
         createdByAgentId: createdByAgentId || 'user',
         pitfalls,
       });
+      broadcastEvent('state:updated');
+      res.json({ skill });
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/skills/:id/test', (req, res) => {
+    try {
+      const { testCode } = (req.body || {}) as { testCode?: string };
+      const skill = runSkillSelfTest(req.params.id, testCode);
+      if (!skill) return res.status(404).json({ error: 'Skill nem található.' });
       broadcastEvent('state:updated');
       res.json({ skill });
     } catch (err) {
@@ -2319,6 +2370,21 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     }
   });
 
+  router.patch('/mcp/:id/toggle', (req, res) => {
+    const { enabled } = (req.body || {}) as { enabled?: boolean };
+    let found = false;
+    updateState((s) => {
+      const m = s.mcpServers.find((x) => x.id === req.params.id);
+      if (m) {
+        found = true;
+        m.enabled = typeof enabled === 'boolean' ? enabled : m.enabled === false;
+      }
+    });
+    if (!found) return res.status(404).json({ error: 'MCP szerver nem található.' });
+    broadcastEvent('state:updated');
+    res.json({ ok: true, server: getState().mcpServers.find((x) => x.id === req.params.id) });
+  });
+
   router.get('/mcp/:id/tools', async (req, res) => {
     try {
       const result = await listMcpTools(req.params.id);
@@ -2337,6 +2403,57 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
     } catch (err) {
       handleErr(res, err);
     }
+  });
+
+  router.post('/mcp/autonomous-discover', async (req, res) => {
+    try {
+      const { capabilityQuery, catalogUrl, catalogItems, autoTest } = (req.body || {}) as {
+        capabilityQuery?: string;
+        catalogUrl?: string;
+        catalogItems?: CatalogTemplate[];
+        autoTest?: boolean;
+      };
+      if (!capabilityQuery?.trim()) {
+        return res.status(400).json({ error: 'capabilityQuery megadása kötelező.' });
+      }
+      const result = await autonomousDiscoverAndInstallMcp({
+        capabilityQuery: capabilityQuery.trim(),
+        catalogUrl,
+        catalogItems,
+        autoTest,
+      });
+      broadcastEvent('state:updated');
+      res.json(result);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.post('/mcp/evaluate-roi', async (req, res) => {
+    try {
+      const { capabilityQuery, catalogUrl, catalogItems, autoTest } = (req.body || {}) as {
+        capabilityQuery?: string;
+        catalogUrl?: string;
+        catalogItems?: CatalogTemplate[];
+        autoTest?: boolean;
+      };
+      const result = await evaluateMcpRoiAndDiscover({
+        capabilityQuery,
+        catalogUrl,
+        catalogItems,
+        autoTest,
+      });
+      broadcastEvent('state:updated');
+      res.json(result);
+    } catch (err) {
+      handleErr(res, err);
+    }
+  });
+
+  router.get('/audit/chain-verify', (_req, res) => {
+    const stateChain = verifyAuditLogChain();
+    const jsonlChain = verifyAuditJsonlChain();
+    res.json({ stateChain, jsonlChain });
   });
 
   router.get('/mcp/google-oauth-url', (req, res) => {

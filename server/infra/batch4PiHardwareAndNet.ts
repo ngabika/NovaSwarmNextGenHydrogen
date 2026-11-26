@@ -300,6 +300,9 @@ const PROTECTED_SECRET_BASENAMES = new Set([
   '.state.json.bak1',
   '.state.json.bak2',
   '.state.json.bak3',
+  '.login-locks.json',
+  '.novaswarm-setup.log',
+  'audit-chain.jsonl',
   'novaswarm.sqlite',
   'novaswarm.sqlite-wal',
   'novaswarm.sqlite-shm',
@@ -311,6 +314,7 @@ function isProtectedPath(targetPath: string): boolean {
   const base = path.basename(targetPath);
   if (PROTECTED_SECRET_BASENAMES.has(base)) return true;
   if (base.startsWith('.env.') || base.startsWith('.secrets') || base.startsWith('.state.json')) return true;
+  if (/^audit-chain(\..+)?\.jsonl$/i.test(base)) return true;
   if (base.endsWith('.pem') || base.endsWith('.key')) return true;
   return false;
 }

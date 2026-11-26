@@ -5,6 +5,10 @@ import type {
   WorldModelEdge,
   WorldModelNode,
 } from '../../shared/types';
+import {
+  autonomousDiscoverAndInstallMcp,
+  type CatalogTemplate,
+} from '../mcp/manager';
 import { addPersistentMemory } from '../memory/vectorStore';
 import type { RouterDependencies } from '../providers/router';
 import { invokeWithFailover } from '../providers/router';
@@ -16,7 +20,7 @@ import {
   recordTaskExecutionOutcome,
 } from '../security/totalAutonomy';
 import { addSkillPitfall, createAndValidateSkill } from '../skills/loader';
-import { appendAuditLog, getState, updateState, verifyAuditLogChain } from '../state/store';
+import { appendAuditLog, getState, getTelegramTokenSecret, updateState, verifyAuditLogChain } from '../state/store';
 
 export function selectComplexityModelTier(goal: string): {
   tier: 'local_fast' | 'balanced' | 'deep_reasoning';
@@ -278,22 +282,97 @@ export function consolidateAndFlagStaleMemories(): {
   return { totalBefore, consolidatedCount, staleFlaggedCount };
 }
 
-export function evaluateMcpRoiAndDiscover(): Array<{
+export interface McpRoiEvaluationItem {
   id: string;
   name: string;
   status: string;
+  enabled: boolean;
+  totalCalls: number;
+  successRatePct: number | null;
+  avgLatencyMs: number;
+  roiVerdict: 'worth_it' | 'low_value' | 'untested';
   roiNote: string;
+  autoDiscovered: boolean;
+}
+
+export async function evaluateMcpRoiAndDiscover(opts?: {
+  capabilityQuery?: string;
+  catalogUrl?: string;
+  catalogItems?: CatalogTemplate[];
+  autoTest?: boolean;
+}): Promise<{
+  evaluations: McpRoiEvaluationItem[];
+  newlyInstalled: Array<{ id: string; name: string }>;
+  disabledLowValueIds: string[];
 }> {
-  const s = getState();
-  return (s.mcpServers || []).map((m) => ({
-    id: m.id,
-    name: m.name,
-    status: m.status,
-    roiNote:
-      m.status === 'connected'
-        ? 'Aktív és használható integráció (magas ROI).'
-        : 'Nincs csatlakoztatva vagy konfigurálva — felülvizsgálat ajánlott.',
-  }));
+  let newlyInstalled: Array<{ id: string; name: string }> = [];
+  if (opts?.capabilityQuery?.trim() && (opts.catalogUrl?.trim() || (opts.catalogItems && opts.catalogItems.length > 0))) {
+    const disc = await autonomousDiscoverAndInstallMcp({
+      capabilityQuery: opts.capabilityQuery.trim(),
+      catalogUrl: opts.catalogUrl,
+      catalogItems: opts.catalogItems,
+      autoTest: opts.autoTest,
+    });
+    newlyInstalled = disc.installed.map((i) => ({ id: i.id, name: i.name }));
+  }
+
+  const disabledLowValueIds: string[] = [];
+  const evaluations: McpRoiEvaluationItem[] = [];
+
+  updateState((s) => {
+    for (const m of s.mcpServers || []) {
+      const metrics = m.metrics ?? { totalCalls: 0, successCalls: 0, avgLatencyMs: 0, lastCalledAt: null };
+      const totalCalls = metrics.totalCalls;
+      const successRatePct = totalCalls > 0 ? Math.round((metrics.successCalls / totalCalls) * 100) : null;
+      let verdict: 'worth_it' | 'low_value' | 'untested' = 'untested';
+      let roiNote = 'Még nem volt eszközhívás ezen az MCP szerveren.';
+
+      if (totalCalls >= 3 && successRatePct !== null && successRatePct < 40) {
+        verdict = 'low_value';
+        roiNote = `Alacsony ROI (${successRatePct}% siker ${totalCalls} hívásból, átlag ${metrics.avgLatencyMs}ms) — letiltás vagy javítás javasolt.`;
+        if (metrics.successCalls === 0 && m.enabled !== false) {
+          m.enabled = false;
+          disabledLowValueIds.push(m.id);
+        }
+      } else if (m.status === 'error' || m.status === 'disconnected') {
+        verdict = 'low_value';
+        roiNote = `Elérhetetlen vagy hibás állapot (${m.status}) — felülvizsgálat szükséges.`;
+      } else if (totalCalls > 0 && successRatePct !== null && successRatePct >= 60) {
+        verdict = 'worth_it';
+        roiNote = `Magas ROI: ${successRatePct}% siker (${totalCalls} hívás, ${metrics.avgLatencyMs}ms átlagidő).`;
+      } else if (m.status === 'connected') {
+        verdict = 'worth_it';
+        roiNote = `Aktív kapcsolat (${metrics.avgLatencyMs}ms) — használatra kész.`;
+      }
+
+      m.roiVerdict = verdict;
+      m.roiNote = roiNote;
+      evaluations.push({
+        id: m.id,
+        name: m.name,
+        status: m.status,
+        enabled: m.enabled !== false,
+        totalCalls,
+        successRatePct,
+        avgLatencyMs: metrics.avgLatencyMs,
+        roiVerdict: verdict,
+        roiNote,
+        autoDiscovered: Boolean(m.autoDiscovered),
+      });
+    }
+  });
+
+  if (disabledLowValueIds.length > 0) {
+    appendAuditLog({
+      type: 'system',
+      sourceAgentId: 'mcp-roi',
+      sourceAgentName: 'MCP ROI Értékelő',
+      message: `Alacsony ROI miatt ${disabledLowValueIds.length} hibás MCP szerver automatikusan letiltva.`,
+      verifiedExecution: true,
+    });
+  }
+
+  return { evaluations, newlyInstalled, disabledLowValueIds };
 }
 
 export async function runWeeklySelfEvaluationBenchmark(opts?: {
@@ -301,19 +380,43 @@ export async function runWeeklySelfEvaluationBenchmark(opts?: {
 }): Promise<WeeklySelfEvaluationReport> {
   const s = getState();
   const cycles = s.goalCycles || [];
-  const verifiedCycles = cycles.filter((c) => c.verifiedSuccess).length;
-  const failedCycles = cycles.filter((c) => !c.verifiedSuccess).length;
+  const verifiedCycles = cycles.filter((c) => c.verifiedSuccess);
+  const failedCycles = cycles.filter((c) => !c.verifiedSuccess);
   const decisions = s.autonomyDecisions || [];
-  const rolledBack = decisions.filter((d) => d.outcome === 'rolled_back').length;
-  const totalTasks = Math.max(1, verifiedCycles + failedCycles + decisions.length);
-  const successNumerator = verifiedCycles + decisions.filter((d) => d.outcome === 'applied' || d.outcome === 'verified').length;
+  const appliedDecisions = decisions.filter((d) => d.outcome === 'applied' || d.outcome === 'verified');
+  const rolledBackDecisions = decisions.filter((d) => d.outcome === 'rolled_back');
+
+  const solvedItems = [
+    ...verifiedCycles.map((c) => `Cél: ${c.goal}`),
+    ...appliedDecisions.slice(0, 8).map((d) => `Döntés: ${d.decision}`),
+  ].slice(0, 12);
+
+  const openCircuits = (s.circuitBreakerTasks || []).filter((c) => c.state === 'open');
+  const failedItems = [
+    ...failedCycles.map((c) => `Sikertelen cél: ${c.goal}${c.criticFeedback ? ` (${c.criticFeedback})` : ''}`),
+    ...rolledBackDecisions.slice(0, 6).map((d) => `Visszaállított döntés: ${d.decision}`),
+    ...openCircuits.map((cb) => `Nyitott megszakító: ${cb.taskKey} (${cb.consecutiveFailures} hiba)`),
+  ].slice(0, 12);
+
+  const totalTasks = Math.max(1, cycles.length + decisions.length);
+  const successNumerator = verifiedCycles.length + appliedDecisions.length;
   const successRatePct = Math.min(100, Math.round((successNumerator / totalTasks) * 100));
+  const providerSpend = Object.values(s.gatewayAnalytics?.spendByProvider || {}).reduce(
+    (sum, v) => sum + (Number(v) || 0),
+    0
+  );
+  const totalSpendUsd = Number(Math.max(s.settings.dailySpendUsd || 0, providerSpend).toFixed(4));
+  const avgCostPerTaskUsd = Number((totalSpendUsd / totalTasks).toFixed(4));
   const auditValid = verifyAuditLogChain().valid;
-  const openCircuits = (s.circuitBreakerTasks || []).filter((c) => c.state === 'open').length;
 
   const recommendations: string[] = [];
   if (!auditValid) recommendations.push('KRITIKUS: Audit hash-lánc sérülés vizsgálata azonnal szükséges!');
-  if (openCircuits > 0) recommendations.push(`${openCircuits} feladatnál nyitott megszakító van — buktatók ellenőrzése ajánlott.`);
+  if (openCircuits.length > 0) {
+    recommendations.push(`${openCircuits.length} feladatnál nyitott megszakító van — buktatók ellenőrzése ajánlott.`);
+  }
+  if (failedCycles.length > 0) {
+    recommendations.push(`${failedCycles.length} sikertelen célciklus javítása és újrapróbálása javasolt.`);
+  }
   if ((s.pendingDevicePrompts || []).some((p) => p.status === 'pending')) {
     recommendations.push('Hiányzó LAN eszköz hitelesítő adatok megadása az Autonómia központban.');
   }
@@ -321,21 +424,84 @@ export async function runWeeklySelfEvaluationBenchmark(opts?: {
     recommendations.push('A rendszer autonóm teljesítménye stabil; nincs azonnali beavatkozást igénylő eltérés.');
   }
 
+  // Generate concrete improvement goals automatically in Kanban for failures / critical recommendations
+  const autoGeneratedGoals: string[] = [];
+  const goalCandidates: Array<{ title: string; description: string; priority: 'high' | 'medium' }> = [];
+  if (!auditValid) {
+    goalCandidates.push({
+      title: 'Audit hash-lánc integritás helyreállítása',
+      description: 'Heti önértékelés hibát észlelt az audit láncban — ellenőrizd az audit-chain.jsonl bejegyzéseket.',
+      priority: 'high',
+    });
+  }
+  for (const fc of failedCycles.slice(0, 2)) {
+    goalCandidates.push({
+      title: `Fejlesztési cél: ${fc.goal.slice(0, 64)} javítása`,
+      description: `Heti önértékelés által generált javítási cél. Előző hiba: ${fc.criticFeedback || fc.verifierOutput || 'ellenőrzés sikertelen'}.`,
+      priority: 'high',
+    });
+  }
+  for (const cb of openCircuits.slice(0, 2)) {
+    goalCandidates.push({
+      title: `Megszakító hibaelemzés: ${cb.taskKey}`,
+      description: `Automatikusan létrehozott fejlesztési cél (${cb.consecutiveFailures} hiba, ok: ${cb.reason || 'ismeretlen'}).`,
+      priority: 'medium',
+    });
+  }
+  if (goalCandidates.length === 0 && successRatePct < 80) {
+    goalCandidates.push({
+      title: `Heti sikerességi arány növelése (${successRatePct}% -> >85%)`,
+      description: recommendations.join(' '),
+      priority: 'medium',
+    });
+  }
+
+  updateState((st) => {
+    const existingTitles = new Set(
+      st.kanban.filter((k) => !k.archived && k.status !== 'done').map((k) => k.title.toLowerCase())
+    );
+    const defaultAgentId = st.agents.find((a) => !a.isSupervisor && a.active)?.id || null;
+    for (const cand of goalCandidates.slice(0, 3)) {
+      if (existingTitles.has(cand.title.toLowerCase())) continue;
+      const ts = new Date().toISOString();
+      st.kanban.unshift({
+        id: `goal-${crypto.randomUUID().slice(0, 8)}`,
+        title: cand.title,
+        description: cand.description,
+        status: 'todo',
+        priority: cand.priority,
+        assignedAgentId: defaultAgentId,
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      existingTitles.add(cand.title.toLowerCase());
+      autoGeneratedGoals.push(cand.title);
+    }
+  });
+
   const report: WeeklySelfEvaluationReport = {
     id: `wbench-${crypto.randomUUID().slice(0, 8)}`,
     createdAt: new Date().toISOString(),
     successRatePct,
-    verifiedTasks: verifiedCycles,
-    failedOrRolledBackTasks: failedCycles + rolledBack,
-    avgCostPerTaskUsd: Number((s.settings.dailySpendUsd / Math.max(1, s.goalCycles?.length || 1)).toFixed(4)),
+    verifiedTasks: verifiedCycles.length,
+    failedOrRolledBackTasks: failedCycles.length + rolledBackDecisions.length,
+    avgCostPerTaskUsd,
+    totalSpendUsd,
+    solvedItems,
+    failedItems,
+    autoGeneratedGoals,
     securityAuditValid: auditValid,
     recommendations,
     summaryMarkdown: [
       `### Heti Önértékelő Jelentés (${new Date().toISOString().slice(0, 10)})`,
       `- Sikerességi arány: **${successRatePct}%**`,
-      `- Hitelesített feladatok: **${verifiedCycles}** · Sikertelen / Visszaállított: **${failedCycles + rolledBack}**`,
+      `- Hitelesített feladatok: **${verifiedCycles.length}** · Sikertelen / Visszaállított: **${failedCycles.length + rolledBackDecisions.length}**`,
+      `- Összes költség: **$${totalSpendUsd.toFixed(4)}** (átlag: **$${avgCostPerTaskUsd.toFixed(4)}**/feladat)`,
       `- Audit hash-lánc: **${auditValid ? 'ÉP ✅' : 'SÉRÜLT ⚠️'}**`,
-      `- Nyitott megszakítók: **${openCircuits}** db`,
+      `- Nyitott megszakítók: **${openCircuits.length}** db`,
+      autoGeneratedGoals.length > 0
+        ? `- Automatikus fejlesztési célok: ${autoGeneratedGoals.join('; ')}`
+        : '- Automatikus fejlesztési célok: nincs új hiányosság',
       ...recommendations.map((r) => `- Javaslat: ${r}`),
     ].join('\n'),
   };
@@ -344,11 +510,24 @@ export async function runWeeklySelfEvaluationBenchmark(opts?: {
     st.weeklyEvaluations = [report, ...(st.weeklyEvaluations || [])].slice(0, 26);
   });
 
-  await notifyExceptionToTelegram(
-    `📈 [Heti Önértékelés]\nSikeresség: ${successRatePct}% · Hitelesített: ${verifiedCycles} · Hiba/Rollback: ${failedCycles + rolledBack}\nAudit: ${auditValid ? 'ÉP ✅' : 'SÉRÜLT ⚠️'}`,
-    !auditValid || openCircuits > 0,
-    opts?.telegramSender
-  ).catch(() => {});
+  const tgText = [
+    `📈 [Heti Önértékelés]`,
+    `Sikeresség: ${successRatePct}% | Megoldva: ${verifiedCycles.length} | Hiba/Rollback: ${failedCycles.length + rolledBackDecisions.length}`,
+    `Költség: $${totalSpendUsd.toFixed(4)} (átlag $${avgCostPerTaskUsd.toFixed(4)}/feladat) | Audit: ${auditValid ? 'ÉP ✅' : 'SÉRÜLT ⚠️'}`,
+    autoGeneratedGoals.length > 0 ? `Új fejlesztési célok: ${autoGeneratedGoals.join('; ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  if (opts?.telegramSender) {
+    await opts.telegramSender(tgText).catch(() => {});
+  } else {
+    const token = getTelegramTokenSecret();
+    const hasChat = Boolean(s.settings.telegramChatId?.trim() || (s.settings.telegramAllowedChatIds || []).length > 0);
+    if (token && hasChat) {
+      await notifyExceptionToTelegram(tgText, true).catch(() => {});
+    }
+  }
 
   return report;
 }

@@ -94,16 +94,32 @@ A NovaSwarm funkcionalitása két rétegre oszlik:
 
 ---
 
-## Telepítés Parancssorból
+## Telepítés Parancssorból (Opcionális Jelszó / Helyi LAN HTTP)
 
 ```bash
 git clone https://github.com/ngabika/NovaSwarmNextGenHydrogen.git
 cd NovaSwarmNextGenHydrogen
-chmod +x install.sh update.sh uninstall.sh
+chmod +x install.sh update.sh uninstall.sh scripts/check-hygiene.sh
 ./install.sh
 ```
 
-A `install.sh` **zéró kézi lépéses**: automatikusan telepíti a `bubblewrap`-ot, függőségeket, buildet, systemd szolgáltatást; `visudo -cf` ellenőrzéssel hozza létre a `/etc/sudoers.d/novaswarm` (`0440`) fájlt; beállítja az operátori jelszót az egyszeri setup-kóddal (kézi másolás nélkül); opcionálisan bekéri a Telegram bot tokent és chat ID-t; bekapcsolja a Teljes és Totális autonómiát; majd zöld/piros önellenőrzéssel zár (`/healthz`, `sudo -n true`, `bwrap`, első Phoenix pillanatkép).
+A `install.sh` **zéró kézi lépéses**, és támogatja mind a védett jelszavas, mind a kényelmes **jelszó nélküli helyi hálózati (LAN HTTP)** módot:
+- **Alapértelmezett kérdés:** `Webes jelszó (Enter = nincs jelszó, a LAN-on bárki elérheti a felületet; később bármikor beállítható)` — Enter megnyomásával vagy nem-interaktív futásnál (`--non-interactive`) jelszó nélkül indul (`webAuthEnabled: false`, `onboardingCompleted: true`), és a felület tetején megjelenik egy elrejthető (7 napos szundi), egykattintásos **"Jelszó beállítása"** figyelmeztető szalag.
+- **Telepítő kapcsolók:**
+  - `./install.sh --no-password` — explicit jelszó nélküli LAN mód (bárki elérheti a helyi hálózaton).
+  - `./install.sh --password "<min12>"` — saját jelszó (speciális karakterekkel is: `$`, `` ` ``, `"`, `'`, `\`, szóköz, ékezetek).
+  - `./install.sh --generate-password` — erős véletlen jelszó generálása és egyszeri kiírása.
+- Telepítés végén az installer leállítja az esetleges régi szolgáltatást, `npm ci` + `npm run build` után `RUN_USER` alatt beállítja a konfigurációt (`scripts/install-configure.ts`), beállítja a `/etc/sudoers.d/novaswarm` fájlt (`visudo -cf`), védi a hamisításbiztos `audit-chain.jsonl` naplót (`chattr +a`, ha a fájlrendszer támogatja), és **csak akkor zár sikeresen, ha az élő `/healthz` + HTTP Auth/API E2E próba is zöld lett**.
+
+### Telepítő (`install.sh`) vs. Kézi Indítás (`npm run dev`) Alapértelmezések
+
+| Beállítás / Mód | `install.sh` (Telepítő) | Kézi Indítás (`npm run dev` / friss állapot) |
+|---|---|---|
+| **Webes jelszó** | Opcionális (Enter/`--no-password`: jelszó nélkül indul; `--password`/`--generate-password`: `webAuthEnabled: true`) | `webAuthEnabled: true` (első indításkor setup-kódos onboarding varázsló) |
+| **Onboarding** | Automatikusan lezárva (`onboardingCompleted: true`) | Végigvezetett 6-lépéses telepítővarázsló |
+| **Teljes & Totális autonómia** | Automatikusan bekapcsolva (a 3 sérthetetlen garanciával + napi Phoenix mentéssel) | Kikapcsolva (`false`) — a Beállításokban kapcsolható be |
+| **Hardveres Ollama csomag** | Automatikus mély hardverprofil + letöltés + `tok/s` benchmark | Igény esetén a Modellek nézetből vagy `novaswarm ollama-reselect` |
+| **Systemd & `sudo NOPASSWD`** | Automatikusan konfigurálva és önellenőrizve | Kézzel vagy CLI-vel ellenőrizendő (`/api/system/sudo-check`) |
 
 ### Tiszta újratelepítés (a jelenlegi felhasználó saját mappájába)
 
@@ -113,12 +129,42 @@ sudo systemctl disable novaswarm 2>/dev/null || true
 sudo rm -f /etc/systemd/system/novaswarm.service
 sudo systemctl daemon-reload
 pkill -f "NovaSwarmNextGenHydrogen" 2>/dev/null || true
-cd "$HOME" && rm -rf "$HOME/NovaSwarmNextGenHydrogen" && git clone https://github.com/ngabika/NovaSwarmNextGenHydrogen.git && cd NovaSwarmNextGenHydrogen && chmod +x install.sh update.sh uninstall.sh && ./install.sh
+cd "$HOME" && rm -rf "$HOME/NovaSwarmNextGenHydrogen" && git clone https://github.com/ngabika/NovaSwarmNextGenHydrogen.git && cd NovaSwarmNextGenHydrogen && chmod +x install.sh update.sh uninstall.sh scripts/check-hygiene.sh && ./install.sh
 ```
 
-Telepítés után nyisd meg böngészőből:
-- Lokálisan: `http://localhost:3000` (első belépéskor állítsd be a kezelői jelszót!)
+Telepítés után nyisd meg böngészőből (helyi LAN sima HTTP):
+- Lokálisan: `http://localhost:3000`
 - Helyi hálózatról (LAN): `http://<SZERVER-IP>:3000`
+
+---
+
+## Jelszó beállítása, törlése, elfelejtett jelszó (Helyi CLI Helyreállítás)
+
+A szerveren közvetlenül (SSH / terminál) elérhető `novaswarm` CLI azonnali jelszó- és zárkezelést ad — a futó webszerver újraindítás nélkül azonnal átveszi a változásokat:
+
+```bash
+# Új jelszó beállítása (interaktívan, rejtett bevitellel) vagy véletlen jelszó generálása:
+novaswarm set-password
+novaswarm set-password --generate
+novaswarm set-password --password "UjErosJelszo!2026"
+
+# Webes jelszó eltávolítása (visszaállás jelszó nélküli LAN módba):
+novaswarm remove-password
+
+# Elfelejtett jelszó miatti 429-es IP-zár feloldása:
+novaswarm reset-login-lock
+```
+*(Ha a globális `novaswarm` parancs nincs telepítve, használd a projekt mappájából: `npm run cli -- <parancs>`.)*
+
+---
+
+## Hibaelhárítás
+
+- **Hiányzik a `tsx` (`HIBA: hiányzik a tsx — futtasd: cd ... && npm ci`):** Valószínűleg törlődött a `node_modules/` (pl. `uninstall.sh` futtatásakor). Lépj be a könyvtárba és futtasd: `npm ci && npm run build && sudo systemctl restart novaswarm`.
+- **„Félbehagyott telepítés / `NO_PASSWORD_CONFIGURED`” üzenet belépéskor:** A `webAuthEnabled: true`, de nincs mentett jelszó-hash (pl. félbeszakadt telepítés miatt). Helyreállítás terminálból: futtasd a `novaswarm set-password --generate` parancsot (vagy `novaswarm remove-password`-ot jelszó nélküli LAN módhoz).
+- **Web UI nem nyílik meg frissítés után:** Ellenőrizd a naplót (`journalctl -u novaswarm -n 80 --no-pager`) és győződj meg róla, hogy nincs aktív `/etc/novaswarm/LOCKDOWN` vészleállási zárfájl.
+- **`audit-chain.jsonl` `chattr +a` figyelmeztetés:** Ha a fájlrendszer (pl. `vfat`/egyes overlay FS) nem támogatja az append-only kernel attribútumot, a kulcsolt HMAC-SHA256 hash-lánc (`GET /api/audit/chain-verify`) és az ágenses módosítási tiltás attól függetlenül teljes értékűen véd. Ha `chattr +a` aktív és jogosulatlanul szeretnél karbantartást/rotálást végezni: `sudo chattr -a audit-chain.jsonl`.
+- **Eltávolítás adatok/node_modules megtartásával:** `./uninstall.sh --service-only` csak a systemd szolgáltatást és a globális parancsot szedi le, a `node_modules` és `dist` mappák megmaradnak.
 
 ---
 
@@ -131,8 +177,8 @@ npm ci
 # Fejlesztői szerver indítása (3000-es port)
 npm run dev
 
-# Típusellenőrzés és production build
-npm run lint && npm run build
+# Típusellenőrzés, build és repo higiénia
+npm run lint && npm run build && bash scripts/check-hygiene.sh
 
 # Teljes egységteszt-csomag futtatása
 npm test
@@ -140,6 +186,9 @@ npm test
 # Terminál CLI használata
 npm run cli -- status
 npm run cli -- doctor
+npm run cli -- set-password --generate
+npm run cli -- remove-password --yes
+npm run cli -- reset-login-lock
 npm run cli -- ollama-reselect
 npm run cli -- mission "Elemezd a rendszer terhelését"
 npm run cli -- autonomy-status
@@ -147,3 +196,4 @@ npm run cli -- lockdown "Kézi vészleállítás"
 npm run cli -- unlock
 npm run cli -- restore-security 1
 ```
+
