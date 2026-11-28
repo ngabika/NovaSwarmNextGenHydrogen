@@ -27,10 +27,10 @@ import type {
   PairingRequest,
   Skill,
 } from '../../shared/types';
-import { tr } from '../locales/translations';
+import { useLocale } from '../locales/translations';
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   mcpServers: McpServer[];
   skills: Skill[];
   channelConnectors: ChannelConnector[];
@@ -40,7 +40,6 @@ interface Props {
 }
 
 export const McpSkillsView: React.FC<Props> = ({
-  language,
   mcpServers,
   skills,
   channelConnectors,
@@ -48,6 +47,7 @@ export const McpSkillsView: React.FC<Props> = ({
   agents,
   onRefreshState,
 }) => {
+  const { t, tx } = useLocale();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [credsForm, setCredsForm] = useState<Record<string, string>>({});
   const [mcpToolsMap, setMcpToolsMap] = useState<
@@ -178,7 +178,7 @@ export const McpSkillsView: React.FC<Props> = ({
     });
     const data = (await res.json()) as { items?: typeof catalogItems; error?: string };
     if (!res.ok) {
-      setCatalogErr(data.error || 'Import sikertelen');
+      setCatalogErr(data.error || tx('Import sikertelen'));
       return;
     }
     setCatalogItems(data.items || []);
@@ -190,7 +190,7 @@ export const McpSkillsView: React.FC<Props> = ({
     if (data.configured && data.url) {
       window.location.href = data.url;
     } else {
-      setOauthMessage(data.reason || tr(language, 'notConnected'));
+      setOauthMessage(data.reason || t('notConnected'));
     }
   };
 
@@ -219,7 +219,7 @@ export const McpSkillsView: React.FC<Props> = ({
   };
 
   const handleEvaluateMcpRoi = async () => {
-    setMcpRoiMsg('MCP ROI kiértékelés fut...');
+    setMcpRoiMsg(tx('MCP ROI kiértékelés fut...'));
     const res = await fetch('/api/mcp/evaluate-roi', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -235,11 +235,11 @@ export const McpSkillsView: React.FC<Props> = ({
       error?: string;
     };
     if (!res.ok) {
-      setMcpRoiMsg(data.error || 'Hiba az MCP ROI értékelésnél.');
+      setMcpRoiMsg(data.error || tx('Hiba az MCP ROI értékelésnél.'));
     } else {
-      const inst = data.newlyInstalled?.length ? ` · Új telepítés: ${data.newlyInstalled.map((x) => x.name).join(', ')}` : '';
-      const dis = data.disabledLowValueIds?.length ? ` · Letiltva: ${data.disabledLowValueIds.length}` : '';
-      setMcpRoiMsg(`Kiértékelve (${data.evaluations?.length ?? 0} szerver)${inst}${dis}`);
+      const inst = data.newlyInstalled?.length ? tx(' · Új telepítés: {0}', data.newlyInstalled.map((x) => x.name).join(', ')) : '';
+      const dis = data.disabledLowValueIds?.length ? tx(' · Letiltva: {0}', data.disabledLowValueIds.length) : '';
+      setMcpRoiMsg(tx('Kiértékelve ({0} szerver){1}{2}', data.evaluations?.length ?? 0, inst, dis));
       await onRefreshState();
     }
   };
@@ -292,14 +292,14 @@ export const McpSkillsView: React.FC<Props> = ({
         botToken: draft.botToken.trim() || undefined,
       }),
     });
-    setChStatusMsg(`${connector.name} kétirányú polling frissítve.`);
+    setChStatusMsg(tx('{0} kétirányú polling frissítve.', connector.name));
     await onRefreshState();
   };
 
   const handlePollChannelsNow = async () => {
     const res = await fetch('/api/channels/poll', { method: 'POST' });
     const data = (await res.json()) as { checked?: number; ingested?: number };
-    setChStatusMsg(`Csatornák lekérdezve (${data.checked ?? 0} aktív, ${data.ingested ?? 0} új üzenet).`);
+    setChStatusMsg(tx('Csatornák lekérdezve ({0} aktív, {1} új üzenet).', data.checked ?? 0, data.ingested ?? 0));
     await onRefreshState();
   };
 
@@ -307,7 +307,7 @@ export const McpSkillsView: React.FC<Props> = ({
     setChStatusMsg(null);
     const res = await fetch(`/api/channels/${id}/test`, { method: 'POST' });
     const data = (await res.json()) as { sent: boolean; reason?: string };
-    setChStatusMsg(data.sent ? 'Tesztüzenet elküldve.' : `Teszt sikertelen: ${data.reason || 'hiba'}`);
+    setChStatusMsg(data.sent ? tx('Tesztüzenet elküldve.') : tx('Teszt sikertelen: {0}', data.reason || tx('hiba')));
     await onRefreshState();
   };
 
@@ -370,7 +370,7 @@ export const McpSkillsView: React.FC<Props> = ({
         {/* MCP Servers List (HTTP + stdio) */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <h2 className="text-base font-semibold text-slate-900">
-            MCP Szerverek (HTTP & Lokális stdio)
+            {t('mcpServersTitle')}
           </h2>
 
           <div className="space-y-3">
@@ -385,7 +385,7 @@ export const McpSkillsView: React.FC<Props> = ({
                         {srv.transport === 'stdio'
                           ? `stdio: ${srv.command} ${(srv.args || []).join(' ')}`
                           : srv.endpointUrl}{' '}
-                        · {srv.authType} · Állapot:{' '}
+                        · {srv.authType} · {tx('Állapot:')}{' '}
                         <span
                           className={
                             srv.status === 'connected'
@@ -395,7 +395,7 @@ export const McpSkillsView: React.FC<Props> = ({
                               : 'text-amber-700 font-semibold'
                           }
                         >
-                          {srv.status === 'not_configured' ? tr(language, 'notConnected') : srv.status}
+                          {srv.status === 'not_configured' ? t('notConnected') : srv.status}
                         </span>
                       </div>
                       <div className="text-xs text-slate-600 mt-1">{srv.lastCheckMessage}</div>
@@ -411,12 +411,12 @@ export const McpSkillsView: React.FC<Props> = ({
                                   : 'bg-slate-100 text-slate-600 border border-slate-200'
                               }`}
                             >
-                              ROI: {srv.roiVerdict === 'worth_it' ? 'MEGÉRI' : srv.roiVerdict === 'low_value' ? 'ALACSONY' : 'TESZTELENDŐ'}
+                              ROI: {srv.roiVerdict === 'worth_it' ? tx('MEGÉRI') : srv.roiVerdict === 'low_value' ? tx('ALACSONY') : tx('TESZTELENDŐ')}
                             </span>
                           )}
                           {srv.metrics && (
                             <span className="font-mono text-slate-500 tabular-nums">
-                              Hívások: {srv.metrics.successCalls}/{srv.metrics.totalCalls} · Átlag: {srv.metrics.avgLatencyMs}ms
+                              {tx('Hívások:')} {srv.metrics.successCalls}/{srv.metrics.totalCalls} {tx('· Átlag:')} {srv.metrics.avgLatencyMs}ms
                             </span>
                           )}
                           {srv.roiNote && <span className="text-slate-600">{srv.roiNote}</span>}
@@ -440,18 +440,18 @@ export const McpSkillsView: React.FC<Props> = ({
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800 whitespace-nowrap shrink-0"
                       >
                         <Play className="h-3 w-3" />
-                        {tr(language, 'testConnection')}
+                        {t('testConnection')}
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleListMcpTools(srv.id)}
                         className="px-2.5 py-1.5 text-xs font-medium border border-slate-300 rounded-md hover:bg-slate-50 whitespace-nowrap shrink-0"
                       >
-                        Eszközök listázása
+                        {t('mcpListToolsBtn')}
                       </button>
                       <button
                         type="button"
-                        aria-label={`Toggle auth panel for ${srv.name}`}
+                        aria-label={tx('Hitelesítési panel váltása: {0}', srv.name)}
                         onClick={() => setExpandedId(isExpanded ? null : srv.id)}
                         className="p-1.5 border border-slate-200 rounded-md hover:bg-slate-50"
                       >
@@ -464,14 +464,14 @@ export const McpSkillsView: React.FC<Props> = ({
                     <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs space-y-1">
                       {!mcpToolsMap[srv.id].ok ? (
                         <div className="text-red-700 font-mono">
-                          Eszköz lekérés sikertelen: {mcpToolsMap[srv.id].error}
+                          {tx('Eszköz lekérés sikertelen:')} {mcpToolsMap[srv.id].error}
                         </div>
                       ) : mcpToolsMap[srv.id].tools.length === 0 ? (
-                        <div className="text-slate-500 font-mono">0 MCP eszköz érhető el.</div>
+                        <div className="text-slate-500 font-mono">{tx('0 MCP eszköz érhető el.')}</div>
                       ) : (
                         <div className="space-y-1">
                           <div className="font-semibold text-slate-700">
-                            Elérhető MCP eszközök ({mcpToolsMap[srv.id].tools.length}):
+                            {tx('Elérhető MCP eszközök (')}{mcpToolsMap[srv.id].tools.length}):
                           </div>
                           {mcpToolsMap[srv.id].tools.map((tool) => (
                             <div key={tool.name} className="font-mono text-[11px] text-slate-700">
@@ -490,13 +490,13 @@ export const McpSkillsView: React.FC<Props> = ({
                         <div className="grid grid-cols-2 gap-2">
                           <input
                             type="text"
-                            placeholder="Felhasználónév"
+                            placeholder={tx('Felhasználónév')}
                             onChange={(e) => setCredsForm({ ...credsForm, username: e.target.value })}
                             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
                           />
                           <input
                             type="password"
-                            placeholder="Jelszó"
+                            placeholder={tx('Jelszó')}
                             onChange={(e) => setCredsForm({ ...credsForm, password: e.target.value })}
                             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
                           />
@@ -505,7 +505,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       {srv.authType === 'apikey' && (
                         <input
                           type="password"
-                          placeholder="API Kulcs (titkosítva tárolva)"
+                          placeholder={tx('API Kulcs (titkosítva tárolva)')}
                           onChange={(e) => setCredsForm({ ...credsForm, apiKey: e.target.value })}
                           className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"
                         />
@@ -531,7 +531,7 @@ export const McpSkillsView: React.FC<Props> = ({
                         onClick={() => void handleSaveMcpCreds(srv.id)}
                         className="px-3 py-1.5 text-xs font-medium bg-slate-800 text-white rounded"
                       >
-                        Hitelesítési adatok mentése
+                        {tx('Hitelesítési adatok mentése')}
                       </button>
                     </div>
                   )}
@@ -553,17 +553,17 @@ export const McpSkillsView: React.FC<Props> = ({
                 type="text"
                 value={mcpName}
                 onChange={(e) => setMcpName(e.target.value)}
-                placeholder="Új MCP neve"
+                placeholder={tx('Új MCP neve')}
                 className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
               />
               <select
                 value={mcpTransport}
                 onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
-                aria-label="MCP transport"
+                aria-label={tx('MCP átvitel')}
                 className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white font-mono"
               >
                 <option value="http">HTTP / JSON-RPC</option>
-                <option value="stdio">Lokális stdio</option>
+                <option value="stdio">{tx('Lokális stdio')}</option>
               </select>
               {mcpTransport === 'http' ? (
                 <>
@@ -579,9 +579,9 @@ export const McpSkillsView: React.FC<Props> = ({
                     onChange={(e) => setMcpAuth(e.target.value as McpAuthType)}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
                   >
-                    <option value="none">Nincs auth</option>
-                    <option value="apikey">API Kulcs</option>
-                    <option value="basic">Felhasználó + Jelszó</option>
+                    <option value="none">{tx('Nincs auth')}</option>
+                    <option value="apikey">{tx('API Kulcs')}</option>
+                    <option value="basic">{tx('Felhasználó + Jelszó')}</option>
                     <option value="oauth2">OAuth2</option>
                   </select>
                 </>
@@ -591,14 +591,14 @@ export const McpSkillsView: React.FC<Props> = ({
                     type="text"
                     value={mcpCommand}
                     onChange={(e) => setMcpCommand(e.target.value)}
-                    placeholder="Parancs (pl. npx)"
+                    placeholder={tx('Parancs (pl. npx)')}
                     className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
                   />
                   <input
                     type="text"
                     value={mcpArgs}
                     onChange={(e) => setMcpArgs(e.target.value)}
-                    placeholder="Argok (pl. -y @mcp/server)"
+                    placeholder={tx('Argok (pl. -y @mcp/server)')}
                     className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
                   />
                 </>
@@ -609,7 +609,7 @@ export const McpSkillsView: React.FC<Props> = ({
               className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
             >
               <Plus className="h-3.5 w-3.5" />
-              MCP Felvétel
+              {t('mcpAddBtn')}
             </button>
           </form>
         </div>
@@ -617,7 +617,7 @@ export const McpSkillsView: React.FC<Props> = ({
         {/* Right: External Catalog & Dynamic Sandbox-Verified Skill Factory */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="text-base font-semibold text-slate-900">Külső Gyűjtemény Import</h3>
+            <h3 className="text-base font-semibold text-slate-900">{t('mcpCatalogTitle')}</h3>
             <form onSubmit={handleImportCatalog} className="flex gap-2">
               <input
                 type="url"
@@ -631,7 +631,7 @@ export const McpSkillsView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
               >
                 <Download className="h-3.5 w-3.5" />
-                Betöltés
+                {t('mcpLoadBtn')}
               </button>
             </form>
             {catalogErr && <div className="text-xs text-red-700">{catalogErr}</div>}
@@ -653,18 +653,18 @@ export const McpSkillsView: React.FC<Props> = ({
                   }}
                   className="px-2.5 py-1 text-xs bg-slate-900 text-white rounded"
                 >
-                  Telepítés
+                  {tx('Telepítés')}
                 </button>
               </div>
             ))}
             <div className="pt-2 border-t border-slate-200 space-y-2">
-              <div className="text-xs font-semibold text-slate-700">Autonóm MCP Képesség-Felderítés &amp; ROI Értékelés</div>
+              <div className="text-xs font-semibold text-slate-700">{t('mcpAutonomousDiscoveryTitle')}</div>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={mcpDiscoveryQuery}
                   onChange={(e) => setMcpDiscoveryQuery(e.target.value)}
-                  placeholder="Keresett képesség (pl. naptár, postgres, github)..."
+                  placeholder={t('mcpDiscoveryPlaceholder')}
                   className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
                 />
                 <button
@@ -673,7 +673,7 @@ export const McpSkillsView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white hover:bg-slate-50 rounded-lg whitespace-nowrap shrink-0"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Felderítés &amp; ROI
+                  {t('mcpDiscoveryBtn')}
                 </button>
               </div>
               {mcpRoiMsg && <div className="text-[11px] font-mono text-slate-700">{mcpRoiMsg}</div>}
@@ -682,21 +682,21 @@ export const McpSkillsView: React.FC<Props> = ({
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <h3 className="text-base font-semibold text-slate-900">
-              Skill Gyár (Sandbox Ellenőrzés, Önteszt &amp; Buktatók)
+              {t('skillFactoryTitle')}
             </h3>
             <form onSubmit={handleCreateSkill} className="space-y-2">
               <input
                 type="text"
                 value={skillName}
                 onChange={(e) => setSkillName(e.target.value)}
-                placeholder="Skill neve"
+                placeholder={tx('Skill neve')}
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
               />
               <input
                 type="text"
                 value={skillDesc}
                 onChange={(e) => setSkillDesc(e.target.value)}
-                placeholder="Rövid leírás"
+                placeholder={tx('Rövid leírás')}
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded"
               />
               <textarea
@@ -709,20 +709,20 @@ export const McpSkillsView: React.FC<Props> = ({
                 rows={2}
                 value={skillTestCode}
                 onChange={(e) => setSkillTestCode(e.target.value)}
-                placeholder="Opcionális automatikus egységteszt (üresen hagyva automatikusan generálódik)..."
+                placeholder={t('skillTestCodePlaceholder')}
                 className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
               <button
                 type="submit"
                 className="w-full px-3 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
-                Dry-Run Sandbox + Egységteszt &amp; Aktiválás
+                {t('skillCreateAndTestBtn')}
               </button>
             </form>
 
             {/* Ú60: GitHub Skill Import + Static Security Scan */}
             <div className="pt-2 border-t border-slate-200 space-y-2">
-              <div className="text-xs font-semibold text-slate-700">GitHub Képesség Biztonsági Ellenőrzés &amp; Import</div>
+              <div className="text-xs font-semibold text-slate-700">{t('skillGithubImportTitle')}</div>
               <div className="flex gap-2">
                 <input
                   type="url"
@@ -735,7 +735,7 @@ export const McpSkillsView: React.FC<Props> = ({
                   type="button"
                   onClick={async () => {
                     if (!ghSkillUrl.trim()) return;
-                    setGhSkillMsg('Biztonsági ellenőrzés fut...');
+                    setGhSkillMsg(tx('Biztonsági ellenőrzés fut...'));
                     const r = await fetch('/api/skills/import-github', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -748,16 +748,16 @@ export const McpSkillsView: React.FC<Props> = ({
                       skill?: { name: string };
                     };
                     if (!r.ok) {
-                      setGhSkillMsg(`ELUTASÍTVA: ${d.error || ''} ${(d.findings || []).join(' | ')}`);
+                      setGhSkillMsg(tx('ELUTASÍTVA: {0} {1}', d.error || '', (d.findings || []).join(' | ')));
                     } else {
-                      setGhSkillMsg(`Importálva és jóváhagyva: ${d.skill?.name}`);
+                      setGhSkillMsg(tx('Importálva és jóváhagyva: {0}', d.skill?.name || ''));
                       setGhSkillUrl('');
                       await onRefreshState();
                     }
                   }}
                   className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
                 >
-                  Import & Audit
+                  {t('skillImportAuditBtn')}
                 </button>
               </div>
               {ghSkillMsg && <div className="text-[11px] font-mono text-slate-700">{ghSkillMsg}</div>}
@@ -769,10 +769,10 @@ export const McpSkillsView: React.FC<Props> = ({
                   <div className="flex flex-wrap justify-between items-center gap-2 font-semibold">
                     <span>{sk.name}</span>
                     <span className="font-mono tabular-nums flex items-center gap-2">
-                      <span className="text-slate-500">használat: {sk.usageCount ?? 0}</span>
+                      <span className="text-slate-500">{tx('használat:')} {sk.usageCount ?? 0}</span>
                       {sk.testPassed !== undefined && (
                         <span className={sk.testPassed ? 'text-emerald-700' : 'text-red-700'}>
-                          teszt: {sk.testPassed ? 'OK' : 'HIBA'}
+                          {t('skillSelfTestBtn')}: {sk.testPassed ? 'OK' : tx('hiba').toUpperCase()}
                         </span>
                       )}
                       <span className={sk.status === 'verified' ? 'text-emerald-700' : 'text-red-700'}>
@@ -783,7 +783,7 @@ export const McpSkillsView: React.FC<Props> = ({
                         onClick={() => void handleRunSkillSelfTest(sk.id)}
                         className="px-2 py-0.5 text-[10px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
                       >
-                        Önteszt
+                        {t('skillSelfTestBtn')}
                       </button>
                     </span>
                   </div>
@@ -798,9 +798,9 @@ export const McpSkillsView: React.FC<Props> = ({
                     <div className="space-y-1 pt-1 border-t border-slate-200">
                       <div className="text-[11px] font-semibold text-amber-800 flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
-                        Buktatók (tanult hibák)
+                        {tx('Buktatók (tanult hibák)')}
                       </div>
-                      <ul className="list-disc pl-4 text-[11px] text-slate-700 space-y-0.5">
+                      <ul className="list-disc ps-4 text-[11px] text-slate-700 space-y-0.5">
                         {sk.pitfalls.map((p, i) => (
                           <li key={i}>{p}</li>
                         ))}
@@ -813,7 +813,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       type="text"
                       value={pitfallDrafts[sk.id] || ''}
                       onChange={(e) => setPitfallDrafts((prev) => ({ ...prev, [sk.id]: e.target.value }))}
-                      placeholder="Új buktató / tanulság rögzítése..."
+                      placeholder={tx('Új buktató / tanulság rögzítése...')}
                       className="flex-1 px-2 py-1 text-[11px] border border-slate-300 rounded bg-white"
                     />
                     <button
@@ -821,7 +821,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       onClick={() => void handleAddPitfall(sk.id)}
                       className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
                     >
-                      Mentés
+                      {tx('Mentés')}
                     </button>
                   </div>
                 </div>
@@ -836,14 +836,14 @@ export const McpSkillsView: React.FC<Props> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
           <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
             <Globe className="h-4 w-4 text-slate-700" />
-            Élő Web Keresés (DuckDuckGo / SearXNG / Brave)
+            {t('webSearchTitle')}
           </h3>
           <form onSubmit={handleWebSearch} className="flex gap-2">
             <input
               type="text"
               value={webQuery}
               onChange={(e) => setWebQuery(e.target.value)}
-              placeholder="Webes keresőkifejezés tesztelése..."
+              placeholder={tx('Webes keresőkifejezés tesztelése...')}
               className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <button
@@ -851,11 +851,11 @@ export const McpSkillsView: React.FC<Props> = ({
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
             >
               <Search className="h-3.5 w-3.5" />
-              Keresés
+              {tx('Keresés')}
             </button>
           </form>
           {webSearchProvider && (
-            <div className="text-[11px] font-mono text-slate-500">Motor: {webSearchProvider} · {webResults.length} találat</div>
+            <div className="text-[11px] font-mono text-slate-500">{tx('Motor:')} {webSearchProvider} · {webResults.length} {tx('találat')}</div>
           )}
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {webResults.map((r, i) => (
@@ -874,10 +874,10 @@ export const McpSkillsView: React.FC<Props> = ({
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Monitor className="h-4 w-4 text-slate-700" />
-              Headless Böngésző & Képernyőkép
+              {t('headlessBrowserTitle')}
             </h3>
             <span className="text-[11px] font-mono text-slate-500">
-              {browserInfo ? (browserInfo.available ? `Chromium: ${browserInfo.binary}` : 'Chromium nem telepített') : '...'}
+              {browserInfo ? (browserInfo.available ? `Chromium: ${browserInfo.binary}` : tx('Chromium nem telepített')) : '...'}
             </span>
           </div>
           <div className="flex gap-2">
@@ -894,7 +894,7 @@ export const McpSkillsView: React.FC<Props> = ({
               onClick={() => void handleBrowserAction('inspect')}
               className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
-              DOM Olvasás
+              {tx('DOM Olvasás')}
             </button>
             <button
               type="button"
@@ -902,7 +902,7 @@ export const McpSkillsView: React.FC<Props> = ({
               onClick={() => void handleBrowserAction('screenshot')}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              Screenshot
+              {tx('Képernyőkép')}
             </button>
           </div>
           {browserOut && (
@@ -912,7 +912,7 @@ export const McpSkillsView: React.FC<Props> = ({
               {browserOut.screenshotBase64 && (
                 <img
                   src={`data:image/png;base64,${browserOut.screenshotBase64}`}
-                  alt="Headless browser capture"
+                  alt={tx('Headless böngésző képernyőkép')}
                   className="max-h-36 rounded border border-slate-200"
                 />
               )}
@@ -932,7 +932,7 @@ export const McpSkillsView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Radio className="h-4 w-4 text-slate-600" />
-              Csatorna Csatlakozók (Discord · Slack · Webhook)
+              {t('channelConnectorsTitle')}
             </h3>
             <button
               type="button"
@@ -940,7 +940,7 @@ export const McpSkillsView: React.FC<Props> = ({
               className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-slate-300 bg-white rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
               <RefreshCw className="h-3 w-3" />
-              Csatornák Poll Most
+              {tx('Csatornák Poll Most')}
             </button>
           </div>
 
@@ -958,14 +958,14 @@ export const McpSkillsView: React.FC<Props> = ({
               type="text"
               value={chName}
               onChange={(e) => setChName(e.target.value)}
-              placeholder="Csatorna neve"
+              placeholder={tx('Csatorna neve')}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <input
               type="url"
               value={chWebhook}
               onChange={(e) => setChWebhook(e.target.value)}
-              placeholder="Kimenő Webhook URL"
+              placeholder={tx('Kimenő Webhook URL')}
               className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <button
@@ -973,13 +973,13 @@ export const McpSkillsView: React.FC<Props> = ({
               className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
             >
               <Plus className="h-3.5 w-3.5" />
-              Hozzáadás
+              {tx('Hozzáadás')}
             </button>
             <input
               type="password"
               value={chSecret}
               onChange={(e) => setChSecret(e.target.value)}
-              placeholder="Bearer / Signing Secret (opcionális)"
+              placeholder={tx('Bearer / Signing Secret (opcionális)')}
               className="sm:col-span-3 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <select
@@ -987,7 +987,7 @@ export const McpSkillsView: React.FC<Props> = ({
               onChange={(e) => setChAgentId(e.target.value)}
               className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
             >
-              <option value="">Alapértelmezett ágens (koordinátor)</option>
+              <option value="">{tx('Alapértelmezett ágens (koordinátor)')}</option>
               {workerAgents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -1000,7 +1000,7 @@ export const McpSkillsView: React.FC<Props> = ({
 
           <div className="space-y-2 max-h-[280px] overflow-y-auto">
             {channelConnectors.length === 0 ? (
-              <p className="text-xs text-slate-500">Nincs beállított Discord, Slack vagy Webhook csatlakozó.</p>
+              <p className="text-xs text-slate-500">{tx('Nincs beállított Discord, Slack vagy Webhook csatlakozó.')}</p>
             ) : (
               channelConnectors.map((c) => {
                 const draft = pollForm[c.id] || {
@@ -1014,7 +1014,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       <div>
                         <span className="font-mono uppercase font-semibold text-slate-700">[{c.type}]</span>{' '}
                         <span className="font-semibold text-slate-900">{c.name}</span>
-                        {c.pollingEnabled && <span className="ml-2 font-mono text-emerald-700">· Polling BE</span>}
+                        {c.pollingEnabled && <span className="ms-2 font-mono text-emerald-700">{tx('· Polling BE')}</span>}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -1022,12 +1022,12 @@ export const McpSkillsView: React.FC<Props> = ({
                           onClick={() => void handleTestChannel(c.id)}
                           className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
                         >
-                          Teszt küldés
+                          {tx('Teszt küldés')}
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleDeleteChannel(c.id)}
-                          aria-label={`Delete connector ${c.name}`}
+                          aria-label={tx('Csatlakozó törlése: {0}', c.name)}
                           className="text-slate-400 hover:text-red-600"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1035,7 +1035,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       </div>
                     </div>
                     <div className="font-mono text-[11px] text-slate-500 truncate">
-                      Bejövő endpoint: <span className="text-slate-700">/api/channels/inbound/{c.id}</span>
+                      {tx('Bejövő endpoint:')} <span className="text-slate-700">/api/channels/inbound/{c.id}</span>
                     </div>
                     {(c.type === 'discord' || c.type === 'slack') && (
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5 pt-1 border-t border-slate-200">
@@ -1048,7 +1048,7 @@ export const McpSkillsView: React.FC<Props> = ({
                               [c.id]: { ...draft, channelId: e.target.value },
                             }))
                           }
-                          placeholder="Csatorna ID"
+                          placeholder={tx('Csatorna ID')}
                           className="px-2 py-1 text-[11px] font-mono border border-slate-300 rounded bg-white"
                         />
                         <input
@@ -1060,7 +1060,7 @@ export const McpSkillsView: React.FC<Props> = ({
                               [c.id]: { ...draft, botToken: e.target.value },
                             }))
                           }
-                          placeholder={c.botTokenConfigured ? 'Új Bot Token...' : 'Bot Token'}
+                          placeholder={c.botTokenConfigured ? tx('Új Bot Token...') : 'Bot Token'}
                           className="px-2 py-1 text-[11px] border border-slate-300 rounded bg-white"
                         />
                         <label className="inline-flex items-center gap-1 text-[11px] cursor-pointer px-1">
@@ -1074,14 +1074,14 @@ export const McpSkillsView: React.FC<Props> = ({
                               }))
                             }
                           />
-                          2-irányú Poll
+                          {tx('2-irányú Poll')}
                         </label>
                         <button
                           type="button"
                           onClick={() => void handleSaveChannelPolling(c)}
                           className="px-2 py-1 text-[11px] font-medium bg-slate-800 text-white rounded"
                         >
-                          Poll Mentés
+                          {tx('Poll Mentés')}
                         </button>
                       </div>
                     )}
@@ -1097,17 +1097,17 @@ export const McpSkillsView: React.FC<Props> = ({
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-slate-600" />
-              Párosítási Sor ({pendingPairings.length} függő)
+              {t('pairingQueueTitle')} ({pendingPairings.length} {tx('függő)')}
             </h3>
-            <span className="text-[11px] font-mono text-slate-500">/pairing approve KÓD</span>
+            <span className="text-[11px] font-mono text-slate-500">/pairing approve {tx('KÓD')}</span>
           </div>
           <p className="text-xs text-slate-500">
-            Ismeretlen külső feladók (Telegram / Discord / Slack / Webhook) 6 jegyű párosítási kódot kapnak, amíg jóvá nem hagyod őket.
+            {tx('Ismeretlen külső feladók (Telegram / Discord / Slack / Webhook) 6 jegyű párosítási kódot kapnak, amíg jóvá nem hagyod őket.')}
           </p>
 
           <div className="space-y-2 max-h-[260px] overflow-y-auto">
             {pairingRequests.length === 0 ? (
-              <p className="text-xs text-slate-500 py-4 text-center">Még nincs párosítási kérelem.</p>
+              <p className="text-xs text-slate-500 py-4 text-center">{tx('Még nincs párosítási kérelem.')}</p>
             ) : (
               pairingRequests.map((p) => (
                 <div
@@ -1123,7 +1123,7 @@ export const McpSkillsView: React.FC<Props> = ({
                       [{p.channel.toUpperCase()}] {p.senderLabel}
                     </div>
                     <div className="font-mono text-[11px] text-slate-600">
-                      Kód: <span className="font-bold">{p.code}</span> · Állapot: {p.status}
+                      {tx('Kód:')} <span className="font-bold">{p.code}</span> {tx('· Állapot:')} {p.status}
                     </div>
                   </div>
                   {p.status === 'pending' && (
@@ -1134,7 +1134,7 @@ export const McpSkillsView: React.FC<Props> = ({
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-emerald-700 text-white rounded"
                       >
                         <Check className="h-3 w-3" />
-                        Jóváhagyás
+                        {tx('Jóváhagyás')}
                       </button>
                       <button
                         type="button"
@@ -1142,7 +1142,7 @@ export const McpSkillsView: React.FC<Props> = ({
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-red-700 text-white rounded"
                       >
                         <X className="h-3 w-3" />
-                        Tiltás
+                        {tx('Tiltás')}
                       </button>
                     </div>
                   )}

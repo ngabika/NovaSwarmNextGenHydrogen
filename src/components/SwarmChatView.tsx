@@ -45,10 +45,10 @@ import type {
   Settings,
   UnifiedMessage,
 } from '../../shared/types';
-import { speakBrowserTts, SUPPORTED_LANGUAGES, tr } from '../locales/translations';
+import { speakBrowserTts, SUPPORTED_LANGUAGES, useLocale } from '../locales/translations';
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   agents: Agent[];
   threads: ChatThread[];
   messages: UnifiedMessage[];
@@ -74,6 +74,8 @@ export const SwarmChatView: React.FC<Props> = ({
   externalDraft,
   onRefreshState,
 }) => {
+  const { lang, t, tx, intlLocale } = useLocale();
+  const activeLang = language || lang;
   const [selectedThreadId, setSelectedThreadId] = useState<string>(threads[0]?.id || 'thread-main');
   const [viewMode, setViewMode] = useState<'summary' | 'team'>('summary');
   const [rightTab, setRightTab] = useState<'kanban' | 'ideas' | 'artifacts'>('kanban');
@@ -106,7 +108,7 @@ export const SwarmChatView: React.FC<Props> = ({
   const [workerRunning, setWorkerRunning] = useState(false);
   const [workerMsg, setWorkerMsg] = useState<string | null>(null);
   const [newThreadTitle, setNewThreadTitle] = useState('');
-  const [newThreadFolder, setNewThreadFolder] = useState('Általános');
+  const [newThreadFolder, setNewThreadFolder] = useState(tx('Általános'));
   const [newThreadIsolation, setNewThreadIsolation] = useState<SessionIsolationMode>('sandboxed');
 
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -189,7 +191,7 @@ export const SwarmChatView: React.FC<Props> = ({
       const commaIdx = result.indexOf(',');
       if (commaIdx === -1) return;
       const base64 = result.slice(commaIdx + 1);
-      setMediaNotice('Hanganyag átírása folyamatban...');
+      setMediaNotice(tx('Hanganyag átírása folyamatban...'));
       try {
         const res = await fetch('/api/media/transcribe', {
           method: 'POST',
@@ -197,19 +199,19 @@ export const SwarmChatView: React.FC<Props> = ({
           body: JSON.stringify({
             mimeType: file.type || 'audio/webm',
             dataBase64: base64,
-            languageHint: language,
+            languageHint: activeLang,
           }),
         });
         const data = (await res.json()) as { text?: string; error?: string };
         if (data.text) {
           setInput((prev) => (prev ? `${prev} ${data.text}` : data.text || ''));
           setUsedVoiceInput(true);
-          setMediaNotice('Hang átírva a szövegmezőbe.');
+          setMediaNotice(tx('Hang átírva a szövegmezőbe.'));
         } else {
-          setMediaNotice(data.error || 'Hangátírás sikertelen.');
+          setMediaNotice(data.error || tx('Hangátírás sikertelen.'));
         }
       } catch (err) {
-        setMediaNotice(err instanceof Error ? err.message : 'Hálózati hiba');
+        setMediaNotice(err instanceof Error ? err.message : tx('Hálózati hiba'));
       }
     };
     reader.readAsDataURL(file);
@@ -234,7 +236,7 @@ export const SwarmChatView: React.FC<Props> = ({
       (window as unknown as { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
     if (!SpeechRec) return;
     const rec = new SpeechRec();
-    rec.lang = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.speechLocale || 'hu-HU';
+    rec.lang = SUPPORTED_LANGUAGES.find((l) => l.code === activeLang)?.speechLocale || intlLocale;
     rec.interimResults = false;
     setListening(true);
     rec.onresult = (ev: { results?: ArrayLike<ArrayLike<{ transcript?: string }>> }) => {
@@ -263,7 +265,7 @@ export const SwarmChatView: React.FC<Props> = ({
     const rec = new SpeechRec();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.speechLocale || 'hu-HU';
+    rec.lang = SUPPORTED_LANGUAGES.find((l) => l.code === activeLang)?.speechLocale || intlLocale;
     const wakePhrase = (settings.wakeWordPhrase || 'szia nova').toLowerCase();
 
     rec.onresult = (ev: { results?: ArrayLike<ArrayLike<{ transcript?: string }>> }) => {
@@ -303,14 +305,14 @@ export const SwarmChatView: React.FC<Props> = ({
         // ignore
       }
     };
-  }, [settings.wakeWordEnabled, settings.wakeWordPhrase, language, listening]);
+  }, [settings.wakeWordEnabled, settings.wakeWordPhrase, activeLang, intlLocale, listening]);
 
   const handleSendStream = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!input.trim() && attachments.length === 0) || sending) return;
     const wasVoice = usedVoiceInput;
     const outboundAttachments = [...attachments];
-    const promptText = input.trim() || 'Elemezd a mellékelt képet.';
+    const promptText = input.trim() || tx('Elemezd a mellékelt képet.');
     setSending(true);
     setStreamingText('');
     setInput('');
@@ -360,7 +362,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 } else if (currentEvent === 'done') {
                   replyData = payload;
                 } else if (currentEvent === 'error' && payload.error) {
-                  setMediaNotice(`Stream hiba: ${payload.error}`);
+                  setMediaNotice(tx('Stream hiba: {0}', payload.error));
                 }
               } catch {
                 // ignore partial line
@@ -379,7 +381,7 @@ export const SwarmChatView: React.FC<Props> = ({
         const mode = responder?.voiceReplyMode || 'always';
         const shouldSpeak = continuousVoice || mode === 'always' || (mode === 'on_voice' && wasVoice);
         if (shouldSpeak) {
-          speakBrowserTts(finalText, language);
+          speakBrowserTts(finalText, activeLang);
           if (continuousVoice) {
             setTimeout(() => handleVoiceDictate(), 900);
           }
@@ -387,7 +389,7 @@ export const SwarmChatView: React.FC<Props> = ({
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        setMediaNotice(err instanceof Error ? err.message : 'Küldési hiba');
+        setMediaNotice(err instanceof Error ? err.message : tx('Küldési hiba'));
       }
     } finally {
       abortRef.current = null;
@@ -414,7 +416,7 @@ export const SwarmChatView: React.FC<Props> = ({
         setInput('');
       } else {
         const d = (await res.json()) as { error?: string };
-        setMediaNotice(d.error || 'Konzilium hiba');
+        setMediaNotice(d.error || tx('Konzilium hiba'));
       }
       await onRefreshState();
     } finally {
@@ -434,7 +436,7 @@ export const SwarmChatView: React.FC<Props> = ({
       });
       if (!res.ok) {
         const d = (await res.json()) as { error?: string };
-        setMediaNotice(d.error || 'Red-Team elemzés hiba');
+        setMediaNotice(d.error || tx('Red-Team elemzés hiba'));
       }
       await onRefreshState();
     } finally {
@@ -449,11 +451,11 @@ export const SwarmChatView: React.FC<Props> = ({
       body: JSON.stringify({ threadId: selectedThreadId, messageId }),
     });
     if (res.ok) {
-      setMediaNotice('Beszélgetés visszapörgetve ehhez az állapothoz.');
+      setMediaNotice(tx('Beszélgetés visszapörgetve ehhez az állapothoz.'));
       await onRefreshState();
     } else {
       const d = (await res.json()) as { error?: string };
-      setMediaNotice(d.error || 'Visszapörgetés hiba');
+      setMediaNotice(d.error || tx('Visszapörgetés hiba'));
     }
   };
 
@@ -461,7 +463,7 @@ export const SwarmChatView: React.FC<Props> = ({
     const prompt = input.trim();
     if (!prompt || imgBusy) return;
     setImgBusy(true);
-    setMediaNotice('Képgenerálás folyamatban...');
+    setMediaNotice(tx('Képgenerálás folyamatban...'));
     try {
       const res = await fetch('/api/media/generate-image', {
         method: 'POST',
@@ -470,10 +472,10 @@ export const SwarmChatView: React.FC<Props> = ({
       });
       const data = (await res.json()) as { artifact?: MediaArtifact; error?: string };
       if (!res.ok || !data.artifact) {
-        setMediaNotice(data.error || 'Képgenerálás sikertelen');
+        setMediaNotice(data.error || tx('Képgenerálás sikertelen'));
         return;
       }
-      setMediaNotice(`Kép elkészült: ${data.artifact.title}`);
+      setMediaNotice(tx('Kép elkészült: {0}', data.artifact.title));
       setSelectedArtifactId(data.artifact.id);
       setRightTab('artifacts');
       await onRefreshState();
@@ -504,8 +506,8 @@ export const SwarmChatView: React.FC<Props> = ({
       const data = (await res.json()) as { worked: boolean; reason?: string; cardId?: string; status?: string };
       setWorkerMsg(
         data.worked
-          ? `Feladat végrehajtva: ${data.cardId} (${data.status || 'done'})`
-          : data.reason || 'Nincs várakozó feladat.'
+          ? tx('Feladat végrehajtva: {0} ({1})', data.cardId || '', data.status || tx('kész'))
+          : data.reason || tx('Nincs várakozó feladat.')
       );
       await onRefreshState();
     } finally {
@@ -577,7 +579,7 @@ export const SwarmChatView: React.FC<Props> = ({
       method: card.worktreePath ? 'DELETE' : 'POST',
     });
     const data = (await res.json()) as { message?: string; error?: string };
-    setWorkerMsg(data.message || data.error || 'Worktree frissítve.');
+    setWorkerMsg(data.message || data.error || tx('Worktree frissítve.'));
     await onRefreshState();
   };
 
@@ -590,7 +592,7 @@ export const SwarmChatView: React.FC<Props> = ({
     const data = (await res.json()) as { thread?: ChatThread; error?: string };
     if (data.thread) {
       setSelectedThreadId(data.thread.id);
-      setMediaNotice(`Új elágazó szál létrehozva: ${data.thread.title}`);
+      setMediaNotice(tx('Új elágazó szál létrehozva: {0}', data.thread.title));
       await onRefreshState();
     } else if (data.error) {
       setMediaNotice(data.error);
@@ -600,7 +602,7 @@ export const SwarmChatView: React.FC<Props> = ({
   const handleRegenerateLast = async () => {
     if (regenerating || sending) return;
     setRegenerating(true);
-    setMediaNotice('Utolsó válasz újragenerálása...');
+    setMediaNotice(tx('Utolsó válasz újragenerálása...'));
     try {
       const res = await fetch('/api/chat/regenerate', {
         method: 'POST',
@@ -608,8 +610,8 @@ export const SwarmChatView: React.FC<Props> = ({
         body: JSON.stringify({ threadId: selectedThreadId, preset }),
       });
       const d = (await res.json()) as { error?: string };
-      if (!res.ok) setMediaNotice(d.error || 'Újragenerálás sikertelen.');
-      else setMediaNotice('Utolsó válasz sikeresen újragenerálva.');
+      if (!res.ok) setMediaNotice(d.error || tx('Újragenerálás sikertelen.'));
+      else setMediaNotice(tx('Utolsó válasz sikeresen újragenerálva.'));
       await onRefreshState();
     } finally {
       setRegenerating(false);
@@ -711,7 +713,7 @@ export const SwarmChatView: React.FC<Props> = ({
   const renderKanbanCard = (card: KanbanCard) => {
     const ageHours = Math.floor((Date.now() - Date.parse(card.updatedAt)) / 3_600_000);
     const isAged = card.status !== 'done' && ageHours >= agingHours;
-    const assigneeName = agents.find((a) => a.id === card.assignedAgentId)?.name || 'Nincs felelős';
+    const assigneeName = agents.find((a) => a.id === card.assignedAgentId)?.name || tx('Nincs felelős');
     const blockingCards = (card.blockedBy || [])
       .map((bid) => kanban.find((k) => k.id === bid))
       .filter((k): k is KanbanCard => Boolean(k && k.status !== 'done'));
@@ -729,21 +731,21 @@ export const SwarmChatView: React.FC<Props> = ({
             <div className="text-[11px] font-mono text-slate-500">
               {card.priority || 'medium'} · {assigneeName}
               {card.sprintName ? ` · sprint:${card.sprintName}` : ''}
-              {typeof card.estimatedMinutes === 'number' ? ` · ${card.actualMinutes ?? 0}/${card.estimatedMinutes}p` : ''}
+              {typeof card.estimatedMinutes === 'number' ? ` · ${tx('{0}/{1} perc', card.actualMinutes ?? 0, card.estimatedMinutes)}` : ''}
               {card.gitBranch ? ` · git:${card.gitBranch}` : ''}
               {card.worktreePath ? ` · wt:${card.worktreePath}` : ''}
-              {isAged ? ` · BEAKADVA (${ageHours}h)` : ''}
+              {isAged ? ` ${tx('· BEAKADVA ({0}h)', ageHours)}` : ''}
             </div>
             {blockingCards.length > 0 && (
               <div className="text-[11px] font-mono text-amber-800">
-                Blokkolva: {blockingCards.map((b) => b.title).join(', ')}
+                {tx('Blokkolva:')} {blockingCards.map((b) => b.title).join(', ')}
               </div>
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              title="Git Branch létrehozása / kötése ehhez a kártyához"
+              title={tx('Git Branch létrehozása / kötése ehhez a kártyához')}
               onClick={() => void handleBindBranch(card.id)}
               className="text-slate-500 hover:text-slate-900"
             >
@@ -751,7 +753,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </button>
             <button
               type="button"
-              title={card.worktreePath ? 'Külön munkamappa leválasztása' : 'Elkülönített Git munkamappa csatolása'}
+              title={card.worktreePath ? tx('Külön munkamappa leválasztása') : tx('Elkülönített Git munkamappa csatolása')}
               onClick={() => void handleToggleWorktree(card)}
               className={`px-1 py-0.5 text-[10px] font-mono border rounded ${
                 card.worktreePath ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-500 border-slate-300 hover:text-slate-900'
@@ -761,7 +763,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </button>
             <button
               type="button"
-              title="AI részfeladat-bontás"
+              title={tx('AI részfeladat-bontás')}
               onClick={() => void handleAiBreakdown(card.id)}
               className="text-slate-500 hover:text-slate-900"
             >
@@ -769,7 +771,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </button>
             <button
               type="button"
-              title={card.archived ? 'Visszaállítás' : 'Archiválás'}
+              title={card.archived ? tx('Visszaállítás') : tx('Archiválás')}
               onClick={() => void handleArchiveCard(card)}
               className="text-slate-400 hover:text-slate-700"
             >
@@ -777,7 +779,7 @@ export const SwarmChatView: React.FC<Props> = ({
             </button>
             <button
               type="button"
-              aria-label={`Delete card ${card.title}`}
+              aria-label={tx('Delete card {0}', card.title)}
               onClick={() => void handleDeleteCard(card.id)}
               className="text-slate-400 hover:text-red-600"
             >
@@ -793,7 +795,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 key={sub.id}
                 type="button"
                 onClick={() => void handleToggleSubtask(card.id, sub.id)}
-                className="flex items-center gap-1.5 text-[11px] text-left text-slate-700 hover:text-slate-900 w-full"
+                className="flex items-center gap-1.5 text-[11px] text-start text-slate-700 hover:text-slate-900 w-full"
               >
                 {sub.done ? (
                   <CheckSquare className="h-3 w-3 text-emerald-700 shrink-0" />
@@ -819,10 +821,10 @@ export const SwarmChatView: React.FC<Props> = ({
               }`}
             >
               {target === 'todo'
-                ? tr(language, 'todo')
+                ? t('todo')
                 : target === 'in_progress'
-                ? tr(language, 'inProgress')
-                : tr(language, 'done')}
+                ? t('inProgress')
+                : t('done')}
             </button>
           ))}
         </div>
@@ -860,7 +862,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 viewMode === 'summary' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              {tr(language, 'summaryView')}
+              {t('summaryView')}
             </button>
             <button
               type="button"
@@ -869,7 +871,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 viewMode === 'team' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              {tr(language, 'teamRoom')}
+              {t('teamRoom')}
             </button>
           </div>
         </div>
@@ -880,39 +882,39 @@ export const SwarmChatView: React.FC<Props> = ({
             type="text"
             value={newThreadFolder}
             onChange={(e) => setNewThreadFolder(e.target.value)}
-            placeholder="Mappa"
-            aria-label="Thread folder"
+            placeholder={tx('Mappa')}
+            aria-label={tx('Thread folder')}
             className="w-24 px-2 py-1 text-xs border border-slate-200 rounded"
           />
           <input
             type="text"
             value={newThreadTitle}
             onChange={(e) => setNewThreadTitle(e.target.value)}
-            placeholder="Új szál címe..."
-            aria-label="New thread title"
+            placeholder={tx('Új szál címe...')}
+            aria-label={tx('New thread title')}
             className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded"
           />
           <select
             value={newThreadIsolation}
             onChange={(e) => setNewThreadIsolation(e.target.value as SessionIsolationMode)}
-            aria-label="Session isolation mode"
+            aria-label={tx('Session isolation mode')}
             className="px-2 py-1 text-xs border border-slate-200 rounded bg-white"
           >
-            <option value="sandboxed">Sandboxed (Elszigetelt)</option>
-            <option value="main_host">Main Host</option>
+            <option value="sandboxed">{tx('Sandboxed (Elszigetelt)')}</option>
+            <option value="main_host">{tx('Main Host')}</option>
           </select>
           <button
             type="submit"
             className="px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
-            + Szál
+            {tx('+ Szál')}
           </button>
         </form>
 
         <div className="flex-1 p-4 space-y-4 overflow-y-auto max-h-[430px]">
           {threadMessages.length === 0 && !streamingText ? (
             <div className="text-sm text-slate-500 py-16 text-center">
-              Tiszta állapot — küldj egy üzenetet, futtass Konziliumot vagy írj /parancsot a sablonokhoz.
+              {tx('Tiszta állapot — küldj egy üzenetet, futtass Konziliumot vagy írj /parancsot a sablonokhoz.')}
             </div>
           ) : (
             threadMessages.map((m, msgIdx) => (
@@ -920,10 +922,10 @@ export const SwarmChatView: React.FC<Props> = ({
                 key={m.id}
                 className={`p-3.5 rounded-lg border ${
                   m.senderType === 'user'
-                    ? 'bg-slate-900 text-white border-slate-900 ml-8'
+                    ? 'bg-slate-900 text-white border-slate-900 ms-8'
                     : m.channel === 'swarm_internal'
-                    ? 'bg-amber-50/60 border-amber-200 text-slate-800 mr-8'
-                    : 'bg-slate-50 border-slate-200 text-slate-900 mr-8'
+                    ? 'bg-amber-50/60 border-amber-200 text-slate-800 me-8'
+                    : 'bg-slate-50 border-slate-200 text-slate-900 me-8'
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-80 mb-1.5">
@@ -931,18 +933,18 @@ export const SwarmChatView: React.FC<Props> = ({
                     {m.senderName} · {m.channel}
                     {m.modelUsed ? ` · ${m.modelUsed}` : ''}
                     {(m.inputTokens || m.outputTokens || m.latencyMs) && (
-                      <span className="font-mono font-normal ml-1.5 tabular-nums">
+                      <span className="font-mono font-normal ms-1.5 tabular-nums">
                         [{m.inputTokens ?? 0}↑/{m.outputTokens ?? 0}↓ tok{m.latencyMs ? ` · ${m.latencyMs}ms` : ''}]
                       </span>
                     )}
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono tabular-nums">
-                      {new Date(m.timestamp).toLocaleTimeString()}
+                      {new Date(m.timestamp).toLocaleTimeString(intlLocale)}
                     </span>
                     <button
                       type="button"
-                      title="Beszélgetés elágaztatása innen"
+                      title={tx('Beszélgetés elágaztatása innen')}
                       onClick={() => void handleForkFromMessage(m.id)}
                       className="hover:opacity-100 opacity-70"
                     >
@@ -950,7 +952,7 @@ export const SwarmChatView: React.FC<Props> = ({
                     </button>
                     <button
                       type="button"
-                      title="Visszapörgetés eddig az üzenetig (Time-Travel Rewind)"
+                      title={tx('Visszapörgetés eddig az üzenetig (Time-Travel Rewind)')}
                       onClick={() => void handleRewind(m.id)}
                       className="hover:opacity-100 opacity-70"
                     >
@@ -960,7 +962,7 @@ export const SwarmChatView: React.FC<Props> = ({
                       <button
                         type="button"
                         disabled={redTeamBusyId === m.id}
-                        title="Kritikai ellenőrzés (Ördög Ügyvédje)"
+                        title={tx('Kritikai ellenőrzés (Ördög Ügyvédje)')}
                         onClick={() => void handleRedTeam(m.id)}
                         className="hover:opacity-100 opacity-70 disabled:opacity-30"
                       >
@@ -971,7 +973,7 @@ export const SwarmChatView: React.FC<Props> = ({
                       <button
                         type="button"
                         disabled={regenerating}
-                        title="Utolsó válasz újragenerálása"
+                        title={tx('Utolsó válasz újragenerálása')}
                         onClick={() => void handleRegenerateLast()}
                         className="hover:opacity-100 opacity-70 disabled:opacity-30"
                       >
@@ -980,7 +982,7 @@ export const SwarmChatView: React.FC<Props> = ({
                     )}
                     <button
                       type="button"
-                      title="Másolás vágólapra"
+                      title={tx('Másolás vágólapra')}
                       onClick={() => void handleCopyMessage(m.id, m.content)}
                       className="hover:opacity-100 opacity-70"
                     >
@@ -988,8 +990,8 @@ export const SwarmChatView: React.FC<Props> = ({
                     </button>
                     <button
                       type="button"
-                      aria-label={`${tr(language, 'ttsSpeak')}: ${m.senderName}`}
-                      onClick={() => speakBrowserTts(m.content, language)}
+                      aria-label={`${t('ttsSpeak')}: ${m.senderName}`}
+                      onClick={() => speakBrowserTts(m.content, activeLang)}
                       className="hover:opacity-100 opacity-70"
                     >
                       <Volume2 className="h-3.5 w-3.5" />
@@ -1017,7 +1019,7 @@ export const SwarmChatView: React.FC<Props> = ({
                                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium border border-slate-300 bg-white text-slate-700 rounded hover:bg-slate-100 whitespace-nowrap shrink-0"
                               >
                                 <Eye className="h-3 w-3" />
-                                {isOpen ? 'Előnézet elrejtése' : 'Élő Előnézet'}
+                                {isOpen ? tx('Előnézet elrejtése') : tx('Élő Előnézet')}
                               </button>
                             </div>
                           )}
@@ -1029,7 +1031,7 @@ export const SwarmChatView: React.FC<Props> = ({
                               sandbox=""
                               srcDoc={fenceLang === 'svg' || code.trimStart().startsWith('<svg') ? `<!doctype html><html><body style="margin:8px;display:flex;justify-content:center">${code}</body></html>` : code}
                               className="w-full h-56 bg-white border border-slate-300 rounded-md"
-                              title="Élő HTML/SVG előnézet"
+                              title={tx('Élő HTML/SVG előnézet')}
                             />
                           )}
                         </div>
@@ -1040,7 +1042,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 </div>
                 {m.councilVotes && m.councilVotes.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-slate-200">
-                    <div className="text-[11px] font-semibold text-slate-700 mb-1">Csapat Szavazási Összesítő</div>
+                    <div className="text-[11px] font-semibold text-slate-700 mb-1">{tx('Csapat Szavazási Összesítő')}</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] font-mono">
                       {m.councilVotes.map((v, vi) => (
                         <div key={vi} className="p-1.5 bg-white border border-slate-200 rounded">
@@ -1061,7 +1063,7 @@ export const SwarmChatView: React.FC<Props> = ({
                         <img
                           key={idx}
                           src={`data:${att.mimeType};base64,${att.dataBase64}`}
-                          alt={att.name || `Melléklet ${idx + 1}`}
+                          alt={att.name || tx('Melléklet {0}', idx + 1)}
                           className="max-h-40 rounded-md border border-slate-200 object-contain bg-white"
                         />
                       ) : null
@@ -1082,8 +1084,8 @@ export const SwarmChatView: React.FC<Props> = ({
           )}
 
           {streamingText && (
-            <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-300 text-slate-900 mr-8 space-y-1">
-              <div className="text-xs font-mono text-slate-500">Élő válasz streamelése ({preset})...</div>
+            <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-300 text-slate-900 me-8 space-y-1">
+              <div className="text-xs font-mono text-slate-500">{tx('Élő válasz streamelése (')}{preset})...</div>
               <div className="text-sm whitespace-pre-wrap leading-relaxed">{streamingText}</div>
             </div>
           )}
@@ -1093,7 +1095,7 @@ export const SwarmChatView: React.FC<Props> = ({
         {showTplDrawer && (
           <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 space-y-2.5 text-xs">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-900">Prompt Sablonok (/parancs)</span>
+              <span className="font-semibold text-slate-900">{tx('Prompt Sablonok (/parancs)')}</span>
               <button type="button" onClick={() => setShowTplDrawer(false)} className="text-slate-500 hover:text-slate-900">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1113,7 +1115,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   </button>
                   <button
                     type="button"
-                    aria-label={`Delete template ${tpl.title}`}
+                    aria-label={tx('Delete template {0}', tpl.title)}
                     onClick={async () => {
                       await fetch(`/api/templates/${tpl.id}`, { method: 'DELETE' });
                       await onRefreshState();
@@ -1130,28 +1132,28 @@ export const SwarmChatView: React.FC<Props> = ({
                 type="text"
                 value={tplTitle}
                 onChange={(e) => setTplTitle(e.target.value)}
-                placeholder="Sablon címe"
+                placeholder={tx('Sablon címe')}
                 className="px-2 py-1 border border-slate-300 rounded bg-white"
               />
               <input
                 type="text"
                 value={tplCmd}
                 onChange={(e) => setTplCmd(e.target.value)}
-                placeholder="/parancs"
+                placeholder={tx('/parancs')}
                 className="px-2 py-1 font-mono border border-slate-300 rounded bg-white"
               />
               <input
                 type="text"
                 value={tplBody}
                 onChange={(e) => setTplBody(e.target.value)}
-                placeholder="Sablon szövege..."
+                placeholder={tx('Sablon szövege...')}
                 className="sm:col-span-2 px-2 py-1 border border-slate-300 rounded bg-white"
               />
               <button
                 type="submit"
                 className="sm:col-span-4 px-3 py-1 bg-slate-900 text-white rounded font-medium"
               >
-                + Sablon Mentése
+                {tx('+ Sablon Mentése')}
               </button>
             </form>
           </div>
@@ -1165,10 +1167,10 @@ export const SwarmChatView: React.FC<Props> = ({
                   key={tpl.id}
                   type="button"
                   onClick={() => setInput(tpl.body)}
-                  className="w-full text-left px-2 py-1 rounded hover:bg-slate-100 flex justify-between"
+                  className="w-full text-start px-2 py-1 rounded hover:bg-slate-100 flex justify-between"
                 >
                   <span className="font-mono font-semibold text-slate-900">{tpl.command}</span>
-                  <span className="text-slate-500 truncate ml-2">{tpl.title}</span>
+                  <span className="text-slate-500 truncate ms-2">{tpl.title}</span>
                 </button>
               ))}
             </div>
@@ -1177,7 +1179,7 @@ export const SwarmChatView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor="chat-target-agent" className="text-xs text-slate-500 whitespace-nowrap">
-                Címzett:
+                {tx('Címzett:')}
               </label>
               <select
                 id="chat-target-agent"
@@ -1185,7 +1187,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 onChange={(e) => setTargetAgentId(e.target.value)}
                 className="px-2.5 py-1 text-xs border border-slate-300 rounded-md bg-white"
               >
-                <option value="">Koordinátor (automatikus delegálás)</option>
+                <option value="">{tx('Koordinátor (automatikus delegálás)')}</option>
                 {userAgents.map((a) => (
                   <option key={a.id} value={a.id}>
                     @{a.name} ({a.role})
@@ -1194,14 +1196,14 @@ export const SwarmChatView: React.FC<Props> = ({
               </select>
 
               <select
-                aria-label="Execution preset"
+                aria-label={tx('Execution preset')}
                 value={preset}
                 onChange={(e) => setPreset(e.target.value as ExecutionPreset)}
                 className="px-2 py-1 text-xs border border-slate-300 rounded-md bg-white"
               >
-                <option value="fast">Gyors mód</option>
-                <option value="deep">Mély kutatás</option>
-                <option value="precise">Precíziós kód</option>
+                <option value="fast">{tx('Gyors mód')}</option>
+                <option value="deep">{tx('Mély kutatás')}</option>
+                <option value="precise">{tx('Precíziós kód')}</option>
               </select>
             </div>
 
@@ -1212,7 +1214,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   checked={continuousVoice}
                   onChange={(e) => setContinuousVoice(e.target.checked)}
                 />
-                Folyamatos hangmód
+                {tx('Folyamatos hangmód')}
               </label>
               <button
                 type="button"
@@ -1220,7 +1222,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
                 <Slash className="h-3 w-3" />
-                Sablonok ({promptTemplates.length})
+                {tx('Sablonok (')}{promptTemplates.length})
               </button>
             </div>
           </div>
@@ -1240,13 +1242,13 @@ export const SwarmChatView: React.FC<Props> = ({
                 >
                   <img
                     src={`data:${att.mimeType};base64,${att.dataBase64}`}
-                    alt={att.name || 'image'}
+                    alt={att.name || tx('Kép')}
                     className="h-6 w-6 rounded object-cover"
                   />
-                  <span className="max-w-[120px] truncate text-slate-700">{att.name || 'Kép'}</span>
+                  <span className="max-w-[120px] truncate text-slate-700">{att.name || tx('Kép')}</span>
                   <button
                     type="button"
-                    aria-label="Melléklet eltávolítása"
+                    aria-label={tx('Melléklet eltávolítása')}
                     onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
                     className="text-slate-500 hover:text-red-600"
                   >
@@ -1283,8 +1285,8 @@ export const SwarmChatView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              title="Kép csatolása (Vision)"
-              aria-label="Kép csatolása"
+              title={tx('Kép csatolása (Vision)')}
+              aria-label={tx('Kép csatolása')}
               className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
             >
               <ImagePlus className="h-4 w-4" />
@@ -1292,8 +1294,8 @@ export const SwarmChatView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => audioInputRef.current?.click()}
-              title="Hangfájl feltöltése és átírása (STT)"
-              aria-label="Hangfájl feltöltése"
+              title={tx('Hangfájl feltöltése és átírása (STT)')}
+              aria-label={tx('Hangfájl feltöltése')}
               className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
             >
               <FileAudio className="h-4 w-4" />
@@ -1303,15 +1305,15 @@ export const SwarmChatView: React.FC<Props> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onPaste={handlePaste}
-              placeholder={tr(language, 'chatPlaceholder')}
-              aria-label="Chat message"
+              placeholder={t('chatPlaceholder')}
+              aria-label={tx('Chat message')}
               className="flex-1 min-w-[180px] px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
             <button
               type="button"
               onClick={handleVoiceDictate}
-              title="Hang diktálás (Web Speech STT)"
-              aria-label="Hang diktálás"
+              title={tx('Hang diktálás (Web Speech STT)')}
+              aria-label={tx('Hang diktálás')}
               className={`p-2 border rounded-lg ${
                 listening ? 'bg-red-600 text-white border-red-600' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
@@ -1322,8 +1324,8 @@ export const SwarmChatView: React.FC<Props> = ({
               type="button"
               disabled={!input.trim() || imgBusy}
               onClick={() => void handleGenerateImage()}
-              title="AI Képgenerálás a beírt leírásból (Artifaktba menti)"
-              aria-label="AI Képgenerálás"
+              title={tx('AI Képgenerálás a beírt leírásból (Artifaktba menti)')}
+              aria-label={tx('AI Képgenerálás')}
               className="p-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               <Wand2 className="h-4 w-4" />
@@ -1332,11 +1334,11 @@ export const SwarmChatView: React.FC<Props> = ({
               type="button"
               disabled={!input.trim() || councilRunning || sending}
               onClick={() => void handleCouncil()}
-              title="Többágenses Konzilium (párhuzamos vélemény + szintézis)"
+              title={tx('Többágenses Konzilium (párhuzamos vélemény + szintézis)')}
               className="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg text-slate-800 hover:bg-slate-50 disabled:opacity-40 whitespace-nowrap shrink-0"
             >
               <Users className="h-3.5 w-3.5" />
-              {councilRunning ? 'Konzilium...' : 'Konzilium'}
+              {councilRunning ? tx('Konzilium...') : tx('Konzilium')}
             </button>
             {sending ? (
               <button
@@ -1345,7 +1347,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-red-700 text-white rounded-lg hover:bg-red-800 whitespace-nowrap shrink-0"
               >
                 <StopCircle className="h-4 w-4" />
-                Leállítás
+                {tx('Leállítás')}
               </button>
             ) : (
               <button
@@ -1354,7 +1356,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
               >
                 <Send className="h-4 w-4" />
-                {tr(language, 'send')}
+                {t('send')}
               </button>
             )}
           </div>
@@ -1372,7 +1374,7 @@ export const SwarmChatView: React.FC<Props> = ({
                 rightTab === 'kanban' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              {tr(language, 'kanbanTitle')} ({visibleKanban.length})
+              {t('kanbanTitle')} ({visibleKanban.length})
             </button>
             <button
               type="button"
@@ -1382,7 +1384,7 @@ export const SwarmChatView: React.FC<Props> = ({
               }`}
             >
               <Lightbulb className="h-3.5 w-3.5" />
-              Ötletláda ({ideas.length})
+              {tx('Ötletláda (')}{ideas.length})
             </button>
             <button
               type="button"
@@ -1392,7 +1394,7 @@ export const SwarmChatView: React.FC<Props> = ({
               }`}
             >
               <Code2 className="h-3.5 w-3.5" />
-              Artifaktok ({artifacts.length})
+              {tx('Artifaktok (')}{artifacts.length})
             </button>
           </div>
 
@@ -1408,12 +1410,12 @@ export const SwarmChatView: React.FC<Props> = ({
               <select
                 value={swimlane}
                 onChange={(e) => setSwimlane(e.target.value as 'none' | 'priority' | 'assignee')}
-                aria-label="Kanban swimlane"
+                aria-label={tx('Kanban swimlane')}
                 className="px-2 py-1 text-[11px] border border-slate-200 rounded bg-white"
               >
-                <option value="none">Normál nézet</option>
-                <option value="priority">Swimlane: Prioritás</option>
-                <option value="assignee">Swimlane: Felelős</option>
+                <option value="none">{tx('Normál nézet')}</option>
+                <option value="priority">{tx('Swimlane: Prioritás')}</option>
+                <option value="assignee">{tx('Swimlane: Felelős')}</option>
               </select>
               <button
                 type="button"
@@ -1422,17 +1424,17 @@ export const SwarmChatView: React.FC<Props> = ({
                   showArchived ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'
                 }`}
               >
-                Archív
+                {tx('Archív')}
               </button>
               <button
                 type="button"
                 disabled={workerRunning}
                 onClick={() => void handleRunKanbanWorker()}
-                title="Autonóm Kanban Backlog Munkás azonnali futtatása"
+                title={tx('Autonóm Kanban Backlog Munkás azonnali futtatása')}
                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50"
               >
                 <Play className="h-3 w-3" />
-                Munkás Fut
+                {tx('Munkás Fut')}
               </button>
             </div>
           )}
@@ -1452,14 +1454,14 @@ export const SwarmChatView: React.FC<Props> = ({
                   type="text"
                   value={newCardTitle}
                   onChange={(e) => setNewCardTitle(e.target.value)}
-                  placeholder="Feladat címe..."
-                  aria-label="Kanban card title"
+                  placeholder={tx('Feladat címe...')}
+                  aria-label={tx('Kanban card title')}
                   className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-md"
                 />
                 <select
                   value={newCardPriority}
                   onChange={(e) => setNewCardPriority(e.target.value as KanbanPriority)}
-                  aria-label="Kanban priority"
+                  aria-label={tx('Kanban priority')}
                   className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
                 >
                   <option value="low">low</option>
@@ -1472,7 +1474,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800 whitespace-nowrap shrink-0"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  {tr(language, 'addCard')}
+                  {t('addCard')}
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1480,22 +1482,22 @@ export const SwarmChatView: React.FC<Props> = ({
                   type="text"
                   value={newCardDesc}
                   onChange={(e) => setNewCardDesc(e.target.value)}
-                  placeholder="Részletek (opcionális)..."
-                  aria-label="Kanban card description"
+                  placeholder={tx('Részletek (opcionális)...')}
+                  aria-label={tx('Kanban card description')}
                   className="px-3 py-1.5 text-xs border border-slate-200 rounded-md"
                 />
                 <select
                   value={newCardBlockedBy}
                   onChange={(e) => setNewCardBlockedBy(e.target.value)}
-                  aria-label="Előfeltétel (blocked by)"
+                  aria-label={tx('Előfeltétel (blocked by)')}
                   className="px-2 py-1.5 text-xs border border-slate-200 rounded-md bg-white"
                 >
-                  <option value="">Nincs blokkoló előfeltétel</option>
+                  <option value="">{tx('Nincs blokkoló előfeltétel')}</option>
                   {kanban
                     .filter((c) => !c.archived && c.status !== 'done')
                     .map((c) => (
                       <option key={c.id} value={c.id}>
-                        Előfeltétel: {c.title}
+                        {tx('Előfeltétel:')} {c.title}
                       </option>
                     ))}
                 </select>
@@ -1503,7 +1505,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   type="text"
                   value={newCardSprint}
                   onChange={(e) => setNewCardSprint(e.target.value)}
-                  placeholder="Sprint neve (opc.)"
+                  placeholder={tx('Sprint neve (opc.)')}
                   className="px-3 py-1.5 text-xs border border-slate-200 rounded-md"
                 />
                 <input
@@ -1511,7 +1513,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   min="0"
                   value={newCardEstMins}
                   onChange={(e) => setNewCardEstMins(e.target.value)}
-                  placeholder="Becsült idő (perc, opc.)"
+                  placeholder={tx('Becsült idő (perc, opc.)')}
                   className="px-3 py-1.5 text-xs font-mono border border-slate-200 rounded-md"
                 />
               </div>
@@ -1519,16 +1521,16 @@ export const SwarmChatView: React.FC<Props> = ({
 
             <div className="flex-1 overflow-y-auto pt-4 space-y-4 max-h-[460px]">
               {visibleKanban.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-12">{tr(language, 'kanbanEmpty')}</p>
+                <p className="text-xs text-slate-500 text-center py-12">{t('kanbanEmpty')}</p>
               ) : swimlane === 'none' ? (
                 (['todo', 'in_progress', 'done'] as KanbanStatus[]).map((statusKey) => {
                   const items = visibleKanban.filter((c) => c.status === statusKey);
                   const label =
                     statusKey === 'todo'
-                      ? tr(language, 'todo')
+                      ? t('todo')
                       : statusKey === 'in_progress'
-                      ? tr(language, 'inProgress')
-                      : tr(language, 'done');
+                      ? t('inProgress')
+                      : t('done');
                   return (
                     <div key={statusKey} className="space-y-2">
                       <div className="text-xs font-semibold text-slate-600 flex justify-between">
@@ -1546,7 +1548,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   return (
                     <div key={prio} className="space-y-2">
                       <div className="text-xs font-semibold uppercase text-slate-600 flex justify-between">
-                        <span>Prioritás: {prio}</span>
+                        <span>{tx('Prioritás:')} {prio}</span>
                         <span className="font-mono tabular-nums">{items.length}</span>
                       </div>
                       {items.map(renderKanbanCard)}
@@ -1556,11 +1558,11 @@ export const SwarmChatView: React.FC<Props> = ({
               ) : (
                 Array.from(new Set(visibleKanban.map((c) => c.assignedAgentId || 'unassigned'))).map((aid) => {
                   const items = visibleKanban.filter((c) => (c.assignedAgentId || 'unassigned') === aid);
-                  const agName = agents.find((a) => a.id === aid)?.name || 'Nincs felelős';
+                  const agName = agents.find((a) => a.id === aid)?.name || tx('Nincs felelős');
                   return (
                     <div key={aid} className="space-y-2">
                       <div className="text-xs font-semibold text-slate-600 flex justify-between">
-                        <span>Felelős: {agName}</span>
+                        <span>{tx('Felelős:')} {agName}</span>
                         <span className="font-mono tabular-nums">{items.length}</span>
                       </div>
                       {items.map(renderKanbanCard)}
@@ -1578,26 +1580,26 @@ export const SwarmChatView: React.FC<Props> = ({
                   type="text"
                   value={ideaTitle}
                   onChange={(e) => setIdeaTitle(e.target.value)}
-                  placeholder="Új ötlet címe..."
+                  placeholder={tx('Új ötlet címe...')}
                   className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-md"
                 />
                 <button
                   type="submit"
                   className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md"
                 >
-                  + Ötlet
+                  {tx('+ Ötlet')}
                 </button>
               </div>
               <input
                 type="text"
                 value={ideaDesc}
                 onChange={(e) => setIdeaDesc(e.target.value)}
-                placeholder="Ötlet leírása..."
+                placeholder={tx('Ötlet leírása...')}
                 className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-md"
               />
               <div className="flex items-center gap-4 text-[11px] text-slate-600">
                 <label className="flex items-center gap-1.5">
-                  Impact (1-5):
+                  {tx('Impact (1-5):')}
                   <input
                     type="number"
                     min="1"
@@ -1608,7 +1610,7 @@ export const SwarmChatView: React.FC<Props> = ({
                   />
                 </label>
                 <label className="flex items-center gap-1.5">
-                  Effort (1-5):
+                  {tx('Effort (1-5):')}
                   <input
                     type="number"
                     min="1"
@@ -1634,14 +1636,14 @@ export const SwarmChatView: React.FC<Props> = ({
                     ideaFilter === f ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'
                   }`}
                 >
-                  {f === 'active' ? 'Aktív' : f === 'kanban' ? 'Kanbanon' : 'Elutasítva'}
+                  {f === 'active' ? tx('Aktív') : f === 'kanban' ? tx('Kanbanon') : tx('Elutasítva')}
                 </button>
               ))}
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[380px]">
               {filteredIdeas.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-8">Nincs ötlet ebben a nézetben.</p>
+                <p className="text-xs text-slate-500 text-center py-8">{tx('Nincs ötlet ebben a nézetben.')}</p>
               ) : (
                 filteredIdeas.map((idea) => (
                   <div key={idea.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
@@ -1649,11 +1651,11 @@ export const SwarmChatView: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setExpandedIdeaId(expandedIdeaId === idea.id ? null : idea.id)}
-                        className="text-left"
+                        className="text-start"
                       >
                         <div className="text-sm font-semibold text-slate-900">{idea.title}</div>
                         <div className="text-[11px] font-mono text-slate-600">
-                          I{idea.impact}·E{idea.effort} (Score: {idea.score}) · {idea.status} · {idea.comments.length} hsz
+                          I{idea.impact}·E{idea.effort} (Score: {idea.score}) · {idea.status} · {tx('{0} hsz', idea.comments.length)}
                         </div>
                       </button>
                       {idea.status !== 'kanban' && (
@@ -1663,14 +1665,14 @@ export const SwarmChatView: React.FC<Props> = ({
                             onClick={() => void handlePromoteIdea(idea.id, true)}
                             className="px-2 py-1 text-[11px] font-medium bg-slate-900 text-white rounded"
                           >
-                            Kanban + AI
+                            {tx('Kanban + AI')}
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleIdeaStatus(idea.id, 'rejected')}
                             className="px-2 py-1 text-[11px] border border-slate-300 rounded text-slate-600"
                           >
-                            Elutasít
+                            {tx('Elutasít')}
                           </button>
                         </div>
                       )}
@@ -1690,7 +1692,7 @@ export const SwarmChatView: React.FC<Props> = ({
                             type="text"
                             value={ideaComment}
                             onChange={(e) => setIdeaComment(e.target.value)}
-                            placeholder="Megjegyzés..."
+                            placeholder={tx('Megjegyzés...')}
                             className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs"
                           />
                           <button
@@ -1698,7 +1700,7 @@ export const SwarmChatView: React.FC<Props> = ({
                             onClick={() => void handleAddIdeaComment(idea.id)}
                             className="px-2.5 py-1 bg-slate-800 text-white rounded text-xs"
                           >
-                            Küldés
+                            {tx('Küldés')}
                           </button>
                         </div>
                       </div>
@@ -1712,7 +1714,7 @@ export const SwarmChatView: React.FC<Props> = ({
           <div className="flex-1 flex flex-col pt-3 space-y-3">
             {artifacts.length === 0 ? (
               <div className="py-16 text-center text-xs text-slate-500">
-                Még nincs generált kép, SVG grafikon vagy interaktív HTML artifakt. Használd a varázspálcát a chatben vagy az SVG Generátort a Hubon.
+                {tx('Még nincs generált kép, SVG grafikon vagy interaktív HTML artifakt. Használd a varázspálcát a chatben vagy az SVG Generátort a Hubon.')}
               </div>
             ) : (
               <>
@@ -1738,7 +1740,7 @@ export const SwarmChatView: React.FC<Props> = ({
                       <span className="font-semibold text-slate-900">{selectedArtifact.title}</span>
                       <button
                         type="button"
-                        aria-label={`Delete artifact ${selectedArtifact.title}`}
+                        aria-label={tx('Delete artifact {0}', selectedArtifact.title)}
                         onClick={async () => {
                           await fetch(`/api/artifacts/${selectedArtifact.id}`, { method: 'DELETE' });
                           await onRefreshState();

@@ -12,6 +12,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { ClusterNode, NovaSwarmState } from '../../shared/types';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 export const Batch3InfraClusterPanel: React.FC<{
@@ -19,8 +20,9 @@ export const Batch3InfraClusterPanel: React.FC<{
   clusterNodes?: ClusterNode[];
   onRefreshState: () => Promise<void>;
 }> = ({ state, clusterNodes, onRefreshState }) => {
+  const { tx } = useLocale();
   const [wolMac, setWolMac] = useState('AA:BB:CC:DD:EE:FF');
-  const [wolName, setWolName] = useState('Munkaállomás');
+  const [wolName, setWolName] = useState(() => tx('Munkaállomás'));
   const [wolMsg, setWolMsg] = useState<string | null>(null);
 
   const [wgBundle, setWgBundle] = useState<{ publicKeyBase64: string; configText: string; qrSvg: string } | null>(null);
@@ -43,15 +45,15 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Power className="h-4 w-4" />
-          <span>Távoli Gép Ébresztő (WOL) &amp; WireGuard VPN</span>
+          <span>{tx('Távoli Gép Ébresztő (WOL) & WireGuard VPN')}</span>
           <InfoHint
-            label="Ébresztő és WireGuard"
-            text="Helyi hálózaton keresztül felébreszti az alvó számítógépedet, vagy biztonságos WireGuard kulcspárt és QR kódot készít telefonhoz."
+            label={tx('Ébresztő és WireGuard')}
+            text={tx('Helyi hálózaton keresztül felébreszti az alvó számítógépedet, vagy biztonságos WireGuard kulcspárt és QR kódot készít telefonhoz.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
-          <input type="text" value={wolName} onChange={(e) => setWolName(e.target.value)} placeholder="Eszköz név" className="w-32 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
-          <input type="text" value={wolMac} onChange={(e) => setWolMac(e.target.value)} placeholder="MAC cím" className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={wolName} onChange={(e) => setWolName(e.target.value)} placeholder={tx('Eszköz név')} className="w-32 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={wolMac} onChange={(e) => setWolMac(e.target.value)} placeholder={tx('MAC cím')} className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
           <button
             type="button"
             onClick={async () => {
@@ -66,7 +68,7 @@ export const Batch3InfraClusterPanel: React.FC<{
             }}
             className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            WOL Magic Packet
+            {tx('WOL Magic Packet')}
           </button>
         </div>
         {wolMsg && <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400">{wolMsg}</div>}
@@ -84,7 +86,7 @@ export const Batch3InfraClusterPanel: React.FC<{
             className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
             <KeyRound className="h-3.5 w-3.5" />
-            WireGuard X25519 Konfig + QR Generálás
+            {tx('WireGuard X25519 Konfig + QR Generálás')}
           </button>
           {wgBundle && (
             <div className="flex flex-wrap gap-3 items-start">
@@ -106,10 +108,10 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Wifi className="h-4 w-4" />
-          <span>Helyi Hálózati Eszközök, Sebességteszt &amp; Domain Ellenőrző</span>
+          <span>{tx('Helyi Hálózati Eszközök, Sebességteszt & Domain Ellenőrző')}</span>
           <InfoHint
-            label="Hálózati eszközök"
-            text="Kilistázza az otthoni router által látott eszközöket, leméri az internet sebességét és ellenőrzi egy domain tanúsítványát."
+            label={tx('Hálózati eszközök')}
+            text={tx('Kilistázza az otthoni router által látott eszközöket, leméri az internet sebességét és ellenőrzi egy domain tanúsítványát.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -123,7 +125,7 @@ export const Batch3InfraClusterPanel: React.FC<{
             className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
             <Network className="h-3.5 w-3.5" />
-            LAN ARP Tábla
+            {tx('LAN ARP Tábla')}
           </button>
           <button
             type="button"
@@ -133,12 +135,12 @@ export const Batch3InfraClusterPanel: React.FC<{
             }}
             className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            Net Sebességteszt
+            {tx('Net Sebességteszt')}
           </button>
         </div>
         {speedOut && (
           <div className="text-xs font-mono">
-            {speedOut.ok ? `Ping: ${speedOut.pingMs}ms · Letöltés: ${speedOut.downloadMbps} Mbps` : `Hiba: ${speedOut.error}`}
+            {speedOut.ok ? tx('Ping: {0}ms · Letöltés: {1} Mbps', speedOut.pingMs, speedOut.downloadMbps) : tx('Hiba: {0}', speedOut.error ?? '')}
           </div>
         )}
         {arpList.length > 0 && (
@@ -163,7 +165,7 @@ export const Batch3InfraClusterPanel: React.FC<{
             className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
             <Globe className="h-3.5 w-3.5" />
-            OSINT DNS/TLS
+            {tx('OSINT DNS/TLS')}
           </button>
         </div>
         {osintOut && <pre className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[10px] font-mono max-h-28 overflow-auto">{osintOut}</pre>}
@@ -172,10 +174,10 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Server className="h-4 w-4" />
-          <span>Többgépes Fürt &amp; Távoli AI Gépek</span>
+          <span>{tx('Többgépes Fürt & Távoli AI Gépek')}</span>
           <InfoHint
-            label="Többgépes fürt"
-            text="Ha van otthon másik erős géped vagy GPU-s szervered, itt adhatod hozzá, hogy az asszisztens megoszthassa velük a munkát."
+            label={tx('Többgépes fürt')}
+            text={tx('Ha van otthon másik erős géped vagy GPU-s szervered, itt adhatod hozzá, hogy az asszisztens megoszthassa velük a munkát.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -198,7 +200,7 @@ export const Batch3InfraClusterPanel: React.FC<{
             }}
             className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            Hozzáadás
+            {tx('Hozzáadás')}
           </button>
           <button
             type="button"
@@ -233,10 +235,10 @@ export const Batch3InfraClusterPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Database className="h-4 w-4" />
-          <span>Adatbázis Állapot, Audit Hitelesítés &amp; Mentés</span>
+          <span>{tx('Adatbázis Állapot, Audit Hitelesítés & Mentés')}</span>
           <InfoHint
-            label="Adatbázis és mentés"
-            text="Ellenőrzi a helyi SQLite adatbázist, a hamisításbiztos audit naplót, és teljes mentési pillanatképet készít."
+            label={tx('Adatbázis és mentés')}
+            text={tx('Ellenőrzi a helyi SQLite adatbázist, a hamisításbiztos audit naplót, és teljes mentési pillanatképet készít.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -245,35 +247,35 @@ export const Batch3InfraClusterPanel: React.FC<{
             onClick={async () => {
               const r = await fetch('/api/v3/sqlite-wal/status');
               const d = await r.json();
-              setWalStatus(`SQLite WAL: ${d.wal.available ? 'AKTÍV' : 'Inaktív'} · Audit sorok: ${d.wal.auditRows} · Memóriák: ${d.wal.memoryRows}`);
+              setWalStatus(tx('SQLite WAL: {0} · Audit sorok: {1} · Memóriák: {2}', d.wal.available ? tx('AKTÍV') : tx('Inaktív'), d.wal.auditRows, d.wal.memoryRows));
             }}
             className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
-            SQLite WAL Állapot
+            {tx('SQLite WAL Állapot')}
           </button>
           <button
             type="button"
             onClick={async () => {
               const r = await fetch('/api/v3/audit/verify', { method: 'POST' });
               const d = await r.json();
-              setAuditVerify(`Audit SHA-256 Lánc: ${d.valid ? 'ÉP & HITELES' : 'SÉRÜLT'} (${d.checkedEntries} bejegyzés)`);
+              setAuditVerify(tx('Audit SHA-256 Lánc: {0} ({1} bejegyzés)', d.valid ? tx('ÉP & HITELES') : tx('SÉRÜLT'), d.checkedEntries));
             }}
             className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            Audit Lánc Ellenőrzése
+            {tx('Audit Lánc Ellenőrzése')}
           </button>
           <button
             type="button"
             onClick={async () => {
               const r = await fetch('/api/v3/phoenix/snapshot', { method: 'POST' });
               const d = await r.json();
-              setPhoenixMsg(`Phoenix Snapshot kész: ${d.fileName} (${Math.round(d.sizeBytes / 1024)} KB, SHA256: ${d.sha256.slice(0, 12)}...)`);
+              setPhoenixMsg(tx('Phoenix Snapshot kész: {0} ({1} KB, SHA256: {2}...)', d.fileName, Math.round(d.sizeBytes / 1024), d.sha256.slice(0, 12)));
             }}
             className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
             <HardDriveDownload className="h-3.5 w-3.5" />
-            Phoenix Pillanatkép
+            {tx('Phoenix Pillanatkép')}
           </button>
         </div>
         {walStatus && <div className="text-xs font-mono text-slate-700 dark:text-slate-300">{walStatus}</div>}

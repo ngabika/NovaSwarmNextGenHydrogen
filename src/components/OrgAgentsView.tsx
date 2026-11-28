@@ -11,11 +11,11 @@ import type {
   ProviderId,
   VoiceReplyMode,
 } from '../../shared/types';
-import { tr } from '../locales/translations';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   agents: Agent[];
   mcpServers: McpServer[];
   kanban: KanbanCard[];
@@ -48,6 +48,7 @@ const AgentTreeNode: React.FC<{
   onRunBenchmark: (agentId: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }> = ({ agent, allAgents, mcpServers, depth, onToggle, onSavePolicy, onRunBenchmark, onDelete }) => {
+  const { tx } = useLocale();
   const children = allAgents.filter((a) => a.parentAgentId === agent.id);
   const [editingBot, setEditingBot] = useState(false);
   const [tgToken, setTgToken] = useState('');
@@ -65,7 +66,7 @@ const AgentTreeNode: React.FC<{
   };
 
   return (
-    <div className="space-y-2" style={{ marginLeft: depth > 0 ? `${Math.min(depth * 24, 96)}px` : '0px' }}>
+    <div className="space-y-2" style={{ marginInlineStart: depth > 0 ? `${Math.min(depth * 24, 96)}px` : '0px' }}>
       <div className="p-4 bg-white border border-slate-200 rounded-lg space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1">
@@ -79,14 +80,14 @@ const AgentTreeNode: React.FC<{
               <span className="text-xs text-slate-500">· {agent.role}</span>
             </div>
             <div className="text-xs text-slate-500 font-mono tabular-nums">
-              {agent.providerId} / {agent.modelId} · Mélység: {depth} · Napi költés: $
+              {agent.providerId} / {agent.modelId} {tx('· Mélység:')} {depth} {tx('· Napi költés: $')}
               {(agent.dailySpendUsd ?? 0).toFixed(4)}
               {agent.dailyBudgetUsd ? ` / $${agent.dailyBudgetUsd.toFixed(2)}` : ''}
-              {agent.telegramHasToken ? ' · Dedikált TG Bot' : ''}
-              {typeof agent.benchmarkScore === 'number' ? ` · Benchmark: ${agent.benchmarkScore}%` : ''}
+              {agent.telegramHasToken ? tx(' · Dedikált TG Bot') : ''}
+              {typeof agent.benchmarkScore === 'number' ? tx(' · Benchmark: {0}%', agent.benchmarkScore) : ''}
               {agent.allowedMcpIds && agent.allowedMcpIds.length > 0
                 ? ` · MCP:${agent.allowedMcpIds.length}`
-                : ' · MCP:Mind'}
+                : tx(' · MCP:Mind')}
             </div>
           </div>
 
@@ -100,7 +101,7 @@ const AgentTreeNode: React.FC<{
                   : 'bg-slate-50 text-slate-600 border-slate-200'
               }`}
             >
-              Web: {agent.webSearchEnabled ? 'Be' : 'Ki'}
+              Web: {agent.webSearchEnabled ? tx('Aktív') : tx('Inaktív')}
             </button>
             <button
               type="button"
@@ -111,7 +112,7 @@ const AgentTreeNode: React.FC<{
                   : 'bg-slate-50 text-slate-600 border-slate-200'
               }`}
             >
-              Host: {agent.hostExecutionEnabled ? 'Be' : 'Ki'}
+              Host: {agent.hostExecutionEnabled ? tx('Aktív') : tx('Inaktív')}
             </button>
             {!agent.isSupervisor && (
               <>
@@ -129,14 +130,14 @@ const AgentTreeNode: React.FC<{
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0 disabled:opacity-50"
                 >
                   <Gauge className="h-3.5 w-3.5" />
-                  {benchBusy ? 'Teszt...' : 'Benchmark'}
+                  {benchBusy ? `${tx('Futtatás')}...` : 'Benchmark'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingBot((v) => !v)}
                   className="px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0"
                 >
-                  Bot, MCP & Ütemezés
+                  {tx('Bot, MCP & Ütemezés')}
                 </button>
                 <button
                   type="button"
@@ -147,11 +148,11 @@ const AgentTreeNode: React.FC<{
                       : 'bg-slate-100 text-slate-600 border-slate-200'
                   }`}
                 >
-                  {agent.active ? 'Aktív' : 'Inaktív'}
+                  {agent.active ? tx('Aktív') : tx('Inaktív')}
                 </button>
                 <button
                   type="button"
-                  aria-label={`Delete agent ${agent.name}`}
+                  aria-label={tx('Ágens törlése: {0}', agent.name)}
                   onClick={() => onDelete(agent.id)}
                   className="p-1.5 text-slate-400 hover:text-red-600"
                 >
@@ -169,7 +170,7 @@ const AgentTreeNode: React.FC<{
                 type="password"
                 value={tgToken}
                 onChange={(e) => setTgToken(e.target.value)}
-                placeholder={agent.telegramHasToken ? 'Új Telegram Bot Token...' : 'Dedikált Telegram Bot Token'}
+                placeholder={agent.telegramHasToken ? tx('Új Telegram Bot Token...') : tx('Dedikált Telegram Bot Token')}
                 className="sm:col-span-2 px-2.5 py-1.5 border border-slate-300 rounded"
               />
               <input
@@ -178,8 +179,8 @@ const AgentTreeNode: React.FC<{
                 min="0"
                 value={budget}
                 onChange={(e) => setBudget(Number(e.target.value))}
-                placeholder="Napi limit ($)"
-                title="Ágens napi USD limit (0 = globális)"
+                placeholder={tx('Napi limit ($)')}
+                title={tx('Ágens napi USD limit (0 = globális)')}
                 className="px-2.5 py-1.5 font-mono border border-slate-300 rounded"
               />
               <select
@@ -187,15 +188,15 @@ const AgentTreeNode: React.FC<{
                 onChange={(e) => setVoiceMode(e.target.value as VoiceReplyMode)}
                 className="px-2 py-1.5 border border-slate-300 rounded bg-white"
               >
-                <option value="off">Hangválasz: Ki</option>
-                <option value="on_voice">Hangra hang</option>
-                <option value="always">Mindig hang</option>
+                <option value="off">{tx('Hangválasz: Ki')}</option>
+                <option value="on_voice">{tx('Hangra hang')}</option>
+                <option value="always">{tx('Mindig hang')}</option>
               </select>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-500 block">Aktív óra kezdete (0-23)</span>
+                <span className="text-[11px] text-slate-500 block">{tx('Aktív óra kezdete (0-23)')}</span>
                 <input
                   type="number"
                   min="0"
@@ -206,7 +207,7 @@ const AgentTreeNode: React.FC<{
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-500 block">Aktív óra vége (0-23)</span>
+                <span className="text-[11px] text-slate-500 block">{tx('Aktív óra vége (0-23)')}</span>
                 <input
                   type="number"
                   min="0"
@@ -217,7 +218,7 @@ const AgentTreeNode: React.FC<{
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-500 block">Max futás / óra</span>
+                <span className="text-[11px] text-slate-500 block">{tx('Max futás / óra')}</span>
                 <input
                   type="number"
                   min="0"
@@ -231,7 +232,7 @@ const AgentTreeNode: React.FC<{
             {mcpServers.length > 0 && (
               <div className="space-y-1">
                 <div className="text-[11px] font-medium text-slate-600">
-                  MCP Jogosultsági Mátrix (üres = minden MCP engedélyezve):
+                  {tx('MCP Jogosultsági Mátrix (üres = minden MCP engedélyezve):')}
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {mcpServers.map((m) => (
@@ -250,10 +251,10 @@ const AgentTreeNode: React.FC<{
 
             <div>
               <label className="text-[11px] text-slate-500 flex items-center gap-1.5 mb-1">
-                <span>Tartalék Modell Sorrend (vesszővel elválasztva, pl. openrouter:deepseek/deepseek-chat, ollama:qwen2.5:3b)</span>
+                <span>{tx('Tartalék Modell Sorrend (vesszővel elválasztva, pl. openrouter:deepseek/deepseek-chat, ollama:qwen2.5:3b)')}</span>
                 <InfoHint
-                  label="Tartalék modell sorrend"
-                  text="Ha az elsődleges AI szolgáltató nem elérhető vagy drága, ebben a sorrendben próbálkozik a tartalék modellekkel."
+                  label={tx('Tartalék modell sorrend')}
+                  text={tx('Ha az elsődleges AI szolgáltató nem elérhető vagy drága, ebben a sorrendben próbálkozik a tartalék modellekkel.')}
                 />
               </label>
               <input
@@ -286,7 +287,7 @@ const AgentTreeNode: React.FC<{
               }}
               className="w-full px-3 py-1.5 bg-slate-900 text-white rounded font-medium"
             >
-              Ágens Szabályok & Bot Mentése
+              {tx('Ágens Szabályok & Bot Mentése')}
             </button>
           </div>
         )}
@@ -310,7 +311,6 @@ const AgentTreeNode: React.FC<{
 };
 
 export const OrgAgentsView: React.FC<Props> = ({
-  language,
   agents,
   mcpServers,
   kanban,
@@ -320,6 +320,7 @@ export const OrgAgentsView: React.FC<Props> = ({
   nightShiftRuns = [],
   onRefreshState,
 }) => {
+  const { t, tx, intlLocale } = useLocale();
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [parentAgentId, setParentAgentId] = useState<string>('');
@@ -353,11 +354,11 @@ export const OrgAgentsView: React.FC<Props> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.trim(),
-        role: role.trim() || 'Specialista',
+        role: role.trim() || tx('Specialista'),
         parentAgentId: parentAgentId || null,
         providerId,
         modelId,
-        systemPrompt: systemPrompt.trim() || 'Autonóm AI specialista ágens.',
+        systemPrompt: systemPrompt.trim() || tx('Autonóm AI specialista ágens.'),
         webSearchEnabled,
         hostExecutionEnabled,
       }),
@@ -448,7 +449,7 @@ export const OrgAgentsView: React.FC<Props> = ({
       body: JSON.stringify({ address: fedAddress.trim(), content: fedContent.trim() }),
     });
     const data = (await res.json()) as { reply?: string; error?: string };
-    setFedReply(data.reply || data.error || 'Elküldve');
+    setFedReply(data.reply || data.error || tx('Elküldve'));
     await onRefreshState();
   };
 
@@ -461,14 +462,14 @@ export const OrgAgentsView: React.FC<Props> = ({
       body: JSON.stringify({ cardId: handoffCardId, peerId: handoffPeerId }),
     });
     const data = (await res.json()) as { ok?: boolean; error?: string; message?: string };
-    setFedReply(data.message || data.error || (data.ok ? 'Kanban feladat átadva.' : 'Handoff hiba'));
+    setFedReply(data.message || data.error || (data.ok ? tx('Kanban feladat átadva.') : tx('Handoff hiba')));
     await onRefreshState();
   };
 
   const handleSyncSharedMemory = async () => {
     const res = await fetch('/api/federation/memory-sync', { method: 'POST' });
     const data = (await res.json()) as { pushed?: number; peers?: number };
-    setFedReply(`Közös (shared) memóriák szinkronizálva: ${data.pushed ?? 0} bejegyzés -> ${data.peers ?? 0} társ.`);
+    setFedReply(tx('Közös (shared) memóriák szinkronizálva: {0} bejegyzés -> {1} társ.', data.pushed ?? 0, data.peers ?? 0));
     await onRefreshState();
   };
 
@@ -478,9 +479,9 @@ export const OrgAgentsView: React.FC<Props> = ({
         <div className="lg:col-span-8 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">
-              Szervezeti Hierarchia, MCP Mátrix & Ütemezés
+              {tx('Szervezeti Hierarchia, MCP Mátrix & Ütemezés')}
             </h2>
-            <span className="text-xs text-slate-500 tabular-nums">{agents.length} ágens</span>
+            <span className="text-xs text-slate-500 tabular-nums">{agents.length} {tx('ágens')}</span>
           </div>
 
           <div className="space-y-3">
@@ -501,11 +502,11 @@ export const OrgAgentsView: React.FC<Props> = ({
 
           {agentBenchmarks.length > 0 && (
             <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
-              <div className="text-xs font-semibold text-slate-900">Legutóbbi Ágens Benchmark Eredmények</div>
+              <div className="text-xs font-semibold text-slate-900">{tx('Legutóbbi Ágens Benchmark Eredmények')}</div>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {agentBenchmarks.slice(-6).reverse().map((b) => (
                   <div key={b.id} className="p-2 bg-slate-50 border border-slate-200 rounded flex justify-between text-xs font-mono tabular-nums">
-                    <span>{b.agentName} · {b.passed}/{b.total} teszt</span>
+                    <span>{b.agentName} · {b.passed}/{b.total} {tx('teszt')}</span>
                     <span>{b.score}% · {b.avgLatencyMs}ms</span>
                   </div>
                 ))}
@@ -518,36 +519,36 @@ export const OrgAgentsView: React.FC<Props> = ({
           onSubmit={handleCreate}
           className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-3 h-fit"
         >
-          <h3 className="text-base font-semibold text-slate-900">{tr(language, 'createAgent')}</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t('createAgent')}</h3>
           <div>
             <label htmlFor="ag-name" className="block text-xs font-medium text-slate-700 mb-1">
-              Név
+              {tx('Név')}
             </label>
             <input
               id="ag-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Pl. Adatbázis Mérnök"
+              placeholder={tx('Pl. Adatbázis Mérnök')}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
           <div>
             <label htmlFor="ag-role" className="block text-xs font-medium text-slate-700 mb-1">
-              Szerepkör
+              {tx('Szerepkör')}
             </label>
             <input
               id="ag-role"
               type="text"
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="Pl. SQL & Optimalizáció"
+              placeholder={tx('Pl. SQL & Optimalizáció')}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
           <div>
             <label htmlFor="ag-parent" className="block text-xs font-medium text-slate-700 mb-1">
-              Felettes ágens (opcionális)
+              {tx('Felettes ágens (opcionális)')}
             </label>
             <select
               id="ag-parent"
@@ -555,7 +556,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               onChange={(e) => setParentAgentId(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
             >
-              <option value="">Felső szint (nincs felettes)</option>
+              <option value="">{tx('Felső szint (nincs felettes)')}</option>
               {selectableParents.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.role})
@@ -566,7 +567,7 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label htmlFor="ag-prov" className="block text-xs font-medium text-slate-700 mb-1">
-                Szolgáltató
+                {tx('Szolgáltató')}
               </label>
               <select
                 id="ag-prov"
@@ -583,21 +584,21 @@ export const OrgAgentsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="ag-model" className="block text-xs font-medium text-slate-700 mb-1">
-                Modell ID
+                {tx('Modell ID')}
               </label>
               <input
                 id="ag-model"
                 type="text"
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
-                placeholder="Automatikus (router választ)"
+                placeholder={tx('Automatikus (router választ)')}
                 className="w-full px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg"
               />
             </div>
           </div>
           <div>
             <label htmlFor="ag-prompt" className="block text-xs font-medium text-slate-700 mb-1">
-              Rendszerutasítás
+              {tx('Rendszerutasítás')}
             </label>
             <textarea
               id="ag-prompt"
@@ -614,7 +615,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                 checked={webSearchEnabled}
                 onChange={(e) => setWebSearchEnabled(e.target.checked)}
               />
-              Web keresés
+              {tx('Web keresés')}
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input
@@ -622,7 +623,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                 checked={hostExecutionEnabled}
                 onChange={(e) => setHostExecutionEnabled(e.target.checked)}
               />
-              Host parancsfuttatás
+              {tx('Host parancsfuttatás')}
             </label>
           </div>
           <button
@@ -630,7 +631,7 @@ export const OrgAgentsView: React.FC<Props> = ({
             className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800"
           >
             <Plus className="h-4 w-4" />
-            {tr(language, 'createAgent')}
+            {t('createAgent')}
           </button>
         </form>
       </div>
@@ -641,10 +642,10 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div>
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Globe className="h-4 w-4 text-slate-700" />
-              Föderáció — Távoli NovaSwarm Példányok, Kanban Handoff & Memória Szinkron
+              {tx('Föderáció — Távoli NovaSwarm Példányok, Kanban Handoff & Memória Szinkron')}
             </h3>
             <p className="text-xs text-slate-500">
-              Állapot: {federationEnabled ? 'Bekapcsolva' : 'Kikapcsolva'}
+              {tx('Állapot:')} {federationEnabled ? tx('AKTÍV') : tx('Inaktív')}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -657,7 +658,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Mind Pingelése
+              {tx('Mind Pingelése')}
             </button>
             <button
               type="button"
@@ -665,7 +666,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
               <Share2 className="h-3.5 w-3.5" />
-              Shared Memória Szinkron
+              {tx('Shared Memória Szinkron')}
             </button>
             <button
               type="button"
@@ -681,7 +682,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                 federationEnabled ? 'bg-emerald-700 text-white border-emerald-700' : 'border-slate-300 text-slate-700'
               }`}
             >
-              {federationEnabled ? 'Föderáció Aktív' : 'Föderáció Bekapcsolása'}
+              {federationEnabled ? tx('Föderáció Aktív') : tx('Föderáció Bekapcsolása')}
             </button>
           </div>
         </div>
@@ -689,7 +690,7 @@ export const OrgAgentsView: React.FC<Props> = ({
         {/* Ú58: Live Federation Topology SVG Graph */}
         {federationPeers.length > 0 && (
           <div className="border border-slate-200 rounded-lg bg-slate-50 p-2 overflow-x-auto">
-            <svg viewBox="0 0 600 150" className="w-full min-w-[460px] h-36" role="img" aria-label="Federation topology">
+            <svg viewBox="0 0 600 150" className="w-full min-w-[460px] h-36" role="img" aria-label={tx('Föderációs topológia')}>
               {federationPeers.map((p, idx) => {
                 const spacing = 460 / Math.max(1, federationPeers.length);
                 const px = 70 + idx * spacing + spacing / 2;
@@ -707,7 +708,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               })}
               <rect x={225} y={14} width={150} height={28} rx={4} fill="#0f172a" />
               <text x={300} y={32} textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#ffffff">
-                Helyi Csomópont ({agents.filter((a) => !a.isSupervisor).length} ágens)
+                {tx('Helyi Csomópont ({0} ágens)', agents.filter((a) => !a.isSupervisor).length)}
               </text>
             </svg>
           </div>
@@ -718,7 +719,7 @@ export const OrgAgentsView: React.FC<Props> = ({
             type="text"
             value={peerName}
             onChange={(e) => setPeerName(e.target.value)}
-            placeholder="Társ neve (pl. pi-node-2)"
+            placeholder={tx('Társ neve (pl. pi-node-2)')}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
           />
           <input
@@ -732,14 +733,14 @@ export const OrgAgentsView: React.FC<Props> = ({
             type="password"
             value={peerToken}
             onChange={(e) => setPeerToken(e.target.value)}
-            placeholder="Közös token (opcionális)"
+            placeholder={tx('Közös token (opcionális)')}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
           />
           <button
             type="submit"
             className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
           >
-            + Föderációs Társ
+            {tx('+ Föderációs Társ')}
           </button>
         </form>
 
@@ -759,7 +760,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                       className="inline-flex items-center gap-1 px-2 py-0.5 border border-slate-300 bg-white rounded"
                     >
                       <RefreshCw className="h-3 w-3" />
-                      Szinkron
+                      {tx('Futtatás')}
                     </button>
                     <button
                       type="button"
@@ -774,7 +775,7 @@ export const OrgAgentsView: React.FC<Props> = ({
                   </div>
                 </div>
                 <div className="font-mono text-[11px] text-slate-600">
-                  Státusz: {p.status} · Távoli ágensek: {p.remoteAgents.length}
+                  {tx('Státusz:')} {p.status} {tx('· Távoli ágensek:')} {p.remoteAgents.length}
                   {p.lastError ? ` (${p.lastError})` : ''}
                 </div>
               </div>
@@ -788,14 +789,14 @@ export const OrgAgentsView: React.FC<Props> = ({
               type="text"
               value={fedAddress}
               onChange={(e) => setFedAddress(e.target.value)}
-              placeholder="társ/ágens (pl. pi-2/kutato)"
+              placeholder={tx('társ/ágens (pl. pi-2/kutato)')}
               className="w-44 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
             />
             <input
               type="text"
               value={fedContent}
               onChange={(e) => setFedContent(e.target.value)}
-              placeholder="Üzenet a föderált ágensnek..."
+              placeholder={tx('Üzenet a föderált ágensnek...')}
               className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <button
@@ -803,7 +804,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
             >
               <Send className="h-3 w-3" />
-              Küldés
+              {tx('Küldés')}
             </button>
           </form>
 
@@ -811,10 +812,10 @@ export const OrgAgentsView: React.FC<Props> = ({
             <select
               value={handoffCardId}
               onChange={(e) => setHandoffCardId(e.target.value)}
-              aria-label="Handoff Kanban card"
+              aria-label={tx('Kanban kártya átadása...')}
               className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
             >
-              <option value="">Kanban kártya átadása...</option>
+              <option value="">{tx('Kanban kártya átadása...')}</option>
               {activeCards.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title}
@@ -824,10 +825,10 @@ export const OrgAgentsView: React.FC<Props> = ({
             <select
               value={handoffPeerId}
               onChange={(e) => setHandoffPeerId(e.target.value)}
-              aria-label="Handoff peer"
+              aria-label={tx('Cél társ...')}
               className="px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
             >
-              <option value="">Cél társ...</option>
+              <option value="">{tx('Cél társ...')}</option>
               {federationPeers.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -838,7 +839,7 @@ export const OrgAgentsView: React.FC<Props> = ({
               type="submit"
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
             >
-              Kártya Átadása
+              {tx('Kártya Átadása')}
             </button>
           </form>
         </div>
@@ -852,14 +853,14 @@ export const OrgAgentsView: React.FC<Props> = ({
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Moon className="h-4 w-4 text-indigo-600" />
-              <span>Éjszakai Műszak — Önálló Háttér Karbantartó</span>
+              <span>{tx('Éjszakai Műszak — Önálló Háttér Karbantartó')}</span>
               <InfoHint
-                label="Éjszakai műszak"
-                text="Manuálisan is elindíthatod az éjszakai karbantartási kört, ami összegzi a függő kártyákat és rendezi a memóriát."
+                label={tx('Éjszakai műszak')}
+                text={tx('Manuálisan is elindíthatod az éjszakai karbantartási kört, ami összegzi a függő kártyákat és rendezi a memóriát.')}
               />
             </h3>
             <p className="text-xs text-slate-500">
-              Önállóan feldolgozza a függő Kanban kártyákat és frissíti a memóriát rákérdezés nélkül.
+              {tx('Önállóan feldolgozza a függő Kanban kártyákat és frissíti a memóriát rákérdezés nélkül.')}
             </p>
           </div>
           <button
@@ -873,8 +874,8 @@ export const OrgAgentsView: React.FC<Props> = ({
                 const d = (await res.json()) as { reportSummary?: string; tasksCompleted?: number; error?: string };
                 setNightStatus(
                   res.ok
-                    ? `Műszak kész (${d.tasksCompleted ?? 0} feladat): ${d.reportSummary || 'Rendben'}`
-                    : d.error || 'Éjszakai műszak hiba'
+                    ? tx('Műszak kész ({0} feladat): {1}', d.tasksCompleted ?? 0, d.reportSummary || 'OK')
+                    : d.error || tx('Éjszakai műszak hiba')
                 );
                 await onRefreshState();
               } finally {
@@ -884,7 +885,7 @@ export const OrgAgentsView: React.FC<Props> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
           >
             <Play className="h-3.5 w-3.5" />
-            {nightBusy ? 'Műszak fut...' : 'Műszak Indítása Most'}
+            {nightBusy ? tx('Műszak fut...') : tx('Műszak Indítása Most')}
           </button>
         </div>
 
@@ -895,7 +896,7 @@ export const OrgAgentsView: React.FC<Props> = ({
         )}
 
         {nightShiftRuns.length === 0 ? (
-          <p className="text-xs text-slate-500">Még nem futott éjszakai műszak.</p>
+          <p className="text-xs text-slate-500">{tx('Még nem futott éjszakai műszak.')}</p>
         ) : (
           <div className="space-y-2 max-h-56 overflow-y-auto">
             {nightShiftRuns.slice(0, 8).map((run) => (
@@ -905,9 +906,9 @@ export const OrgAgentsView: React.FC<Props> = ({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono tabular-nums">
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    {run.tasksCompleted} feladat · {run.actionsTaken?.length ?? 0} lépés · KÉSZ
+                    {run.tasksCompleted} {tx('feladat')} · {run.actionsTaken?.length ?? 0} {tx('lépés · KÉSZ')}
                   </span>
-                  <span className="text-slate-500">{new Date(run.completedAt || run.startedAt).toLocaleString()}</span>
+                  <span className="text-slate-500">{new Date(run.completedAt || run.startedAt).toLocaleString(intlLocale)}</span>
                 </div>
                 <div className="text-slate-700 dark:text-slate-300">{run.reportSummary}</div>
               </div>

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
 import { InfoHint } from './InfoHint';
+import { useLocale } from '../locales/translations';
 
 interface Props {
   state: NovaSwarmState;
@@ -19,6 +20,8 @@ interface Props {
 }
 
 export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx } = useLocale();
+
   // App Builder (Ú206)
   const [appTitle, setAppTitle] = useState('');
   const [appDesc, setAppDesc] = useState('');
@@ -41,16 +44,16 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
   const [logoSvg, setLogoSvg] = useState<string | null>(null);
 
   // Bank CSV (Ú208) & Decision Matrix (Ú207)
-  const [bankCsv, setBankCsv] = useState('2026-11-20;Lidl Bevásárlás;-14500\n2026-11-21;MVM Áram;-18200\n2026-11-22;Munkabér;540000');
+  const [bankCsv, setBankCsv] = useState(() => tx('2026-11-20;Lidl Bevásárlás;-14500\n2026-11-21;MVM Áram;-18200\n2026-11-22;Munkabér;540000'));
   const [bankSummary, setBankSummary] = useState<{ totalIncome: number; totalExpense: number; netCashflow: number; byCategory: Record<string, number> } | null>(null);
   const [matrixOut, setMatrixOut] = useState<string | null>(null);
 
   // Ephemeral Burn Note (Ú244) & Slide Deck (Ú238)
-  const [burnTitle, setBurnTitle] = useState('WiFi Jelszó');
+  const [burnTitle, setBurnTitle] = useState(() => tx('WiFi Jelszó'));
   const [burnText, setBurnText] = useState('');
   const [burnLink, setBurnLink] = useState<string | null>(null);
-  const [slideTitle, setSlideTitle] = useState('NovaSwarm Bemutató');
-  const [slideBullets, setSlideBullets] = useState('# Bevezetés\n- Teljes autonómia\n- Helyi LAN vezérlés\n---\n# Következő Lépés\n- Telegram integráció');
+  const [slideTitle, setSlideTitle] = useState(() => tx('NovaSwarm Bemutató'));
+  const [slideBullets, setSlideBullets] = useState(() => tx('# Bevezetés\n- Teljes autonómia\n- Helyi LAN vezérlés\n---\n# Következő Lépés\n- Telegram integráció'));
 
   return (
     <div className="space-y-6">
@@ -60,10 +63,10 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <AppWindow className="h-4 w-4 text-slate-700 dark:text-slate-300" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Mini-Alkalmazás Készítő &amp; Tárhely</span>
+              <span>{tx('Mini-Alkalmazás Készítő & Tárhely')}</span>
               <InfoHint
-                label="Mini-alkalmazás készítő"
-                text="Pár sor leírásból önálló, elkülönített (sandboxed) webes mini-eszközt hoz létre a saját szervereden."
+                label={tx('Mini-alkalmazás készítő')}
+                text={tx('Pár sor leírásból önálló, elkülönített (sandboxed) webes mini-eszközt hoz létre a saját szervereden.')}
               />
             </h3>
           </div>
@@ -72,19 +75,19 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               type="text"
               value={appTitle}
               onChange={(e) => setAppTitle(e.target.value)}
-              placeholder="Alkalmazás neve (pl. Kalória Kalkulátor)"
+              placeholder={tx('Alkalmazás neve (pl. Kalória Kalkulátor)')}
               className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg"
             />
             <input
               type="text"
               value={appDesc}
               onChange={(e) => setAppDesc(e.target.value)}
-              placeholder="Rövid leírás vagy funkciók"
+              placeholder={tx('Rövid leírás vagy funkciók')}
               className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg"
             />
             <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
               <input type="checkbox" checked={appUseAi} onChange={(e) => setAppUseAi(e.target.checked)} />
-              Teljes AI HTML generálás (különben azonnali sablon)
+              {tx('Teljes AI HTML generálás (különben azonnali sablon)')}
             </label>
             <button
               type="button"
@@ -95,13 +98,13 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
                   body: JSON.stringify({ title: appTitle, description: appDesc, useAi: appUseAi }),
                 });
                 const d = (await r.json()) as { url?: string; error?: string };
-                setAppMsg(r.ok ? `Elkészült: ${d.url}` : d.error || 'Hiba');
+                setAppMsg(r.ok ? tx('Elkészült: {0}', d.url || '') : d.error || tx('Hiba'));
                 setAppTitle('');
                 await onRefreshState();
               }}
               className="w-full px-3 py-2 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Mini-App Létrehozása & Hosztolása
+              {tx('Mini-App Létrehozása & Hosztolása')}
             </button>
             {appMsg && <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400">{appMsg}</div>}
           </div>
@@ -121,7 +124,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
                 </a>
                 <button
                   type="button"
-                  aria-label={`Törlés ${a.title}`}
+                  aria-label={tx('Törlés {0}', a.title)}
                   onClick={async () => {
                     await fetch(`/api/v4/apps/${a.id}`, { method: 'DELETE' });
                     await onRefreshState();
@@ -140,16 +143,16 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-slate-700 dark:text-slate-300" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Gyors Próba-API Szerver (/mock/:slug)</span>
+              <span>{tx('Gyors Próba-API Szerver (/mock/:slug)')}</span>
               <InfoHint
-                label="Próba API szerver"
-                text="Pillanatok alatt létrehoz egy teszt JSON végpontot, ha webes vagy mobil alkalmazást fejlesztesz."
+                label={tx('Próba API szerver')}
+                text={tx('Pillanatok alatt létrehoz egy teszt JSON végpontot, ha webes vagy mobil alkalmazást fejlesztesz.')}
               />
             </h3>
           </div>
           <div className="flex gap-2">
             <select
-              aria-label="Mock HTTP metódus"
+              aria-label={tx('Mock HTTP metódus')}
               value={mockMethod}
               onChange={(e) => setMockMethod(e.target.value as 'GET' | 'POST' | 'PUT' | 'DELETE')}
               className="px-2 py-1.5 text-xs border border-slate-300 rounded-lg"
@@ -163,7 +166,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               type="text"
               value={mockSlug}
               onChange={(e) => setMockSlug(e.target.value)}
-              placeholder="útvonal (pl. demo-status)"
+              placeholder={tx('útvonal (pl. demo-status)')}
               className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
             />
           </div>
@@ -185,13 +188,13 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
             }}
             className="w-full px-3 py-2 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
           >
-            Mock Végpont Aktiválása
+            {tx('Mock Végpont Aktiválása')}
           </button>
           <div className="space-y-1 max-h-28 overflow-y-auto">
             {(state.apiMocks || []).map((m) => (
               <div key={m.id} className="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-800 rounded">
                 <span className="font-mono">
-                  {m.method} /mock/{m.slug} ({m.hitCount} találat)
+                  {m.method} /mock/{m.slug} ({tx('{0} találat', m.hitCount)})
                 </span>
                 <button
                   type="button"
@@ -201,7 +204,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
                   }}
                   className="text-red-600"
                 >
-                  Törlés
+                  {tx('Törlés')}
                 </button>
               </div>
             ))}
@@ -213,10 +216,10 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <Scale className="h-4 w-4 text-slate-700 dark:text-slate-300" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Többoldalú Vita Színház — Pro / Kontra / Bíró</span>
+              <span>{tx('Többoldalú Vita Színház — Pro / Kontra / Bíró')}</span>
               <InfoHint
-                label="Vita színház"
-                text="Három AI nézőpont ütköztet egy témát mellette és ellene érvekkel, majd a bíró összegzi a döntést."
+                label={tx('Vita színház')}
+                text={tx('Három AI nézőpont ütköztet egy témát mellette és ellene érvekkel, majd a bíró összegzi a döntést.')}
               />
             </h3>
           </div>
@@ -225,7 +228,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               type="text"
               value={debateTopic}
               onChange={(e) => setDebateTopic(e.target.value)}
-              placeholder="Vita téma (pl. Docker vs natív systemd Pi-n)"
+              placeholder={tx('Vita téma (pl. Docker vs natív systemd Pi-n)')}
               className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <button
@@ -248,7 +251,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
             >
-              {debateBusy ? 'Folyamatban...' : 'Vita Indítása'}
+              {debateBusy ? tx('Folyamatban...') : tx('Vita Indítása')}
             </button>
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -269,10 +272,10 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <Calculator className="h-4 w-4 text-slate-700 dark:text-slate-300" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Függvényrajzoló &amp; Vektor Logó Készítő</span>
+              <span>{tx('Függvényrajzoló & Vektor Logó Készítő')}</span>
               <InfoHint
-                label="Függvényrajzoló és logó"
-                text="Matematikai képletekből koordinátarendszert rajzol, vagy szövegből letölthető vektoros logót készít."
+                label={tx('Függvényrajzoló és logó')}
+                text={tx('Matematikai képletekből koordinátarendszert rajzol, vagy szövegből letölthető vektoros logót készít.')}
               />
             </h3>
           </div>
@@ -297,12 +300,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Rajzol
+              {tx('Rajzol')}
             </button>
           </div>
           {mathSvg && (
             <img
-              alt="Matematikai függvény grafikon"
+              alt={tx('Matematikai függvény grafikon')}
               src={`data:image/svg+xml;utf8,${encodeURIComponent(mathSvg)}`}
               className="w-full rounded border border-slate-200"
             />
@@ -312,7 +315,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               type="text"
               value={logoTitle}
               onChange={(e) => setLogoTitle(e.target.value)}
-              placeholder="Logó szöveg"
+              placeholder={tx('Logó szöveg')}
               className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <button
@@ -328,12 +331,12 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               }}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
-              SVG Logó
+              {tx('SVG Logó')}
             </button>
           </div>
           {logoSvg && (
             <img
-              alt="Generált SVG logó"
+              alt={tx('Generált SVG logó')}
               src={`data:image/svg+xml;utf8,${encodeURIComponent(logoSvg)}`}
               className="w-full max-w-sm rounded"
             />
@@ -345,10 +348,10 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-slate-700 dark:text-slate-300" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Banki CSV Elemző &amp; Súlyozott Döntési Tábla</span>
+              <span>{tx('Banki CSV Elemző & Súlyozott Döntési Tábla')}</span>
               <InfoHint
-                label="Banki elemző és döntési tábla"
-                text="Kategóriákra bontja a banki kivonat-sorokat, vagy súlyozott szempontok alapján segít választani opciók közül."
+                label={tx('Banki elemző és döntési tábla')}
+                text={tx('Kategóriákra bontja a banki kivonat-sorokat, vagy súlyozott szempontok alapján segít választani opciók közül.')}
               />
             </h3>
           </div>
@@ -371,39 +374,42 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              CSV Elemzése
+              {tx('CSV Elemzése')}
             </button>
             <button
               type="button"
               onClick={async () => {
+                const cPrice = tx('Ár');
+                const cPower = tx('Fogyasztás');
+                const cPerf = tx('Teljesítmény');
                 const r = await fetch('/api/v4/decision-matrix', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    title: 'Szerver Választás',
+                    title: tx('Szerver Választás'),
                     criteria: [
-                      { name: 'Ár', weight: 5 },
-                      { name: 'Fogyasztás', weight: 4 },
-                      { name: 'Teljesítmény', weight: 3 },
+                      { name: cPrice, weight: 5 },
+                      { name: cPower, weight: 4 },
+                      { name: cPerf, weight: 3 },
                     ],
                     options: [
-                      { name: 'Raspberry Pi 5', scores: { Ár: 9, Fogyasztás: 10, Teljesítmény: 6 } },
-                      { name: 'Mini PC N100', scores: { Ár: 7, Fogyasztás: 8, Teljesítmény: 9 } },
+                      { name: 'Raspberry Pi 5', scores: { [cPrice]: 9, [cPower]: 10, [cPerf]: 6 } },
+                      { name: 'Mini PC N100', scores: { [cPrice]: 7, [cPower]: 8, [cPerf]: 9 } },
                     ],
                   }),
                 });
                 const d = (await r.json()) as { winner: string; ranking: Array<{ name: string; totalScore: number; normalizedPercent: number }> };
-                setMatrixOut(`Győztes: ${d.winner} (${d.ranking.map((x) => `${x.name}: ${x.normalizedPercent}%`).join(' | ')})`);
+                setMatrixOut(tx('Győztes: {0} ({1})', d.winner, d.ranking.map((x) => `${x.name}: ${x.normalizedPercent}%`).join(' | ')));
               }}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
-              Minta Döntési Mátrix
+              {tx('Minta Döntési Mátrix')}
             </button>
           </div>
           {bankSummary && (
             <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded text-xs space-y-1">
               <div>
-                Bevétel: <b>{bankSummary.totalIncome}</b> · Kiadás: <b>{bankSummary.totalExpense}</b> · Egyenleg: <b>{bankSummary.netCashflow}</b>
+                {tx('Bevétel')}: <b>{bankSummary.totalIncome}</b> · {tx('Kiadás')}: <b>{bankSummary.totalExpense}</b> · {tx('Egyenleg')}: <b>{bankSummary.netCashflow}</b>
               </div>
               <div className="text-[11px] text-slate-600 dark:text-slate-300">
                 {Object.entries(bankSummary.byCategory).map(([k, v]) => `${k}: ${v}`).join(' · ')}
@@ -418,10 +424,10 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
           <div className="flex items-center gap-2">
             <Flame className="h-4 w-4 text-amber-600" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>Egyszer Megtekinthető Üzenet &amp; Prezentáció Készítő</span>
+              <span>{tx('Egyszer Megtekinthető Üzenet & Prezentáció Készítő')}</span>
               <InfoHint
-                label="Egyszer használatos cetli"
-                text="Olyan titkos linket hoz létre, ami az első megnyitás után azonnal megsemmisül. Alul gyors HTML diavetítőt is exportálhatsz."
+                label={tx('Egyszer használatos cetli')}
+                text={tx('Olyan titkos linket hoz létre, ami az első megnyitás után azonnal megsemmisül. Alul gyors HTML diavetítőt is exportálhatsz.')}
               />
             </h3>
           </div>
@@ -430,14 +436,14 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               type="text"
               value={burnTitle}
               onChange={(e) => setBurnTitle(e.target.value)}
-              placeholder="Cím"
+              placeholder={tx('Cím')}
               className="w-1/3 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <input
               type="text"
               value={burnText}
               onChange={(e) => setBurnText(e.target.value)}
-              placeholder="Egyszer megtekinthető titkos adat..."
+              placeholder={tx('Egyszer megtekinthető titkos adat...')}
               className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <button
@@ -456,18 +462,18 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               }}
               className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              Égő Link
+              {tx('Égő Link')}
             </button>
           </div>
           {burnLink && (
             <div className="text-xs font-mono">
-              Megosztás: <a href={burnLink} target="_blank" rel="noreferrer" className="text-blue-700 underline">{burnLink}</a>
+              {tx('Megosztás')}: <a href={burnLink} target="_blank" rel="noreferrer" className="text-blue-700 underline">{burnLink}</a>
             </div>
           )}
           <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
             <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
               <Presentation className="h-3.5 w-3.5" />
-              HTML Slide Deck Generátor
+              {tx('HTML Slide Deck Generátor')}
             </div>
             <input
               type="text"
@@ -495,7 +501,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = 'prezentacio.html';
+                  a.download = 'presentation.html';
                   a.click();
                   URL.revokeObjectURL(url);
                 }
@@ -503,7 +509,7 @@ export const Batch4OmniWorkbenchPanel: React.FC<Props> = ({ state, onRefreshStat
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              Prezentáció Letöltése (.html)
+              {tx('Prezentáció Letöltése (.html)')}
             </button>
           </div>
         </section>

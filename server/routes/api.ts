@@ -394,6 +394,7 @@ export function createApiRouter(broadcastEvent: (type: string, payload?: unknown
       authClaimRequired: missingPasswordState,
       setupCodeRequired: missingPasswordState,
       authenticated: isRequestAuthorized(req.headers),
+      language: s.language,
     });
   });
 

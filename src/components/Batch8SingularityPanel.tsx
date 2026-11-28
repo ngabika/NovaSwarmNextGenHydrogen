@@ -25,6 +25,8 @@ import {
   Wand2,
 } from 'lucide-react';
 import { InfoHint } from './InfoHint';
+import { useLocale } from '../locales/translations';
+import type { PhraseKey } from '../locales/phraseKeys';
 import type {
   AgentPersonaProfile,
   ArchitectureBlueprint,
@@ -45,6 +47,7 @@ interface Props {
 type B8TabId = 'persona_style' | 'cognitive' | 'studio_dev' | 'analytics_catalog';
 
 export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx } = useLocale();
   const [tab, setTab] = useState<B8TabId>('persona_style');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -52,18 +55,18 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
   // Tab 1: Persona, Context, Style, Fact Vault, Tone/Prose, Framework
   const [newPersonaName, setNewPersonaName] = useState('');
   const [newPersonaRole, setNewPersonaRole] = useState('');
-  const [newPersonaTone, setNewPersonaTone] = useState('tárgyilagos, precíz');
+  const [newPersonaTone, setNewPersonaTone] = useState(() => tx('tárgyilagos, precíz'));
   const [newPersonaGuidance, setNewPersonaGuidance] = useState('');
-  const [styleLabel, setStyleLabel] = useState('Saját Minta');
+  const [styleLabel, setStyleLabel] = useState(() => tx('Saját Minta'));
   const [styleSampleText, setStyleSampleText] = useState(
-    'Kérlek vizsgáljuk meg a rendszer terhelését és a memória-használatot. Ha szükséges, állítsuk át a kontextust tömörebb módba a gyorsabb válaszidő érdekében.'
+    () => tx('Kérlek vizsgáljuk meg a rendszer terhelését és a memória-használatot. Ha szükséges, állítsuk át a kontextust tömörebb módba a gyorsabb válaszidő érdekében.')
   );
-  const [factCategory, setFactCategory] = useState('Projekt');
+  const [factCategory, setFactCategory] = useState(() => tx('Projekt'));
   const [factKey, setFactKey] = useState('');
   const [factValue, setFactValue] = useState('');
   const [factQuery, setFactQuery] = useState('');
   const [toneText, setToneText] = useState(
-    'Szia! Köszi a segítséget, légyszi nézz rá a szerver naplókra mert talán lassult a válaszidő.'
+    () => tx('Szia! Köszi a segítséget, légyszi nézz rá a szerver naplókra mert talán lassult a válaszidő.')
   );
   const [targetTone, setTargetTone] = useState<'formal' | 'casual' | 'assertive' | 'empathetic' | 'bullet_executive'>('formal');
   const [toneResult, setToneResult] = useState<{ transformed: string; changesApplied: string[] } | null>(null);
@@ -77,21 +80,21 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
     suggestions: string[];
   } | null>(null);
   const [frameworkKind, setFrameworkKind] = useState<'adr' | 'rfc' | 'swot' | '5whys' | 'star' | 'postmortem' | 'eisenhower' | 'bluf'>('adr');
-  const [frameworkTopic, setFrameworkTopic] = useState('SQLite WAL vs PostgreSQL választás Raspberry Pi csomóponton');
+  const [frameworkTopic, setFrameworkTopic] = useState(() => tx('SQLite WAL vs PostgreSQL választás Raspberry Pi csomóponton'));
   const [frameworkOut, setFrameworkOut] = useState<string | null>(null);
 
   // Tab 2: Cognitive Planner: Goal Tree, Handoff, Decision Matrix, Scenario, Red Team, PERT/RICE
   const [goalTitle, setGoalTitle] = useState('');
   const [goalHorizon, setGoalHorizon] = useState<HierarchicalGoalNode['horizon']>('quarterly');
-  const [goalMilestones, setGoalMilestones] = useState('Követelmények tisztázása\nPrototípus elkészítése\nÉles ellenőrzés');
+  const [goalMilestones, setGoalMilestones] = useState(() => tx('Követelmények tisztázása\nPrototípus elkészítése\nÉles ellenőrzés'));
   const [handoffTitle, setHandoffTitle] = useState('');
   const [handoffNote, setHandoffNote] = useState('');
-  const [matrixTitle, setMatrixTitle] = useState('Szerver üzemeltetési opció');
-  const [matrixCriteriaRaw, setMatrixCriteriaRaw] = useState('Megbízhatóság:5, Költség:3, Karbantartás:4');
-  const [matrixOptARaw, setMatrixOptARaw] = useState('Helyi ARM64 Pi|9,9,7');
-  const [matrixOptBRaw, setMatrixOptBRaw] = useState('Felhő VPS|8,5,9');
-  const [scenarioTopic, setScenarioTopic] = useState('Önálló AI Gateway bevezetése irodai hálózaton');
-  const [redTeamProposal, setRedTeamProposal] = useState('Azonnali élesítés minden külső szolgáltatásnál párhuzamosan.');
+  const [matrixTitle, setMatrixTitle] = useState(() => tx('Szerver üzemeltetési opció'));
+  const [matrixCriteriaRaw, setMatrixCriteriaRaw] = useState(() => tx('Megbízhatóság:5, Költség:3, Karbantartás:4'));
+  const [matrixOptARaw, setMatrixOptARaw] = useState(() => tx('Helyi ARM64 Pi|9,9,7'));
+  const [matrixOptBRaw, setMatrixOptBRaw] = useState(() => tx('Felhő VPS|8,5,9'));
+  const [scenarioTopic, setScenarioTopic] = useState(() => tx('Önálló AI Gateway bevezetése irodai hálózaton'));
+  const [redTeamProposal, setRedTeamProposal] = useState(() => tx('Azonnali élesítés minden külső szolgáltatásnál párhuzamosan.'));
   const [pertO, setPertO] = useState(4);
   const [pertM, setPertM] = useState(8);
   const [pertP, setPertP] = useState(16);
@@ -105,27 +108,27 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
   } | null>(null);
 
   // Tab 3: Meeting, Study, Glossary, Concept Graph, Snippets, Blueprint, Playbooks, SQL/Infra, Converters, PII
-  const [meetingTitle, setMeetingTitle] = useState('Heti Architektúra Egyeztetés');
+  const [meetingTitle, setMeetingTitle] = useState(() => tx('Heti Architektúra Egyeztetés'));
   const [meetingRaw, setMeetingRaw] = useState(
-    '- [ ] Docker memóriakorlát beállítása @Gábor holnap\n- [ ] SQLite backup ellenőrzése @Anna péntek\nMikor történik a külső kulcs rotáció?'
+    () => tx('- [ ] Docker memóriakorlát beállítása @Gábor holnap\n- [ ] SQLite backup ellenőrzése @Anna péntek\nMikor történik a külső kulcs rotáció?')
   );
   const [meetingImportInfo, setMeetingImportInfo] = useState<string | null>(null);
-  const [digestTitle, setDigestTitle] = useState('Rendszer Összefoglaló');
+  const [digestTitle, setDigestTitle] = useState(() => tx('Rendszer Összefoglaló'));
   const [digestRaw, setDigestRaw] = useState(
-    'A helyi elsődleges futtatás csökkenti a késleltetést és megóvja a bizalmas adatokat. A hibrid router automatikusan vált tartalék szolgáltatóra hiba esetén. A rendszeres pillanatkép garantálja a gyors helyreállítást.'
+    () => tx('A helyi elsődleges futtatás csökkenti a késleltést és megóvja a bizalmas adatokat. A hibrid router automatikusan vált tartalék szolgáltatóra hiba esetén. A rendszeres pillanatkép garantálja a gyors helyreállítást.')
   );
-  const [studyTopic, setStudyTopic] = useState('Docker cgroups és Linux memória menedzsment');
+  const [studyTopic, setStudyTopic] = useState(() => tx('Docker cgroups és Linux memória menedzsment'));
   const [studyLevel, setStudyLevel] = useState<StudyPlanItem['level']>('intermediate');
   const [glTerm, setGlTerm] = useState('');
-  const [glDomain, setGlDomain] = useState('Infrastruktúra');
+  const [glDomain, setGlDomain] = useState(() => tx('Infrastruktúra'));
   const [glDef, setGlDef] = useState('');
   const [conceptGraph, setConceptGraph] = useState<{ mermaid: string; nodeCount: number; edgeCount: number } | null>(null);
   const [snipTitle, setSnipTitle] = useState('');
   const [snipLang, setSnipLang] = useState('bash');
   const [snipCode, setSnipCode] = useState('');
-  const [snipVarsRaw, setSnipVarsRaw] = useState('service=novaswarm');
+  const [snipVarsRaw] = useState('service=novaswarm');
   const [snipRendered, setSnipRendered] = useState<string | null>(null);
-  const [bpName, setBpName] = useState('Otthoni Hibrid Szerver');
+  const [bpName, setBpName] = useState(() => tx('Otthoni Hibrid Szerver'));
   const [bpPattern, setBpPattern] = useState<ArchitectureBlueprint['pattern']>('iot_edge');
   const [sqlInput, setSqlInput] = useState('SELECT * FROM users WHERE active = 1;');
   const [sqlOut, setSqlOut] = useState<{ riskLevel: string; findings: string[]; recommendations: string[] } | null>(null);
@@ -135,7 +138,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
   const [convPayload, setConvPayload] = useState('{"host": "192.168.1.10", "port": 3000, "active": true}');
   const [convOut, setConvOut] = useState<string | null>(null);
   const [piiText, setPiiText] = useState(
-    'Ügyfél: teszt.user@example.com, telefon: +36 30 123 4567, IP: 192.168.1.44, kulcs: sk-testtoken1234567890abcdef'
+    () => tx('Ügyfél: teszt.user@example.com, telefon: +36 30 123 4567, IP: 192.168.1.44, kulcs: sk-testtoken1234567890abcdef')
   );
   const [piiOut, setPiiOut] = useState<{ sanitized: string; redactionsCount: number; categoriesFound: string[] } | null>(null);
 
@@ -157,7 +160,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
   const [finPrincipal, setFinPrincipal] = useState(127000);
   const [finRate, setFinRate] = useState(8);
   const [finYears, setFinYears] = useState(10);
-  const [finMonthly, setFinMonthly] = useState(50000);
+  const [finMonthly] = useState(50000);
   const [finVat, setFinVat] = useState(27);
   const [finOut, setFinOut] = useState<{ summary: string; finalAmount: number; totalInterestOrTax: number } | null>(null);
   const [unitVal, setUnitVal] = useState(100);
@@ -166,16 +169,16 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
   const [unitOut, setUnitOut] = useState<{ formatted: string; worldClocks: Array<{ city: string; time: string }> } | null>(null);
   const [tbStart, setTbStart] = useState('09:00');
   const [tbEnd, setTbEnd] = useState('11:00');
-  const [tbTitle, setTbTitle] = useState('Mély fókusz fejlesztés');
+  const [tbTitle, setTbTitle] = useState(() => tx('Mély fókusz fejlesztés'));
   const [tbKind, setTbKind] = useState<TimeBlockSlot['kind']>('deep_work');
   const [tbConflictMsg, setTbConflictMsg] = useState<string | null>(null);
   const [wellSleep, setWellSleep] = useState(7.5);
   const [wellWater, setWellWater] = useState(2200);
   const [wellEnergy, setWellEnergy] = useState(8);
   const [wellMove, setWellMove] = useState(40);
-  const [draftPurpose, setDraftPurpose] = useState('Ütemterv jóváhagyás kérése');
+  const [draftPurpose, setDraftPurpose] = useState(() => tx('Ütemterv jóváhagyás kérése'));
   const [draftTone, setDraftTone] = useState<CommunicationDraft['tone']>('formal');
-  const [draftPoints, setDraftPoints] = useState('Első mérföldkő kész; tesztek sikeresek; pénteki élesítés javasolt.');
+  const [draftPoints] = useState(() => tx('Első mérföldkő kész; tesztek sikeresek; pénteki élesítés javasolt.'));
   const [execReportMd, setExecReportMd] = useState<string | null>(null);
 
   // 200+ Capability Catalog state
@@ -246,20 +249,20 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Cpu className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              <span>Személyre Szabott Asszisztens &amp; Képesség Stúdió</span>
+              <span>{tx('Személyre Szabott Asszisztens & Képesség Stúdió')}</span>
               <InfoHint
-                label="Képesség Stúdió"
-                text="Itt állíthatod be az AI stílusát (Persona), összerakhatsz tanulási és időbeosztási terveket, vagy átnézheted az összes elérhető képességet."
+                label={tx('Képesség Stúdió')}
+                text={tx('Itt állíthatod be az AI stílusát (Persona), összerakhatsz tanulási és időbeosztási terveket, vagy átnézheted az összes elérhető képességet.')}
               />
             </h2>
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
-              <span>Aktív Persona: {personas.find((p) => p.id === state?.settings.activePersonaId)?.name || 'Alapértelmezett'}</span>
+              <span>{tx('Aktív Persona: {0}', personas.find((p) => p.id === state?.settings.activePersonaId)?.name || tx('Alapértelmezett'))}</span>
               <span aria-hidden="true">·</span>
-              <span>Kontextus: {contexts.find((c) => c.id === state?.settings.activeUserContextId)?.name || 'Munka'}</span>
+              <span>{tx('Kontextus: {0}', contexts.find((c) => c.id === state?.settings.activeUserContextId)?.name || tx('Munka'))}</span>
               <span aria-hidden="true">·</span>
-              <span className="tabular-nums">Ténybank: {(state?.factVault || []).length} tétel</span>
+              <span className="tabular-nums">{tx('Ténybank: {0} tétel', (state?.factVault || []).length)}</span>
               <span aria-hidden="true">·</span>
-              <span className="tabular-nums">Célfák: {(state?.goalTrees || []).length}</span>
+              <span className="tabular-nums">{tx('Célfák: {0}', (state?.goalTrees || []).length)}</span>
             </div>
           </div>
 
@@ -286,9 +289,9 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   label: 'Statisztika & Képességlista',
                   hint: 'Részletes használati adatok és a teljes kereshető funkció-katalógus.',
                 },
-              ] as const
+              ] as Array<{ id: B8TabId; label: PhraseKey; hint: PhraseKey }>
             ).map((item) => (
-              <div key={item.id} className="inline-flex items-center gap-0.5 pr-1">
+              <div key={item.id} className="inline-flex items-center gap-0.5 pe-1">
                 <button
                   type="button"
                   onClick={() => setTab(item.id)}
@@ -298,9 +301,9 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  {item.label}
+                  {tx(item.label)}
                 </button>
-                <InfoHint label={item.label} text={item.hint} />
+                <InfoHint label={tx(item.label)} text={tx(item.hint)} />
               </div>
             ))}
           </div>
@@ -323,7 +326,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="text-xs font-medium underline shrink-0"
             >
-              Bezár
+              {tx('Bezár')}
             </button>
           </div>
         )}
@@ -338,15 +341,15 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <UserCheck className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Szakértő Persona Könyvtár ({personas.length})
+                  {tx('Szakértő Persona Könyvtár ({0})', personas.length)}
                 </h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400">Azonnali rendszerprompt váltás</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{tx('Azonnali rendszerprompt váltás')}</span>
               </div>
 
               {personas.length === 0 ? (
-                <p className="text-xs text-slate-500">Nincsenek betöltött personák.</p>
+                <p className="text-xs text-slate-500">{tx('Nincsenek betöltött personák.')}</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1 pb-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pe-1 pb-1">
                   {personas.map((p) => {
                     const active = state?.settings.activePersonaId === p.id;
                     return (
@@ -355,10 +358,10 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                         type="button"
                         onClick={async () => {
                           await postJson('/api/v8/persona/activate', { personaIdOrName: p.id });
-                          setStatusMsg(`Aktív persona váltva: ${p.name}`);
+                          setStatusMsg(tx('Aktív persona váltva: {0}', p.name));
                           await onRefreshState();
                         }}
-                        className={`text-left p-3 rounded-lg border transition-colors ${
+                        className={`text-start p-3 rounded-lg border transition-colors ${
                           active
                             ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
                             : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100'
@@ -386,38 +389,38 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     name: newPersonaName,
                     roleTitle: newPersonaRole,
                     tone: newPersonaTone,
-                    systemGuidance: newPersonaGuidance || `Segíts a felhasználónak mint ${newPersonaRole}.`,
+                    systemGuidance: newPersonaGuidance || tx('Segíts a felhasználónak mint {0}.', newPersonaRole),
                     strengths: [newPersonaRole],
                   });
                   setNewPersonaName('');
                   setNewPersonaRole('');
                   setNewPersonaGuidance('');
-                  setStatusMsg('Egyedi persona létrehozva.');
+                  setStatusMsg(tx('Egyedi persona létrehozva.'));
                   await onRefreshState();
                 }}
                 className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2"
               >
-                <div className="text-xs font-medium text-slate-700 dark:text-slate-300">Új egyedi persona felvétele</div>
+                <div className="text-xs font-medium text-slate-700 dark:text-slate-300">{tx('Új egyedi persona felvétele')}</div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     type="text"
                     value={newPersonaName}
                     onChange={(e) => setNewPersonaName(e.target.value)}
-                    placeholder="Persona neve (pl. DevSecOps)"
+                    placeholder={tx('Persona neve (pl. DevSecOps)')}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <input
                     type="text"
                     value={newPersonaRole}
                     onChange={(e) => setNewPersonaRole(e.target.value)}
-                    placeholder="Szerepkör"
+                    placeholder={tx('Szerepkör')}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <input
                     type="text"
                     value={newPersonaTone}
                     onChange={(e) => setNewPersonaTone(e.target.value)}
-                    placeholder="Hangnem"
+                    placeholder={tx('Hangnem')}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                 </div>
@@ -426,14 +429,14 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={newPersonaGuidance}
                     onChange={(e) => setNewPersonaGuidance(e.target.value)}
-                    placeholder="Rendszerutasítás / elvárt működés..."
+                    placeholder={tx('Rendszerutasítás / elvárt működés...')}
                     className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <button
                     type="submit"
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Persona Mentése
+                    {tx('Persona Mentése')}
                   </button>
                 </div>
               </form>
@@ -444,7 +447,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Sliders className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Élethelyzet &amp; Kontextus Profilok ({contexts.length})
+                  {tx('Élethelyzet & Kontextus Profilok ({0})', contexts.length)}
                 </h3>
                 <div className="space-y-2">
                   {contexts.map((ctx) => {
@@ -455,10 +458,10 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                         type="button"
                         onClick={async () => {
                           await postJson('/api/v8/context/activate', { contextIdOrName: ctx.id });
-                          setStatusMsg(`Kontextus profil aktív: ${ctx.name}`);
+                          setStatusMsg(tx('Kontextus profil aktív: {0}', ctx.name));
                           await onRefreshState();
                         }}
-                        className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
+                        className={`w-full text-start p-2.5 rounded-lg border transition-colors ${
                           active
                             ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
                             : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100'
@@ -478,43 +481,43 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               </div>
 
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
-                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Írásstílus Ujjlenyomat Elemző</div>
+                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{tx('Írásstílus Ujjlenyomat Elemző')}</div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={styleLabel}
                     onChange={(e) => setStyleLabel(e.target.value)}
-                    placeholder="Minta neve"
+                    placeholder={tx('Minta neve')}
                     className="w-36 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <button
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/style/analyze', { label: styleLabel, sampleText: styleSampleText });
-                      setStatusMsg('Írásstílus minta elemezve és elmentve.');
+                      setStatusMsg(tx('Írásstílus minta elemezve és elmentve.'));
                       await onRefreshState();
                     }}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Stílus Elemzése
+                    {tx('Stílus Elemzése')}
                   </button>
                 </div>
                 <textarea
                   rows={3}
                   value={styleSampleText}
                   onChange={(e) => setStyleSampleText(e.target.value)}
-                  aria-label="Írásstílus minta szövege"
+                  aria-label={tx('Írásstílus minta szövege')}
                   className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 {(state?.writingStyleSamples || []).slice(0, 2).map((s) => (
                   <div key={s.id} className="text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-300 flex flex-wrap gap-2">
                     <span className="font-semibold text-slate-900 dark:text-slate-100">{s.label}</span>
                     <span>·</span>
-                    <span>{s.avgSentenceWords} szó/mondat</span>
+                    <span>{s.avgSentenceWords} {tx('szó/mondat')}</span>
                     <span>·</span>
-                    <span>Diverzitás: {s.lexicalDiversity}%</span>
+                    <span>{tx('Diverzitás:')} {s.lexicalDiversity}%</span>
                     <span>·</span>
-                    <span>Formalitás: {s.formalityScore}%</span>
+                    <span>{tx('Formalitás:')} {s.formalityScore}%</span>
                   </div>
                 ))}
               </div>
@@ -526,13 +529,13 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Személyes Ténybank (Fact Vault · {(state?.factVault || []).length})
+                  {tx('Személyes Ténybank (Fact Vault · {0})', (state?.factVault || []).length)}
                 </h3>
                 <input
                   type="search"
                   value={factQuery}
                   onChange={(e) => setFactQuery(e.target.value)}
-                  placeholder="Keresés a tényekben..."
+                  placeholder={tx('Keresés a tényekben...')}
                   className="w-40 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
               </div>
@@ -543,7 +546,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   await postJson('/api/v8/facts', { category: factCategory, factKey, factValue });
                   setFactKey('');
                   setFactValue('');
-                  setStatusMsg('Hiteles tény elmentve a Ténybankba.');
+                  setStatusMsg(tx('Hiteles tény elmentve a Ténybankba.'));
                   await onRefreshState();
                 }}
                 className="grid grid-cols-1 sm:grid-cols-3 gap-2"
@@ -552,14 +555,14 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="text"
                   value={factCategory}
                   onChange={(e) => setFactCategory(e.target.value)}
-                  placeholder="Kategória"
+                  placeholder={tx('Kategória')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <input
                   type="text"
                   value={factKey}
                   onChange={(e) => setFactKey(e.target.value)}
-                  placeholder="Kulcs (pl. SzerverIP)"
+                  placeholder={tx('Kulcs (pl. SzerverIP)')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <div className="flex gap-1.5">
@@ -567,22 +570,22 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={factValue}
                     onChange={(e) => setFactValue(e.target.value)}
-                    placeholder="Érték"
+                    placeholder={tx('Érték')}
                     className="flex-1 min-w-0 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <button
                     type="submit"
-                    aria-label="Tény hozzáadása"
+                    aria-label={tx('Tény hozzáadása')}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Mentés
+                    {tx('Mentés')}
                   </button>
                 </div>
               </form>
 
               {facts.length === 0 ? (
                 <p className="text-xs text-slate-500 py-3">
-                  Még nincs rögzített tény vagy nincs találat. A mentett adatok automatikusan beépülnek az ágens kontextusába.
+                  {tx('Még nincs rögzített tény vagy nincs találat. A mentett adatok automatikusan beépülnek az ágens kontextusába.')}
                 </p>
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-56 overflow-y-auto">
@@ -596,7 +599,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                       </div>
                       <button
                         type="button"
-                        aria-label={`Tény törlése: ${f.factKey}`}
+                        aria-label={tx('Tény törlése: {0}', f.factKey)}
                         onClick={async () => {
                           await fetch(`/api/v8/facts/${f.id}`, { method: 'DELETE' });
                           await onRefreshState();
@@ -614,28 +617,28 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Wand2 className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Hangnem-Átalakító, Próza-Minőség &amp; Strukturált Keretrendszerek
+                {tx('Hangnem-Átalakító, Próza-Minőség & Strukturált Keretrendszerek')}
               </h3>
 
               <textarea
                 rows={3}
                 value={toneText}
                 onChange={(e) => setToneText(e.target.value)}
-                aria-label="Átalakítandó szöveg"
+                aria-label={tx('Átalakítandó szöveg')}
                 className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
               />
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={targetTone}
                   onChange={(e) => setTargetTone(e.target.value as typeof targetTone)}
-                  aria-label="Cél hangnem"
+                  aria-label={tx('Cél hangnem')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                 >
-                  <option value="formal">Hivatalos</option>
-                  <option value="casual">Közvetlen</option>
-                  <option value="assertive">Határozott</option>
-                  <option value="empathetic">Empatikus</option>
-                  <option value="bullet_executive">Vezetői (BLUF)</option>
+                  <option value="formal">{tx('Hivatalos')}</option>
+                  <option value="casual">{tx('Közvetlen')}</option>
+                  <option value="assertive">{tx('Határozott')}</option>
+                  <option value="empathetic">{tx('Empatikus')}</option>
+                  <option value="bullet_executive">{tx('Vezetői (BLUF)')}</option>
                 </select>
                 <button
                   type="button"
@@ -648,7 +651,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                 >
-                  Hangnem Átalakítása
+                  {tx('Hangnem Átalakítása')}
                 </button>
                 <button
                   type="button"
@@ -658,7 +661,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                 >
-                  Olvashatóság Elemzése
+                  {tx('Olvashatóság Elemzése')}
                 </button>
               </div>
 
@@ -672,7 +675,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               {proseResult && (
                 <div className="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300 space-y-1 pt-1">
                   <div>
-                    Szavak: {proseResult.wordCount} · Mondatok: {proseResult.sentenceCount} · Olvashatóság: {proseResult.readabilityScore}/100 · Beszédidő: {proseResult.estimatedSpeakSeconds} mp
+                    {tx('Szavak: {0} · Mondatok: {1} · Olvashatóság: {2}/100 · Beszédidő: {3} mp', proseResult.wordCount, proseResult.sentenceCount, proseResult.readabilityScore, proseResult.estimatedSpeakSeconds)}
                   </div>
                   <div className="font-sans text-slate-500">{proseResult.suggestions.join(' · ')}</div>
                 </div>
@@ -680,23 +683,23 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
                 <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Strukturált Gondolkodási Sablonok (ADR, RFC, SWOT, 5 Miért, STAR, Eisenhower, BLUF)
+                  {tx('Strukturált Gondolkodási Sablonok (ADR, RFC, SWOT, 5 Miért, STAR, Eisenhower, BLUF)')}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <select
                     value={frameworkKind}
                     onChange={(e) => setFrameworkKind(e.target.value as typeof frameworkKind)}
-                    aria-label="Keretrendszer típusa"
+                    aria-label={tx('Keretrendszer típusa')}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="adr">ADR (Architektúra Döntés)</option>
-                    <option value="rfc">RFC Javaslat</option>
-                    <option value="swot">SWOT Mátrix</option>
-                    <option value="5whys">5 Miért Gyökérok</option>
-                    <option value="star">STAR Beszámoló</option>
+                    <option value="adr">{tx('ADR (Architektúra Döntés)')}</option>
+                    <option value="rfc">{tx('RFC Javaslat')}</option>
+                    <option value="swot">{tx('SWOT Mátrix')}</option>
+                    <option value="5whys">{tx('5 Miért Gyökérok')}</option>
+                    <option value="star">{tx('STAR Beszámoló')}</option>
                     <option value="postmortem">Post-Mortem</option>
-                    <option value="eisenhower">Eisenhower Prioritás</option>
-                    <option value="bluf">BLUF Vezetői</option>
+                    <option value="eisenhower">{tx('Eisenhower Prioritás')}</option>
+                    <option value="bluf">{tx('BLUF Vezetői')}</option>
                   </select>
                   <input
                     type="text"
@@ -715,7 +718,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Sablon Készítése
+                    {tx('Sablon Készítése')}
                   </button>
                 </div>
                 {frameworkOut && (
@@ -737,7 +740,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Layers className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Többszintű Célfa &amp; Mérföldkövek ({(state?.goalTrees || []).length})
+                {tx('Többszintű Célfa & Mérföldkövek ({0})', (state?.goalTrees || []).length)}
               </h3>
               <form
                 onSubmit={async (e) => {
@@ -749,7 +752,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     milestones: goalMilestones.split('\n').map((s) => s.trim()).filter(Boolean),
                   });
                   setGoalTitle('');
-                  setStatusMsg('Új célfa létrehozva.');
+                  setStatusMsg(tx('Új célfa létrehozva.'));
                   await onRefreshState();
                 }}
                 className="space-y-2"
@@ -759,7 +762,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={goalTitle}
                     onChange={(e) => setGoalTitle(e.target.value)}
-                    placeholder="Cél megnevezése (pl. Homelab teljesség)"
+                    placeholder={tx('Cél megnevezése (pl. Homelab teljesség)')}
                     className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <select
@@ -767,23 +770,23 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     onChange={(e) => setGoalHorizon(e.target.value as HierarchicalGoalNode['horizon'])}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="weekly">Heti</option>
-                    <option value="monthly">Havi</option>
-                    <option value="quarterly">Negyedéves</option>
-                    <option value="yearly">Éves</option>
+                    <option value="weekly">{tx('Heti')}</option>
+                    <option value="monthly">{tx('Havi')}</option>
+                    <option value="quarterly">{tx('Negyedéves')}</option>
+                    <option value="yearly">{tx('Éves')}</option>
                   </select>
                   <button
                     type="submit"
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Cél Hozzáadása
+                    {tx('Cél Hozzáadása')}
                   </button>
                 </div>
                 <textarea
                   rows={2}
                   value={goalMilestones}
                   onChange={(e) => setGoalMilestones(e.target.value)}
-                  placeholder="Mérföldkövek soronként..."
+                  placeholder={tx('Mérföldkövek soronként...')}
                   className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
               </form>
@@ -823,7 +826,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Ágens-to-Ágens Átadási Lánc (Planner → Builder → Reviewer → Verifier)
+                {tx('Ágens-to-Ágens Átadási Lánc (Planner → Builder → Reviewer → Verifier)')}
               </h3>
               <form
                 onSubmit={async (e) => {
@@ -832,7 +835,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   await postJson('/api/v8/handoffs', { title: handoffTitle, initialNote: handoffNote });
                   setHandoffTitle('');
                   setHandoffNote('');
-                  setStatusMsg('Átadási lánc elindítva.');
+                  setStatusMsg(tx('Átadási lánc elindítva.'));
                   await onRefreshState();
                 }}
                 className="flex flex-wrap gap-2"
@@ -841,21 +844,21 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="text"
                   value={handoffTitle}
                   onChange={(e) => setHandoffTitle(e.target.value)}
-                  placeholder="Feladat címe..."
+                  placeholder={tx('Feladat címe...')}
                   className="flex-1 min-w-[150px] px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <input
                   type="text"
                   value={handoffNote}
                   onChange={(e) => setHandoffNote(e.target.value)}
-                  placeholder="Kezdő tervezési megjegyzés"
+                  placeholder={tx('Kezdő tervezési megjegyzés')}
                   className="flex-1 min-w-[150px] px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <button
                   type="submit"
                   className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                 >
-                  Indítás
+                  {tx('Indítás')}
                 </button>
               </form>
 
@@ -865,19 +868,19 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{h.title}</div>
                       <div className="text-[11px] font-mono text-slate-500">
-                        Aktuális fázis: {h.stage.toUpperCase()} · {h.notes.length} bejegyzés
+                        {tx('Aktuális fázis: {0} · {1} bejegyzés', h.stage.toUpperCase(), h.notes.length)}
                       </div>
                     </div>
                     {h.stage !== 'completed' && (
                       <button
                         type="button"
                         onClick={async () => {
-                          await postJson(`/api/v8/handoffs/${h.id}/advance`, { summary: 'Fázis jóváhagyva' });
+                          await postJson(`/api/v8/handoffs/${h.id}/advance`, { summary: tx('Fázis jóváhagyva') });
                           await onRefreshState();
                         }}
                         className="px-2.5 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                       >
-                        Következő Fázis
+                        {tx('Következő Fázis')}
                       </button>
                     )}
                   </div>
@@ -891,21 +894,21 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Scale className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Súlyozott Döntési Mátrix Kiértékelő
+                {tx('Súlyozott Döntési Mátrix Kiértékelő')}
               </h3>
               <div className="space-y-2 text-xs">
                 <input
                   type="text"
                   value={matrixTitle}
                   onChange={(e) => setMatrixTitle(e.target.value)}
-                  placeholder="Döntés tárgya"
+                  placeholder={tx('Döntés tárgya')}
                   className="w-full px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <input
                   type="text"
                   value={matrixCriteriaRaw}
                   onChange={(e) => setMatrixCriteriaRaw(e.target.value)}
-                  placeholder="Szempont:súly vesszővel"
+                  placeholder={tx('Szempont:súly vesszővel')}
                   className="w-full px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -913,14 +916,14 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={matrixOptARaw}
                     onChange={(e) => setMatrixOptARaw(e.target.value)}
-                    placeholder="Opció A|9,8,7"
+                    placeholder={tx('Opció A|9,8,7')}
                     className="px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <input
                     type="text"
                     value={matrixOptBRaw}
                     onChange={(e) => setMatrixOptBRaw(e.target.value)}
-                    placeholder="Opció B|7,6,9"
+                    placeholder={tx('Opció B|7,6,9')}
                     className="px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                 </div>
@@ -929,24 +932,24 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   onClick={async () => {
                     const criteria = matrixCriteriaRaw.split(',').map((part) => {
                       const [name, w] = part.split(':').map((s) => s.trim());
-                      return { name: name || 'Szempont', weight: Number(w) || 1 };
+                      return { name: name || tx('Szempont'), weight: Number(w) || 1 };
                     });
                     const parseOpt = (raw: string) => {
                       const [name, sc] = raw.split('|');
                       const scores = (sc || '').split(',').map((n) => Number(n.trim()) || 5);
-                      return { name: (name || 'Opció').trim(), scores };
+                      return { name: (name || tx('Opció')).trim(), scores };
                     };
                     await postJson('/api/v8/cognitive/decision-matrix', {
                       title: matrixTitle,
                       criteria,
                       options: [parseOpt(matrixOptARaw), parseOpt(matrixOptBRaw)],
                     });
-                    setStatusMsg('Döntési mátrix kiértékelve.');
+                    setStatusMsg(tx('Döntési mátrix kiértékelve.'));
                     await onRefreshState();
                   }}
                   className="px-3.5 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap"
                 >
-                  Mátrix Kiértékelése
+                  {tx('Mátrix Kiértékelése')}
                 </button>
               </div>
 
@@ -955,9 +958,9 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   <div>
                     <span className="font-semibold text-slate-900 dark:text-slate-100">{dm.title}</span>
                     <span className="text-slate-400 mx-1.5">·</span>
-                    <span className="text-emerald-700 dark:text-emerald-400 font-medium">Győztes: {dm.winnerName}</span>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-medium">{tx('Győztes: {0}', dm.winnerName)}</span>
                   </div>
-                  <span className="font-mono tabular-nums text-slate-500">+{dm.marginPercent}% előny</span>
+                  <span className="font-mono tabular-nums text-slate-500">{tx('+{0}% előny', dm.marginPercent)}</span>
                 </div>
               ))}
             </div>
@@ -966,7 +969,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  3-Ágú Szcenárió Szimulátor &amp; Red-Team Kritika
+                  {tx('3-Ágú Szcenárió Szimulátor & Red-Team Kritika')}
                 </h3>
                 <div className="flex gap-2">
                   <input
@@ -979,12 +982,12 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/cognitive/scenario', { topic: scenarioTopic });
-                      setStatusMsg('3-ágú szcenárió szimuláció elkészült.');
+                      setStatusMsg(tx('3-ágú szcenárió szimuláció elkészült.'));
                       await onRefreshState();
                     }}
                     className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    3-Ágú Szimuláció
+                    {tx('3-Ágú Szimuláció')}
                   </button>
                 </div>
                 <div className="flex gap-2">
@@ -998,50 +1001,50 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/cognitive/redteam', { proposal: redTeamProposal });
-                      setStatusMsg('Red-Team vakfolt elemzés kész.');
+                      setStatusMsg(tx('Red-Team vakfolt elemzés kész.'));
                       await onRefreshState();
                     }}
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Red-Team Elemzés
+                    {tx('Red-Team Elemzés')}
                   </button>
                 </div>
                 {(state?.redTeamCritiques || []).slice(0, 1).map((rt) => (
                   <div key={rt.id} className="p-2.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-xs space-y-1">
                     <div className="font-semibold text-amber-900 dark:text-amber-200 tabular-nums">
-                      Kockázati szint: {rt.riskScore}/100 · {rt.proposal}
+                      {tx('Kockázati szint: {0}/100 · {1}', rt.riskScore, rt.proposal)}
                     </div>
-                    <div className="text-slate-700 dark:text-slate-300">Vakfoltok: {rt.blindSpots.join(' | ')}</div>
+                    <div className="text-slate-700 dark:text-slate-300">{tx('Vakfoltok:')} {rt.blindSpots.join(' | ')}</div>
                   </div>
                 ))}
                 {(state?.scenarioSimulations || []).slice(0, 1).map((sc) => (
                   <div key={sc.id} className="text-[11px] text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold">{sc.topic}:</span> Reális ({sc.realistic.probabilityPct}%): {sc.realistic.summary}
+                    <span className="font-semibold">{sc.topic}:</span> {tx('Reális')} ({sc.realistic.probabilityPct}%): {sc.realistic.summary}
                   </div>
                 ))}
               </div>
 
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">PERT 3-Pontos &amp; RICE Projektbecslés</div>
+                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{tx('PERT 3-Pontos & RICE Projektbecslés')}</div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
                   <label className="space-y-0.5">
-                    <span className="text-[11px] text-slate-500">Opt (ó)</span>
+                    <span className="text-[11px] text-slate-500">{tx('Opt (ó)')}</span>
                     <input type="number" value={pertO} onChange={(e) => setPertO(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                   </label>
                   <label className="space-y-0.5">
-                    <span className="text-[11px] text-slate-500">Valósz. (ó)</span>
+                    <span className="text-[11px] text-slate-500">{tx('Valósz. (ó)')}</span>
                     <input type="number" value={pertM} onChange={(e) => setPertM(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                   </label>
                   <label className="space-y-0.5">
-                    <span className="text-[11px] text-slate-500">Pessz. (ó)</span>
+                    <span className="text-[11px] text-slate-500">{tx('Pessz. (ó)')}</span>
                     <input type="number" value={pertP} onChange={(e) => setPertP(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                   </label>
                   <label className="space-y-0.5">
-                    <span className="text-[11px] text-slate-500">Elérés</span>
+                    <span className="text-[11px] text-slate-500">{tx('Elérés')}</span>
                     <input type="number" value={pertReach} onChange={(e) => setPertReach(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                   </label>
                   <label className="space-y-0.5">
-                    <span className="text-[11px] text-slate-500">Hatás</span>
+                    <span className="text-[11px] text-slate-500">{tx('Hatás')}</span>
                     <input type="number" step="0.5" value={pertImpact} onChange={(e) => setPertImpact(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                   </label>
                   <div className="flex items-end">
@@ -1059,13 +1062,13 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                       }}
                       className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
                     >
-                      Számol
+                      {tx('Számol')}
                     </button>
                   </div>
                 </div>
                 {pertRes && (
                   <div className="text-xs font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                    Várható idő: {pertRes.pertExpectedHours} ó · 95% felső korlát: {pertRes.safeUpperBound95Hours} ó · RICE pontszám: {pertRes.riceScore}
+                    {tx('Várható idő: {0} ó · 95% felső korlát: {1} ó · RICE pontszám: {2}', pertRes.pertExpectedHours, pertRes.safeUpperBound95Hours, pertRes.riceScore)}
                   </div>
                 )}
               </div>
@@ -1082,7 +1085,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Megbeszélés Feldolgozó &amp; 1-Kattintásos Kanban Import
+                {tx('Megbeszélés Feldolgozó & 1-Kattintásos Kanban Import')}
               </h3>
               <div className="flex gap-2">
                 <input
@@ -1095,19 +1098,19 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="button"
                   onClick={async () => {
                     await postJson('/api/v8/studio/meeting', { title: meetingTitle, rawNotes: meetingRaw });
-                    setStatusMsg('Megbeszélés jegyzet feldolgozva.');
+                    setStatusMsg(tx('Megbeszélés jegyzet feldolgozva.'));
                     await onRefreshState();
                   }}
                   className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                 >
-                  Teendők Kinyerése
+                  {tx('Teendők Kinyerése')}
                 </button>
               </div>
               <textarea
                 rows={3}
                 value={meetingRaw}
                 onChange={(e) => setMeetingRaw(e.target.value)}
-                aria-label="Megbeszélés nyers jegyzet"
+                aria-label={tx('Megbeszélés nyers jegyzet')}
                 className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
               />
               {meetingImportInfo && <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{meetingImportInfo}</div>}
@@ -1121,19 +1124,19 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="button"
                     onClick={async () => {
                       const out = await postJson<{ createdCount: number }>(`/api/v8/studio/meeting/${m.id}/import-kanban`);
-                      setMeetingImportInfo(`${out.createdCount} teendő átküldve a Kanban táblára.`);
+                      setMeetingImportInfo(tx('{0} teendő átküldve a Kanban táblára.', out.createdCount));
                       await onRefreshState();
                     }}
                     className="px-2.5 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Kanbanba Exportálás
+                    {tx('Kanbanba Exportálás')}
                   </button>
                 </div>
               ))}
 
               {/* 3-Level Reading Digest */}
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">3-Szintű Olvasmány Kivonatoló</div>
+                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">{tx('3-Szintű Olvasmány Kivonatoló')}</div>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -1145,12 +1148,12 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/studio/digest', { title: digestTitle, rawText: digestRaw });
-                      setStatusMsg('Kivonat elkészült.');
+                      setStatusMsg(tx('Kivonat elkészült.'));
                       await onRefreshState();
                     }}
                     className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Kivonat Készítése
+                    {tx('Kivonat Készítése')}
                   </button>
                 </div>
                 <textarea
@@ -1161,7 +1164,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                 />
                 {(state?.readingDigests || []).slice(0, 1).map((d) => (
                   <div key={d.id} className="text-xs text-slate-600 dark:text-slate-300">
-                    <span className="font-semibold">{d.title}:</span> {d.tldrOneLine} ({d.wordCount} szó)
+                    <span className="font-semibold">{d.title}:</span> {d.tldrOneLine} ({tx('{0} szó', d.wordCount)})
                   </div>
                 ))}
               </div>
@@ -1172,7 +1175,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Interaktív Tanulási Terv &amp; Feynman Kérdések
+                  {tx('Interaktív Tanulási Terv & Feynman Kérdések')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   <input
@@ -1186,9 +1189,9 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     onChange={(e) => setStudyLevel(e.target.value as StudyPlanItem['level'])}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="beginner">Kezdő</option>
-                    <option value="intermediate">Középhaladó</option>
-                    <option value="advanced">Haladó</option>
+                    <option value="beginner">{tx('Kezdő')}</option>
+                    <option value="intermediate">{tx('Középhaladó')}</option>
+                    <option value="advanced">{tx('Haladó')}</option>
                   </select>
                   <button
                     type="button"
@@ -1198,7 +1201,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Terv Generálása
+                    {tx('Terv Generálása')}
                   </button>
                 </div>
                 {(state?.studyPlans || []).slice(0, 1).map((pl) => (
@@ -1212,7 +1215,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                           await postJson(`/api/v8/studio/study/${pl.id}/modules/${mod.id}/toggle`);
                           await onRefreshState();
                         }}
-                        className="w-full text-left p-2 rounded border border-slate-200 dark:border-slate-700 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                        className="w-full text-start p-2 rounded border border-slate-200 dark:border-slate-700 text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
                       >
                         <div className={mod.completed ? 'line-through text-emerald-700 dark:text-emerald-400 font-medium' : 'font-medium'}>
                           {mod.completed ? '[x] ' : '[ ] '}{mod.title}
@@ -1226,7 +1229,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold">Szakterületi Fogalomtár ({(state?.glossaryTerms || []).length}) &amp; Tudásgráf</div>
+                  <div className="text-xs font-semibold">{tx('Szakterületi Fogalomtár ({0}) & Tudásgráf', (state?.glossaryTerms || []).length)}</div>
                   <button
                     type="button"
                     onClick={async () => {
@@ -1235,7 +1238,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Mermaid Gráf Mutatása
+                    {tx('Mermaid Gráf Mutatása')}
                   </button>
                 </div>
                 <form
@@ -1249,11 +1252,11 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="grid grid-cols-1 sm:grid-cols-3 gap-2"
                 >
-                  <input type="text" value={glTerm} onChange={(e) => setGlTerm(e.target.value)} placeholder="Fogalom" className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
-                  <input type="text" value={glDomain} onChange={(e) => setGlDomain(e.target.value)} placeholder="Terület" className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
+                  <input type="text" value={glTerm} onChange={(e) => setGlTerm(e.target.value)} placeholder={tx('Fogalom')} className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
+                  <input type="text" value={glDomain} onChange={(e) => setGlDomain(e.target.value)} placeholder={tx('Terület')} className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <div className="flex gap-1.5">
-                    <input type="text" value={glDef} onChange={(e) => setGlDef(e.target.value)} placeholder="Definíció" className="flex-1 min-w-0 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
-                    <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0">Hozzáad</button>
+                    <input type="text" value={glDef} onChange={(e) => setGlDef(e.target.value)} placeholder={tx('Definíció')} className="flex-1 min-w-0 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
+                    <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0">{tx('Hozzáad')}</button>
                   </div>
                 </form>
                 {conceptGraph && (
@@ -1270,7 +1273,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Code2 className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                SQL Biztonsági Auditor, Infra Linter &amp; PII Anonimizáló
+                {tx('SQL Biztonsági Auditor, Infra Linter & PII Anonimizáló')}
               </h3>
 
               <div className="space-y-2">
@@ -1279,7 +1282,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={sqlInput}
                     onChange={(e) => setSqlInput(e.target.value)}
-                    aria-label="Vizsgálandó SQL lekérdezés"
+                    aria-label={tx('Vizsgálandó SQL lekérdezés')}
                     className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <button
@@ -1295,7 +1298,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                 </div>
                 {sqlOut && (
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
-                    <span className="font-semibold">Kockázat: {sqlOut.riskLevel.toUpperCase()}</span> — {sqlOut.findings.join(' ')}
+                    <span className="font-semibold">{tx('Kockázat:')} {sqlOut.riskLevel.toUpperCase()}</span> — {sqlOut.findings.join(' ')}
                   </div>
                 )}
               </div>
@@ -1311,7 +1314,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Manifest Ellenőrzése
+                    {tx('Manifest Ellenőrzése')}
                   </button>
                 </div>
                 <textarea
@@ -1333,7 +1336,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium flex items-center gap-1.5">
                     <Lock className="h-3.5 w-3.5" />
-                    Adatvédelmi PII &amp; API Kulcs Anonimizáló
+                    {tx('Adatvédelmi PII & API Kulcs Anonimizáló')}
                   </span>
                   <button
                     type="button"
@@ -1343,7 +1346,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap"
                   >
-                    Anonimizálás
+                    {tx('Anonimizálás')}
                   </button>
                 </div>
                 <textarea
@@ -1354,7 +1357,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                 />
                 {piiOut && (
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono">
-                    {piiOut.sanitized} ({piiOut.redactionsCount} maszkolás)
+                    {piiOut.sanitized} ({tx('{0} maszkolás', piiOut.redactionsCount)})
                   </div>
                 )}
               </div>
@@ -1365,7 +1368,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Network className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Architektúra Tervrajz, Incidens Playbook &amp; Fejlesztői Konverterek
+                  {tx('Architektúra Tervrajz, Incidens Playbook & Fejlesztői Konverterek')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   <input
@@ -1379,22 +1382,22 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     onChange={(e) => setBpPattern(e.target.value as ArchitectureBlueprint['pattern'])}
                     className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="iot_edge">IoT &amp; Raspberry Pi Edge</option>
+                    <option value="iot_edge">{tx('IoT & Raspberry Pi Edge')}</option>
                     <option value="monolith_sqlite">Monolith + SQLite WAL</option>
-                    <option value="microservices">Mikroszolgáltatások</option>
-                    <option value="rag_pipeline">RAG Tudásgráf Pipeline</option>
-                    <option value="event_driven">Eseményvezérelt Busz</option>
+                    <option value="microservices">{tx('Mikroszolgáltatások')}</option>
+                    <option value="rag_pipeline">{tx('RAG Tudásgráf Pipeline')}</option>
+                    <option value="event_driven">{tx('Eseményvezérelt Busz')}</option>
                   </select>
                   <button
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/dev/blueprint', { name: bpName, pattern: bpPattern });
-                      setStatusMsg('Architektúra tervrajz elkészült.');
+                      setStatusMsg(tx('Architektúra tervrajz elkészült.'));
                       await onRefreshState();
                     }}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Tervrajz Készítése
+                    {tx('Tervrajz Készítése')}
                   </button>
                 </div>
                 {(state?.architectureBlueprints || []).slice(0, 1).map((bp) => (
@@ -1406,16 +1409,16 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium">Konverter:</span>
+                  <span className="text-xs font-medium">{tx('Konverter:')}</span>
                   <select
                     value={convMode}
                     onChange={(e) => setConvMode(e.target.value as typeof convMode)}
                     className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="json_to_ts">JSON → TypeScript interfész</option>
-                    <option value="csv_to_markdown">CSV → Markdown táblázat</option>
-                    <option value="jwt_decode">JWT Token Dekóder</option>
-                    <option value="env_mask">.env → .env.example Maszk</option>
+                    <option value="json_to_ts">{tx('JSON → TypeScript interfész')}</option>
+                    <option value="csv_to_markdown">{tx('CSV → Markdown táblázat')}</option>
+                    <option value="jwt_decode">{tx('JWT Token Dekóder')}</option>
+                    <option value="env_mask">{tx('.env → .env.example Maszk')}</option>
                   </select>
                   <button
                     type="button"
@@ -1425,7 +1428,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap"
                   >
-                    Átalakítás
+                    {tx('Átalakítás')}
                   </button>
                 </div>
                 <textarea
@@ -1443,7 +1446,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               {/* Incident Playbooks & Snippet Vault */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                <div className="text-xs font-semibold">Interaktív Incidens Playbookok ({(state?.incidentPlaybooks || []).length})</div>
+                <div className="text-xs font-semibold">{tx('Interaktív Incidens Playbookok ({0})', (state?.incidentPlaybooks || []).length)}</div>
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
                   {(state?.incidentPlaybooks || []).slice(0, 3).map((pb) => (
                     <div key={pb.id} className="text-xs space-y-1">
@@ -1475,7 +1478,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
                 {/* Snippet Render */}
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                  <div className="text-xs font-semibold">Paraméterezett Kódrészlet Tár ({(state?.codeSnippets || []).length})</div>
+                  <div className="text-xs font-semibold">{tx('Paraméterezett Kódrészlet Tár ({0})', (state?.codeSnippets || []).length)}</div>
                   <div className="flex flex-wrap gap-2">
                     {(state?.codeSnippets || []).slice(0, 3).map((sn) => (
                       <button
@@ -1513,10 +1516,10 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1"
                   >
-                    <input type="text" value={snipTitle} onChange={(e) => setSnipTitle(e.target.value)} placeholder="Új kódrészlet címe" className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
-                    <input type="text" value={snipLang} onChange={(e) => setSnipLang(e.target.value)} placeholder="Nyelv" className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+                    <input type="text" value={snipTitle} onChange={(e) => setSnipTitle(e.target.value)} placeholder={tx('Új kódrészlet címe')} className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+                    <input type="text" value={snipLang} onChange={(e) => setSnipLang(e.target.value)} placeholder={tx('Nyelv')} className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                     <div className="flex gap-1">
-                      <input type="text" value={snipCode} onChange={(e) => setSnipCode(e.target.value)} placeholder="Kód ({{var}})" className="flex-1 min-w-0 px-2 py-1 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+                      <input type="text" value={snipCode} onChange={(e) => setSnipCode(e.target.value)} placeholder={tx('Kód ({{var}})')} className="flex-1 min-w-0 px-2 py-1 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
                       <button type="submit" className="px-2.5 py-1 text-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap">+</button>
                     </div>
                   </form>
@@ -1535,7 +1538,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Activity className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Statisztikai Számsor Elemző, Pénzügyi &amp; Mértékegység Motor
+                {tx('Statisztikai Számsor Elemző, Pénzügyi & Mértékegység Motor')}
               </h3>
 
               <div className="space-y-2">
@@ -1544,7 +1547,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={statsInput}
                     onChange={(e) => setStatsInput(e.target.value)}
-                    aria-label="Számsor adatok"
+                    aria-label={tx('Számsor adatok')}
                     className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent"
                   />
                   <button
@@ -1555,16 +1558,16 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Statisztika Elemzése
+                    {tx('Statisztika Elemzése')}
                   </button>
                 </div>
                 {statsOut && (
                   <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono tabular-nums space-y-1">
                     <div>
-                      n={statsOut.count} · Átlag: {statsOut.mean} · Medián: {statsOut.median} · Szórás: {statsOut.stdDev} · P95: {statsOut.p95} · Trend: {statsOut.trendSlope}
+                      {tx('n={0} · Átlag: {1} · Medián: {2} · Szórás: {3} · P95: {4} · Trend: {5}', statsOut.count, statsOut.mean, statsOut.median, statsOut.stdDev, statsOut.p95, statsOut.trendSlope)}
                     </div>
                     <div className="text-amber-700 dark:text-amber-300">
-                      Anomáliák (Z ≥ 2.0): {statsOut.anomalies.length > 0 ? statsOut.anomalies.map((a) => `${a.value} (z=${a.zScore})`).join(', ') : 'nincs'}
+                      {tx('Anomáliák (Z ≥ 2.0):')} {statsOut.anomalies.length > 0 ? statsOut.anomalies.map((a) => `${a.value} (z=${a.zScore})`).join(', ') : tx('nincs')}
                     </div>
                   </div>
                 )}
@@ -1572,20 +1575,20 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               {/* Financial Engineering */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
-                <div className="font-medium">Pénzügyi Kalkulátor (Kamatos kamat · Hitel törlesztő · Magyar ÁFA 27/18/5%)</div>
+                <div className="font-medium">{tx('Pénzügyi Kalkulátor (Kamatos kamat · Hitel törlesztő · Magyar ÁFA 27/18/5%)')}</div>
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                   <select
                     value={finMode}
                     onChange={(e) => setFinMode(e.target.value as typeof finMode)}
                     className="col-span-2 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                   >
-                    <option value="vat_hu">Magyar ÁFA</option>
-                    <option value="compound">Kamatos kamat</option>
-                    <option value="loan">Hitel törlesztő</option>
+                    <option value="vat_hu">{tx('Magyar ÁFA')}</option>
+                    <option value="compound">{tx('Kamatos kamat')}</option>
+                    <option value="loan">{tx('Hitel törlesztő')}</option>
                   </select>
-                  <input type="number" value={finPrincipal} onChange={(e) => setFinPrincipal(Number(e.target.value))} placeholder="Összeg" className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
+                  <input type="number" value={finPrincipal} onChange={(e) => setFinPrincipal(Number(e.target.value))} placeholder={tx('Összeg')} className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <input type="number" value={finMode === 'vat_hu' ? finVat : finRate} onChange={(e) => (finMode === 'vat_hu' ? setFinVat(Number(e.target.value)) : setFinRate(Number(e.target.value)))} placeholder="%" className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
-                  <input type="number" value={finYears} onChange={(e) => setFinYears(Number(e.target.value))} placeholder="Év" className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
+                  <input type="number" value={finYears} onChange={(e) => setFinYears(Number(e.target.value))} placeholder={tx('Év')} className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <button
                     type="button"
                     onClick={async () => {
@@ -1601,7 +1604,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap"
                   >
-                    Számítás
+                    {tx('Számítás')}
                   </button>
                 </div>
                 {finOut && <div className="font-mono tabular-nums text-slate-700 dark:text-slate-200">{finOut.summary}</div>}
@@ -1609,7 +1612,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               {/* Unit & World Clock */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
-                <div className="font-medium">Mértékegység &amp; 5-Zónás Világóra Átváltó</div>
+                <div className="font-medium">{tx('Mértékegység & 5-Zónás Világóra Átváltó')}</div>
                 <div className="flex flex-wrap gap-2">
                   <input type="number" value={unitVal} onChange={(e) => setUnitVal(Number(e.target.value))} className="w-24 px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <input type="text" value={unitFrom} onChange={(e) => setUnitFrom(e.target.value)} className="w-20 px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
@@ -1627,7 +1630,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Átváltás
+                    {tx('Átváltás')}
                   </button>
                 </div>
                 {unitOut && (
@@ -1644,7 +1647,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                     <CalendarClock className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                    Napi Idősáv Tervező (Ütközésfigyelővel)
+                    {tx('Napi Idősáv Tervező (Ütközésfigyelővel)')}
                   </h3>
                   <button
                     type="button"
@@ -1658,7 +1661,7 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    Vezetői Riport
+                    {tx('Vezetői Riport')}
                   </button>
                 </div>
 
@@ -1673,8 +1676,8 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     });
                     setTbConflictMsg(
                       res.conflicts.length > 0
-                        ? `Figyelem: ${res.conflicts.length} időütközés észlelve! Mai mély fókusz: ${res.deepWorkMinutesToday} perc.`
-                        : `Idősáv rögzítve. Mai mély fókusz: ${res.deepWorkMinutesToday} perc.`
+                        ? tx('Figyelem: {0} időütközés észlelve! Mai mély fókusz: {1} perc.', res.conflicts.length, res.deepWorkMinutesToday)
+                        : tx('Idősáv rögzítve. Mai mély fókusz: {0} perc.', res.deepWorkMinutesToday)
                     );
                     await onRefreshState();
                   }}
@@ -1684,12 +1687,12 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                   <input type="text" value={tbEnd} onChange={(e) => setTbEnd(e.target.value)} className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <input type="text" value={tbTitle} onChange={(e) => setTbTitle(e.target.value)} className="col-span-2 sm:col-span-1 px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <select value={tbKind} onChange={(e) => setTbKind(e.target.value as TimeBlockSlot['kind'])} className="px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
-                    <option value="deep_work">Mély fókusz</option>
-                    <option value="meeting">Megbeszélés</option>
+                    <option value="deep_work">{tx('Mély fókusz')}</option>
+                    <option value="meeting">{tx('Megbeszélés')}</option>
                     <option value="admin">Admin</option>
-                    <option value="recovery">Pihenő</option>
+                    <option value="recovery">{tx('Pihenő')}</option>
                   </select>
-                  <button type="submit" className="px-3 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap">Hozzáad</button>
+                  <button type="submit" className="px-3 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap">{tx('Hozzáad')}</button>
                 </form>
                 {tbConflictMsg && <div className="text-xs text-slate-700 dark:text-slate-300">{tbConflictMsg}</div>}
                 <div className="flex flex-wrap gap-1.5">
@@ -1705,13 +1708,13 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
                 <div className="font-semibold flex items-center gap-1.5">
                   <HeartPulse className="h-3.5 w-3.5" />
-                  Napi Jóllét Napló &amp; Okos Ellenőrzőlisták
+                  {tx('Napi Jóllét Napló & Okos Ellenőrzőlisták')}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">Alvás (ó)</span><input type="number" step="0.5" value={wellSleep} onChange={(e) => setWellSleep(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
-                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">Víz (ml)</span><input type="number" step="100" value={wellWater} onChange={(e) => setWellWater(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
-                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">Energia (1-10)</span><input type="number" min="1" max="10" value={wellEnergy} onChange={(e) => setWellEnergy(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
-                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">Mozgás (p)</span><input type="number" value={wellMove} onChange={(e) => setWellMove(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
+                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">{tx('Alvás (ó)')}</span><input type="number" step="0.5" value={wellSleep} onChange={(e) => setWellSleep(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
+                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">{tx('Víz (ml)')}</span><input type="number" step="100" value={wellWater} onChange={(e) => setWellWater(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
+                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">{tx('Energia (1-10)')}</span><input type="number" min="1" max="10" value={wellEnergy} onChange={(e) => setWellEnergy(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
+                  <label className="space-y-0.5"><span className="text-[11px] text-slate-500">{tx('Mozgás (p)')}</span><input type="number" value={wellMove} onChange={(e) => setWellMove(Number(e.target.value))} className="w-full px-2 py-1 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" /></label>
                   <div className="flex items-end">
                     <button
                       type="button"
@@ -1722,12 +1725,12 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                           energyScore: wellEnergy,
                           movementMinutes: wellMove,
                         });
-                        setStatusMsg('Napi jóllét check-in rögzítve.');
+                        setStatusMsg(tx('Napi jóllét check-in rögzítve.'));
                         await onRefreshState();
                       }}
                       className="w-full px-2.5 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
                     >
-                      Mentés
+                      {tx('Mentés')}
                     </button>
                   </div>
                 </div>
@@ -1763,25 +1766,25 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
 
               {/* Communication Draft Studio */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
-                <div className="font-semibold">Kommunikációs Levélvázlat Stúdió</div>
+                <div className="font-semibold">{tx('Kommunikációs Levélvázlat Stúdió')}</div>
                 <div className="flex flex-wrap gap-2">
                   <input type="text" value={draftPurpose} onChange={(e) => setDraftPurpose(e.target.value)} className="flex-1 min-w-[140px] px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent" />
                   <select value={draftTone} onChange={(e) => setDraftTone(e.target.value as CommunicationDraft['tone'])} className="px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
-                    <option value="formal">Hivatalos</option>
-                    <option value="direct">Közvetlen</option>
-                    <option value="empathetic">Empatikus</option>
-                    <option value="assertive">Határozott</option>
+                    <option value="formal">{tx('Hivatalos')}</option>
+                    <option value="direct">{tx('Közvetlen')}</option>
+                    <option value="empathetic">{tx('Empatikus')}</option>
+                    <option value="assertive">{tx('Határozott')}</option>
                   </select>
                   <button
                     type="button"
                     onClick={async () => {
                       await postJson('/api/v8/life/drafts', { purpose: draftPurpose, tone: draftTone, keyPoints: draftPoints });
-                      setStatusMsg('Levélvázlat elkészült.');
+                      setStatusMsg(tx('Levélvázlat elkészült.'));
                       await onRefreshState();
                     }}
                     className="px-3 py-1.5 font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Vázlat Készítése
+                    {tx('Vázlat Készítése')}
                   </button>
                 </div>
                 {(state?.communicationDrafts || []).slice(0, 1).map((dr) => (
@@ -1805,20 +1808,20 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <CheckSquare className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  <span>Teljes Képesség Katalógus</span>
+                  <span>{tx('Teljes Képesség Katalógus')}</span>
                   <InfoHint
-                    label="Képesség katalógus"
-                    text="Kereshető lista arról, milyen beépített eszközöket és végpontokat tud kezelni az asszisztens."
+                    label={tx('Képesség katalógus')}
+                    text={tx('Kereshető lista arról, milyen beépített eszközöket és végpontokat tud kezelni az asszisztens.')}
                   />
                 </h3>
                 <div className="text-xs text-slate-500 tabular-nums mt-0.5">
-                  Összes regisztrált képesség: {catalogData?.totalCount ?? 200} · Találatok: {catalogData?.items.length ?? 0}
+                  {tx('Összes regisztrált képesség: {0} · Találatok: {1}', catalogData?.totalCount ?? 200, catalogData?.items.length ?? 0)}
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
-                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2" />
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute start-2.5 top-2" />
                   <input
                     type="search"
                     value={capQuery}
@@ -1827,9 +1830,9 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                       setCapQuery(v);
                       void loadCatalog(v, capCategory);
                     }}
-                    placeholder="Keresés a 200+ funkció között..."
-                    aria-label="Keresés a 200+ képesség között"
-                    className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent w-60"
+                    placeholder={tx('Keresés a 200+ funkció között...')}
+                    aria-label={tx('Keresés a 200+ képesség között')}
+                    className="ps-8 pe-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent w-60"
                   />
                 </div>
                 <select
@@ -1839,10 +1842,10 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
                     setCapCategory(c);
                     void loadCatalog(capQuery, c);
                   }}
-                  aria-label="Képesség kategória szűrő"
+                  aria-label={tx('Képesség kategória szűrő')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900"
                 >
-                  <option value="">Minden kategória</option>
+                  <option value="">{tx('Minden kategória')}</option>
                   {(catalogData?.categories || []).map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
@@ -1851,19 +1854,19 @@ export const Batch8SingularityPanel: React.FC<Props> = ({ state, onRefreshState 
             </div>
 
             {!catalogData ? (
-              <p className="text-xs text-slate-500 font-mono">Katalógus betöltése...</p>
+              <p className="text-xs text-slate-500 font-mono">{tx('Katalógus betöltése...')}</p>
             ) : catalogData.items.length === 0 ? (
-              <p className="text-xs text-slate-500">Nincs a keresésnek megfelelő képesség.</p>
+              <p className="text-xs text-slate-500">{tx('Nincs a keresésnek megfelelő képesség.')}</p>
             ) : (
               <div className="overflow-x-auto max-h-96 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg">
-                <table className="w-full text-left text-xs border-collapse">
+                <table className="w-full text-start text-xs border-collapse">
                   <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 sticky top-0">
                     <tr>
-                      <th className="px-3 py-2 font-medium whitespace-nowrap">Kód</th>
-                      <th className="px-3 py-2 font-medium whitespace-nowrap">Kategória</th>
-                      <th className="px-3 py-2 font-medium">Funkció</th>
-                      <th className="px-3 py-2 font-medium">Leírás</th>
-                      <th className="px-3 py-2 font-medium whitespace-nowrap">Végpont / Eszköz</th>
+                      <th className="px-3 py-2 font-medium whitespace-nowrap">{tx('Kód')}</th>
+                      <th className="px-3 py-2 font-medium whitespace-nowrap">{tx('Kategória')}</th>
+                      <th className="px-3 py-2 font-medium">{tx('Funkció')}</th>
+                      <th className="px-3 py-2 font-medium">{tx('Leírás')}</th>
+                      <th className="px-3 py-2 font-medium whitespace-nowrap">{tx('Végpont / Eszköz')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

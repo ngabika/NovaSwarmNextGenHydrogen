@@ -10,30 +10,32 @@ import {
   Users,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 export const Batch3LifePortalPanel: React.FC<{
   state: NovaSwarmState;
   onRefreshState: () => Promise<void>;
 }> = ({ state, onRefreshState }) => {
+  const { tx } = useLocale();
   const [crmName, setCrmName] = useState('');
-  const [crmRel, setCrmRel] = useState('Partner');
+  const [crmRel, setCrmRel] = useState(() => tx('Partner'));
   const [crmEmail, setCrmEmail] = useState('');
 
   const [pkgTitle, setPkgTitle] = useState('');
   const [pkgTrack, setPkgTrack] = useState('');
-  const [pkgCarrier, setPkgCarrier] = useState('Foxpost');
+  const [pkgCarrier] = useState('Foxpost');
 
-  const [shareTitle, setShareTitle] = useState('Nyilvános Lista');
+  const [shareTitle, setShareTitle] = useState(() => tx('Nyilvános Lista'));
   const [shareType, setShareType] = useState<'list' | 'report' | 'artifact'>('list');
 
   const [paperQuery, setPaperQuery] = useState('autonomous multi-agent systems');
   const [papers, setPapers] = useState<Array<{ title: string; authors: string; year: string; url: string }>>([]);
 
   const [bmUrl, setBmUrl] = useState('');
-  const [mealDay, setMealDay] = useState('Hétfő');
-  const [mealName, setMealName] = useState('Tejszínes csirkés tészta');
-  const [mealIng, setMealIng] = useState('csirkemell, tejszín, tészta, fokhagyma');
+  const [mealDay, setMealDay] = useState(() => tx('Hétfő'));
+  const [mealName, setMealName] = useState(() => tx('Tejszínes csirkés tészta'));
+  const [mealIng, setMealIng] = useState(() => tx('csirkemell, tejszín, tészta, fokhagyma'));
   const [mealMsg, setMealMsg] = useState<string | null>(null);
 
   const [fxAmount, setFxAmount] = useState(100);
@@ -49,16 +51,16 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Users className="h-4 w-4" />
-          <span>Személyes Névjegyzék &amp; Kapcsolatok</span>
+          <span>{tx('Személyes Névjegyzék & Kapcsolatok')}</span>
           <InfoHint
-            label="Személyes névjegyzék"
-            text="Egyszerű kapcsolatlista partnerekről, barátokról és ismerősökről gyors elérhetőségekkel."
+            label={tx('Személyes névjegyzék')}
+            text={tx('Egyszerű kapcsolatlista partnerekről, barátokról és ismerősökről gyors elérhetőségekkel.')}
           />
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-          <input type="text" value={crmName} onChange={(e) => setCrmName(e.target.value)} placeholder="Név..." className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
-          <input type="text" value={crmRel} onChange={(e) => setCrmRel(e.target.value)} placeholder="Kapcsolat..." className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
-          <input type="email" value={crmEmail} onChange={(e) => setCrmEmail(e.target.value)} placeholder="Email..." className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={crmName} onChange={(e) => setCrmName(e.target.value)} placeholder={tx('Név...')} className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={crmRel} onChange={(e) => setCrmRel(e.target.value)} placeholder={tx('Kapcsolat...')} className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="email" value={crmEmail} onChange={(e) => setCrmEmail(e.target.value)} placeholder={tx('Email...')} className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
         </div>
         <button
           type="button"
@@ -75,7 +77,7 @@ export const Batch3LifePortalPanel: React.FC<{
           }}
           className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
         >
-          Névjegy Mentése
+          {tx('Névjegy Mentése')}
         </button>
         <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
           {(state.crmContacts || []).map((c) => (
@@ -99,15 +101,15 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Package className="h-4 w-4" />
-          <span>Csomagkövetés &amp; Megosztó Linkek</span>
+          <span>{tx('Csomagkövetés & Megosztó Linkek')}</span>
           <InfoHint
-            label="Csomagkövetés és megosztás"
-            text="Nyomon követheted a várt csomagok kódját, és ideiglenes megosztó linket adhatsz listákhoz vagy riportokhoz."
+            label={tx('Csomagkövetés és megosztás')}
+            text={tx('Nyomon követheted a várt csomagok kódját, és ideiglenes megosztó linket adhatsz listákhoz vagy riportokhoz.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
-          <input type="text" value={pkgTitle} onChange={(e) => setPkgTitle(e.target.value)} placeholder="Csomag leírás..." className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
-          <input type="text" value={pkgTrack} onChange={(e) => setPkgTrack(e.target.value)} placeholder="Követési kód..." className="w-32 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={pkgTitle} onChange={(e) => setPkgTitle(e.target.value)} placeholder={tx('Csomag leírás...')} className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
+          <input type="text" value={pkgTrack} onChange={(e) => setPkgTrack(e.target.value)} placeholder={tx('Követési kód...')} className="w-32 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
           <button
             type="button"
             onClick={async () => {
@@ -123,7 +125,7 @@ export const Batch3LifePortalPanel: React.FC<{
             }}
             className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            Csomag Felvétele
+            {tx('Csomag Felvétele')}
           </button>
         </div>
         <div className="space-y-1 max-h-24 overflow-y-auto text-xs font-mono">
@@ -138,9 +140,9 @@ export const Batch3LifePortalPanel: React.FC<{
           <div className="flex flex-wrap gap-2">
             <input type="text" value={shareTitle} onChange={(e) => setShareTitle(e.target.value)} className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
             <select value={shareType} onChange={(e) => setShareType(e.target.value as 'list' | 'report' | 'artifact')} className="px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800">
-              <option value="list">Közös Lista</option>
-              <option value="report">Riport</option>
-              <option value="artifact">Artifact</option>
+              <option value="list">{tx('Közös Lista')}</option>
+              <option value="report">{tx('Riport')}</option>
+              <option value="artifact">{tx('Artifact')}</option>
             </select>
             <button
               type="button"
@@ -155,7 +157,7 @@ export const Batch3LifePortalPanel: React.FC<{
               className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
               <Share2 className="h-3.5 w-3.5" />
-              Portál Link
+              {tx('Portál Link')}
             </button>
           </div>
           {(state.sharedLinks || []).slice(0, 3).map((l) => (
@@ -163,7 +165,7 @@ export const Batch3LifePortalPanel: React.FC<{
               <a href={`/share/${l.token}`} target="_blank" rel="noreferrer" className="underline text-indigo-700 dark:text-indigo-400">
                 /share/{l.token}
               </a>
-              <span>{l.views} megtekintés</span>
+              <span>{tx('{0} megtekintés', l.views)}</span>
             </div>
           ))}
         </div>
@@ -172,10 +174,10 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Home className="h-4 w-4" />
-          <span>Heti Étrend &amp; Bevásárlólista Szinkron</span>
+          <span>{tx('Heti Étrend & Bevásárlólista Szinkron')}</span>
           <InfoHint
-            label="Heti étrend"
-            text="Ha megadsz egy receptet és a hozzávalóit, a hiányzó tételeket automatikusan felveszi a közös bevásárlólistára."
+            label={tx('Heti étrend')}
+            text={tx('Ha megadsz egy receptet és a hozzávalóit, a hiányzó tételeket automatikusan felveszi a közös bevásárlólistára.')}
           />
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -186,7 +188,7 @@ export const Batch3LifePortalPanel: React.FC<{
           type="text"
           value={mealIng}
           onChange={(e) => setMealIng(e.target.value)}
-          placeholder="Hozzávalók vesszővel..."
+          placeholder={tx('Hozzávalók vesszővel...')}
           className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent"
         />
         <button
@@ -202,18 +204,18 @@ export const Batch3LifePortalPanel: React.FC<{
               }),
             });
             const d = await r.json();
-            setMealMsg(`Étrend rögzítve — ${d.addedItems} hiányzó hozzávaló hozzáadva a /lista bevásárlólistához.`);
+            setMealMsg(tx('Étrend rögzítve — {0} hiányzó hozzávaló hozzáadva a /lista bevásárlólistához.', d.addedItems));
             await onRefreshState();
           }}
           className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
         >
-          Étrend Mentése & Bevásárlólista Frissítés
+          {tx('Étrend Mentése & Bevásárlólista Frissítés')}
         </button>
         {mealMsg && <div className="text-xs text-emerald-700 dark:text-emerald-400">{mealMsg}</div>}
         <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 text-xs">
           <div className="flex items-center gap-2 font-medium">
             <BookMarked className="h-3.5 w-3.5" />
-            Read-It-Later Offline Archívum ({(state.bookmarks || []).length})
+            {tx('Read-It-Later Offline Archívum ({0})', (state.bookmarks || []).length)}
           </div>
           <div className="flex gap-2">
             <input type="url" value={bmUrl} onChange={(e) => setBmUrl(e.target.value)} placeholder="https://..." className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
@@ -231,7 +233,7 @@ export const Batch3LifePortalPanel: React.FC<{
               }}
               className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              Archiválás
+              {tx('Archiválás')}
             </button>
           </div>
         </div>
@@ -240,10 +242,10 @@ export const Batch3LifePortalPanel: React.FC<{
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Coins className="h-4 w-4" />
-          <span>Devizaváltó, ÁFA Kalkulátor &amp; Szakirodalom</span>
+          <span>{tx('Devizaváltó, ÁFA Kalkulátor & Szakirodalom')}</span>
           <InfoHint
-            label="Pénzügyi kalkulátorok"
-            text="Gyorsan átváltja a valutákat (EKB árfolyammal), kiszámolja a 27%-os ÁFÁ-t és tudományos cikkeket keres."
+            label={tx('Pénzügyi kalkulátorok')}
+            text={tx('Gyorsan átváltja a valutákat (EKB árfolyammal), kiszámolja a 27%-os ÁFÁ-t és tudományos cikkeket keres.')}
           />
         </h3>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -259,11 +261,11 @@ export const Batch3LifePortalPanel: React.FC<{
                 body: JSON.stringify({ amount: fxAmount, from: fxFrom, to: fxTo }),
               });
               const d = await r.json();
-              setFxResult(`${d.amount} ${d.from} = ${d.converted} ${d.to} (árfolyam: ${d.rate}, forrás: ${d.source})`);
+              setFxResult(tx('{0} {1} = {2} {3} (árfolyam: {4}, forrás: {5})', d.amount, d.from, d.converted, d.to, d.rate, d.source));
             }}
             className="px-3 py-1.5 bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            Átváltás
+            {tx('Átváltás')}
           </button>
           <input type="number" value={vatNet} onChange={(e) => setVatNet(Number(e.target.value))} className="w-24 px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent" />
           <button
@@ -278,13 +280,13 @@ export const Batch3LifePortalPanel: React.FC<{
             }}
             className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
           >
-            ÁFA 27% + Hozam
+            {tx('ÁFA 27% + Hozam')}
           </button>
         </div>
         {fxResult && <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400">{fxResult}</div>}
         {calcOut && (
           <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
-            Bruttó (27% ÁFA): {calcOut.vat.gross} · 36 hó kamatos megtakarítás: {calcOut.compound.futureValue}
+            {tx('Bruttó (27% ÁFA): {0} · 36 hó kamatos megtakarítás: {1}', calcOut.vat.gross, calcOut.compound.futureValue)}
           </div>
         )}
         <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 text-xs">
@@ -304,7 +306,7 @@ export const Batch3LifePortalPanel: React.FC<{
               className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
             >
               <GraduationCap className="h-3.5 w-3.5" />
-              CrossRef Kereső
+              {tx('CrossRef Kereső')}
             </button>
           </div>
           {papers.slice(0, 3).map((p, i) => (

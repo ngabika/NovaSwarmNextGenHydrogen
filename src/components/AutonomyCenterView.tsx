@@ -30,6 +30,7 @@ import type {
   WorldModelEdge,
   WorldModelNode,
 } from '../../shared/types';
+import { useLocale } from '../locales/translations';
 
 interface TotalAutonomyStatusResponse {
   totalAutonomyEnabled: boolean;
@@ -86,29 +87,18 @@ interface Props {
 }
 
 const ADAPTER_LABELS: Record<string, string> = {
-  ssh: 'SSH (Linux/szerver)',
+  ssh: 'SSH',
   http_rest: 'HTTP/REST',
   mqtt: 'MQTT',
   home_assistant: 'Home Assistant',
-  snmp: 'SNMP (csak olvasás)',
+  snmp: 'SNMP',
   openwrt_unifi: 'OpenWrt / UniFi',
   proxmox: 'Proxmox VE',
   synology_nas: 'Synology NAS',
   shelly_tasmota: 'Shelly / Tasmota',
   philips_hue: 'Philips Hue',
-  ipp_printer: 'IPP Nyomtató',
+  ipp_printer: 'IPP',
   wol: 'Wake-on-LAN',
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  '': 'Összes kategória',
-  security_admin: 'Biztonság / Admin',
-  code_selfmod: 'Önfejlesztés / Kód',
-  device_control: 'LAN Eszközvezérlés',
-  goal_loop: 'Önálló Célciklus',
-  budget_failover: 'Költség -> Ollama',
-  watchdog: 'Security Watchdog',
-  circuit_breaker: 'Circuit Breaker',
 };
 
 function isSecretFieldName(field: string): boolean {
@@ -116,6 +106,7 @@ function isSecretFieldName(field: string): boolean {
 }
 
 export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
+  const { t, tx, intlLocale } = useLocale();
   const [statusData, setStatusData] = useState<TotalAutonomyStatusResponse | null>(null);
   const [networkData, setNetworkData] = useState<NetworkDevicesResponse>({
     devices: [],
@@ -188,6 +179,17 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
     return () => clearTimeout(timer);
   }, [searchDecisions]);
 
+  const categoryLabels: Record<string, string> = {
+    '': tx('Összes kategória'),
+    security_admin: tx('Biztonság / Admin'),
+    code_selfmod: tx('Önfejlesztés / Kód'),
+    device_control: tx('LAN Eszközvezérlés'),
+    goal_loop: tx('Önálló Célciklus'),
+    budget_failover: tx('Költség -> Ollama'),
+    watchdog: tx('Biztonsági Watchdog'),
+    circuit_breaker: tx('Megszakító (Circuit Breaker)'),
+  };
+
   const handleLockdown = async () => {
     setBusyAction('lockdown');
     setBannerMsg(null);
@@ -195,16 +197,19 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       const res = await fetch('/api/total-autonomy/lockdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: lockReason.trim() || 'Web UI Vészleállítás' }),
+        body: JSON.stringify({ reason: lockReason.trim() || tx('Web UI Vészleállítás') }),
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; lockfilePath?: string };
       if (!res.ok) {
-        setBannerMsg({ ok: false, text: body.error || `Hiba (HTTP ${res.status})` });
+        setBannerMsg({ ok: false, text: body.error || `HTTP ${res.status}` });
       } else {
         setLockReason('');
         setBannerMsg({
           ok: true,
-          text: `Vészleállítás (LOCKDOWN) aktiválva (${body.lockfilePath || 'LOCKDOWN'}). Minden autonóm végrehajtás és mutáló API hívás zárolva.`,
+          text: tx(
+            'Vészleállítás (LOCKDOWN) aktiválva ({0}). Minden autonóm végrehajtás és mutáló API hívás zárolva.',
+            body.lockfilePath || 'LOCKDOWN'
+          ),
         });
         await Promise.all([loadAll(), onRefreshState()]);
       }
@@ -225,10 +230,10 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok) {
-        setBannerMsg({ ok: false, text: body.error || `Feloldás sikertelen (HTTP ${res.status})` });
+        setBannerMsg({ ok: false, text: body.error || tx('Feloldás sikertelen (HTTP {0})', res.status) });
       } else {
         setUnlockPw('');
-        setBannerMsg({ ok: true, text: 'Vészleállítás feloldva a tulajdonos jelszavával.' });
+        setBannerMsg({ ok: true, text: tx('Vészleállítás feloldva a tulajdonos jelszavával.') });
         await Promise.all([loadAll(), onRefreshState()]);
       }
     } finally {
@@ -243,7 +248,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       const data = (await res.json()) as { healthy?: boolean; rolledBack?: boolean; message?: string };
       setBannerMsg({
         ok: Boolean(data.healthy),
-        text: data.message || (data.healthy ? 'Biztonsági Watchdog rendben.' : 'Watchdog hibát észlelt.'),
+        text: data.message || (data.healthy ? tx('Biztonsági Watchdog rendben.') : tx('Watchdog hibát észlelt.')),
       });
       await Promise.all([loadAll(), onRefreshState()]);
     } finally {
@@ -262,7 +267,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
       setBannerMsg({
         ok: Boolean(res.ok && data.ok),
-        text: data.message || data.error || 'Visszaállítás lefutott.',
+        text: data.message || data.error || tx('Visszaállítás lefutott.'),
       });
       await Promise.all([loadAll(), onRefreshState()]);
     } finally {
@@ -290,11 +295,16 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         error?: string;
       };
       if (!res.ok) {
-        setBannerMsg({ ok: false, text: data.error || `LAN felderítési hiba (HTTP ${res.status})` });
+        setBannerMsg({ ok: false, text: data.error || tx('LAN felderítési hiba (HTTP {0})', res.status) });
       } else {
         setBannerMsg({
           ok: true,
-          text: `LAN felderítés kész: ${data.discoveredCount ?? 0} eszköz vizsgálva, ${data.devices?.length ?? 0} eszköz az inventoryban (${data.newDevicesCount ?? 0} új ismeretlen).`,
+          text: tx(
+            'LAN felderítés kész: {0} eszköz vizsgálva, {1} eszköz az inventoryban ({2} új ismeretlen).',
+            data.discoveredCount ?? 0,
+            data.devices?.length ?? 0,
+            data.newDevicesCount ?? 0
+          ),
         });
         await Promise.all([loadAll(), onRefreshState()]);
       }
@@ -315,7 +325,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
       setBannerMsg({
         ok: Boolean(res.ok && body.ok),
-        text: body.message || body.error || 'Hitelesítő adatok elmentve a titkosított széfbe.',
+        text: body.message || body.error || tx('Hitelesítő adatok elmentve a titkosított széfbe.'),
       });
       setPromptCredInputs((prev) => {
         const copy = { ...prev };
@@ -379,7 +389,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; summary?: string; error?: string };
       setBannerMsg({
         ok: Boolean(res.ok && data.ok),
-        text: data.message || data.summary || data.error || 'Visszavonás lefutott.',
+        text: data.message || data.summary || data.error || tx('Visszavonás lefutott.'),
       });
       await Promise.all([loadAll(), onRefreshState()]);
     } finally {
@@ -399,12 +409,16 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
       });
       const data = (await res.json().catch(() => ({}))) as { cycle?: AutonomousGoalCycle; error?: string };
       if (!res.ok) {
-        setBannerMsg({ ok: false, text: data.error || 'Célciklus hiba.' });
+        setBannerMsg({ ok: false, text: data.error || tx('Célciklus hiba.') });
       } else {
         setGoalInput('');
         setBannerMsg({
           ok: Boolean(data.cycle?.verifiedSuccess),
-          text: `Célciklus (${data.cycle?.phase}): ${data.cycle?.verifierOutput || data.cycle?.goal || 'kész'}`,
+          text: tx(
+            'Célciklus ({0}): {1}',
+            String(data.cycle?.phase ?? ''),
+            data.cycle?.verifierOutput || data.cycle?.goal || 'OK'
+          ),
         });
         await Promise.all([loadAll(), onRefreshState(), searchDecisions()]);
       }
@@ -416,7 +430,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
   if (loading || !statusData) {
     return (
       <div className="p-6 text-xs text-slate-500 dark:text-slate-400 font-mono">
-        Autonómia központ betöltése...
+        {t('autonomyLoading')}
       </div>
     );
   }
@@ -446,7 +460,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               }`}
             />
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Autonómia Központ &amp; LAN Vezérlő
+              {t('autonomyHeaderTitle')}
             </h2>
             <span
               className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border ${
@@ -458,14 +472,14 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               }`}
             >
               {statusData.lockdownActive
-                ? 'LOCKDOWN AKTÍV'
+                ? t('autonomyModeLockdown')
                 : statusData.totalAutonomyEnabled
-                ? 'TOTÁLIS AUTONÓMIA'
-                : 'FELÜGYELT MÓD'}
+                ? t('autonomyModeTotal')
+                : t('autonomyModeSupervised')}
             </span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            Három sérthetetlen garancia: Append-only Audit + Napi Anchor · Többcsatornás Vészleállítás · Automatikus Visszaállítási Pontok + Watchdog.
+            {t('autonomyHeaderSubtitle')}
           </p>
         </div>
 
@@ -476,7 +490,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Frissítés
+            {t('autonomyRefresh')}
           </button>
           {!statusData.lockdownActive && (
             <>
@@ -484,7 +498,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                 type="text"
                 value={lockReason}
                 onChange={(e) => setLockReason(e.target.value)}
-                placeholder="Vészleállítás oka (opc.)"
+                placeholder={t('autonomyLockReasonPlaceholder')}
                 className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               />
               <button
@@ -494,7 +508,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 whitespace-nowrap shrink-0"
               >
                 <OctagonAlert className="h-4 w-4" />
-                {busyAction === 'lockdown' ? 'Zárolás...' : 'Vészleállítás (LOCKDOWN)'}
+                {busyAction === 'lockdown' ? t('autonomyLocking') : t('autonomyLockBtn')}
               </button>
             </>
           )}
@@ -510,10 +524,10 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
           <div className="space-y-0.5 text-xs text-red-900 dark:text-red-200">
             <div className="font-bold flex items-center gap-1.5">
               <Lock className="h-4 w-4 shrink-0" />
-              Rendszer Vészleállítás Alatt — {statusData.lockdownReason || 'LOCKDOWN aktív'}
+              {t('autonomyUnderLockdown')} — {statusData.lockdownReason || 'LOCKDOWN'}
             </div>
             <div className="font-mono text-[11px] opacity-90">
-              Lockfile: {statusData.lockdownFilePath} ({statusData.lockdownFilePresent ? 'jelen van' : 'memória-zár'}) · Feloldás kizárólag a tulajdonos hitelesített jelszavával lehetséges.
+              Lockfile: {statusData.lockdownFilePath} · {statusData.lockdownFilePresent ? 'ON' : tx('memória-zár')}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -521,7 +535,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               type="password"
               value={unlockPw}
               onChange={(e) => setUnlockPw(e.target.value)}
-              placeholder="Operátori jelszó a feloldáshoz..."
+              placeholder={t('autonomyUnlockPlaceholder')}
               className="px-3 py-1.5 text-xs border border-red-300 dark:border-red-700 rounded-lg bg-white dark:bg-slate-900"
             />
             <button
@@ -530,7 +544,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
             >
               <Unlock className="h-3.5 w-3.5" />
-              {busyAction === 'unlock' ? 'Feloldás...' : 'LOCKDOWN Feloldása'}
+              {busyAction === 'unlock' ? t('autonomyUnlocking') : t('autonomyUnlockBtn')}
             </button>
           </div>
         </form>
@@ -554,28 +568,31 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-              1. Append-only Audit &amp; Anchor
+              {t('autonomyGuarantee1Title')}
             </span>
             <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
-            {statusData.guarantees.appendOnlyAudit.entriesCount} bejegyzés
+            {t('autonomyGuarantee1Entries', statusData.guarantees.appendOnlyAudit.entriesCount)}
           </div>
           <div className="text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-400">
-            Hash-lánc: {statusData.guarantees.appendOnlyAudit.chainValid ? 'ÉP' : 'SÉRÜLT'} · Napi Telegram anchor:{' '}
-            {statusData.guarantees.appendOnlyAudit.lastAnchorDate || 'ütemezve'}
+            {tx('Hash-lánc:')}{' '}
+            {statusData.guarantees.appendOnlyAudit.chainValid
+              ? t('autonomyGuarantee1Valid')
+              : t('autonomyGuarantee1Broken')}{' '}
+            · Telegram anchor: {statusData.guarantees.appendOnlyAudit.lastAnchorDate || tx('ütemezve')}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-              2. Vészleállítás (4 csatorna)
+              {t('autonomyGuarantee2Title')}
             </span>
             <Lock className="h-4 w-4 text-slate-700 dark:text-slate-300" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100">
-            {statusData.lockdownActive ? 'ZÁROLVA' : 'KÉSZENLÉT'}
+            {statusData.lockdownActive ? t('autonomyGuarantee2Locked') : t('autonomyGuarantee2Ready')}
           </div>
           <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400 truncate">
             Telegram /stop · CLI lockdown · Web UI · Lockfile
@@ -585,7 +602,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-              3. Pillanatképek &amp; Watchdog
+              {t('autonomyGuarantee3Title')}
             </span>
             <button
               type="button"
@@ -593,14 +610,15 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               onClick={() => void handleWatchdog()}
               className="px-2 py-0.5 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              {busyAction === 'watchdog' ? 'Fut...' : 'Watchdog Próba'}
+              {busyAction === 'watchdog' ? '...' : t('autonomyGuarantee3WatchdogBtn')}
             </button>
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
-            {statusData.guarantees.securityRestore.snapshotsCount} pont
+            {t('autonomyGuarantee3Snapshots', statusData.guarantees.securityRestore.snapshotsCount)}
           </div>
           <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
-            Automata rollback: {statusData.guarantees.securityRestore.autoWatchdogRollback ? 'BE' : 'KI'} · Kivételek sorban:{' '}
+            {tx('Watchdog automata rollback')}:{' '}
+            {statusData.guarantees.securityRestore.autoWatchdogRollback ? 'ON' : 'OFF'} ·{' '}
             {statusData.exceptionQueueCount}
           </div>
         </div>
@@ -612,7 +630,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <Cpu className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Napi Felhő Keret &amp; Circuit Breaker
+              {t('autonomyCloudBudgetTitle')}
             </h3>
             <span className="text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-400">
               ${statusData.cloudBudget.spendUsd.toFixed(3)} / ${statusData.cloudBudget.limitUsd.toFixed(2)}
@@ -632,18 +650,18 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               />
             </div>
             <div className="text-[11px] text-slate-600 dark:text-slate-400">
-              Limit elérésekor automata átállás helyi Ollamára:{' '}
-              <strong>{statusData.cloudBudget.fallbackToOllama ? 'BEKAPCSOLVA' : 'KI'}</strong>
+              {t('autonomyFallbackOllama')}:{' '}
+              <strong>{statusData.cloudBudget.fallbackToOllama ? 'ON' : 'OFF'}</strong>
             </div>
           </div>
 
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
             <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              Aktív Circuit Breakerek ({statusData.circuitBreakers.length})
+              {t('autonomyActiveCircuitBreakers')} ({statusData.circuitBreakers.length})
             </div>
             {statusData.circuitBreakers.length === 0 ? (
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                Nincs lekapcsolt (open) feladat-áramkör.
+                {t('autonomyNoCircuitBreakers')}
               </div>
             ) : (
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -655,7 +673,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     <div className="min-w-0">
                       <div className="font-mono font-semibold truncate">{cb.taskKey}</div>
                       <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        Állapot: {cb.state.toUpperCase()} · Hibák: {cb.consecutiveFailures} · Rollback: {cb.rollbacksCount}
+                        {cb.state.toUpperCase()} · err={cb.consecutiveFailures} · rollback={cb.rollbacksCount}
                       </div>
                     </div>
                     <button
@@ -670,7 +688,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                       }}
                       className="px-2 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-600 rounded hover:bg-white dark:hover:bg-slate-700 whitespace-nowrap shrink-0"
                     >
-                      Nullázás
+                      {t('autonomyResetBtn')}
                     </button>
                   </div>
                 ))}
@@ -684,7 +702,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <Target className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Önálló Cél-végrehajtó Ciklus &amp; Heti Önértékelés
+              {t('autonomyGoalCycleTitle')}
             </h3>
             <button
               type="button"
@@ -700,7 +718,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               }}
               className="px-2.5 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              {busyAction === 'benchmark' ? 'Értékelés...' : 'Heti Benchmark Futtatása'}
+              {busyAction === 'benchmark' ? t('autonomyRunningBenchmark') : t('autonomyRunBenchmarkBtn')}
             </button>
           </div>
 
@@ -709,7 +727,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               type="text"
               value={goalInput}
               onChange={(e) => setGoalInput(e.target.value)}
-              placeholder="Cél megadása (cél -> terv -> végrehajtás -> verifikáció -> reflexió)..."
+              placeholder={t('autonomyGoalPlaceholder')}
               className="flex-1 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
             />
             <button
@@ -718,16 +736,16 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
             >
               <Play className="h-3.5 w-3.5" />
-              {busyAction === 'goal-cycle' ? 'Fut...' : 'Célciklus'}
+              {busyAction === 'goal-cycle' ? t('autonomyRunningBenchmark') : t('autonomyGoalCycleBtn')}
             </button>
           </form>
 
           {latestBench && (
             <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-xs space-y-2">
               <div className="font-semibold text-slate-800 dark:text-slate-200 flex flex-wrap items-center justify-between gap-2">
-                <span>Legutóbbi Heti Önértékelés</span>
+                <span>{tx('Legutóbbi Heti Önértékelés')}</span>
                 <span className="font-mono tabular-nums text-[11px] text-slate-600 dark:text-slate-300">
-                  Siker: {latestBench.successRatePct}% · Megoldva: {latestBench.verifiedTasks} · Hiba: {latestBench.failedOrRolledBackTasks} · Össz. költség: ${(latestBench.totalSpendUsd ?? 0).toFixed(4)} (${latestBench.avgCostPerTaskUsd.toFixed(4)}/feladat)
+                  {latestBench.successRatePct}% · {latestBench.verifiedTasks} ✓ · {latestBench.failedOrRolledBackTasks} ✕ · ${(latestBench.totalSpendUsd ?? 0).toFixed(4)} (${latestBench.avgCostPerTaskUsd.toFixed(4)})
                 </span>
               </div>
               <div className="text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
@@ -737,19 +755,19 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               </div>
               {latestBench.autoGeneratedGoals && latestBench.autoGeneratedGoals.length > 0 && (
                 <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700 text-[11px] text-amber-800 dark:text-amber-300">
-                  <span className="font-semibold">Automatikusan generált fejlesztési célok (Kanban): </span>
+                  <span className="font-semibold">{tx('Automatikusan generált fejlesztési célok (Kanban):')} </span>
                   {latestBench.autoGeneratedGoals.join(' · ')}
                 </div>
               )}
               {latestBench.solvedItems && latestBench.solvedItems.length > 0 && (
                 <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                  <span className="font-semibold">Megoldva: </span>
+                  <span className="font-semibold">{tx('Összesítve')} ✓: </span>
                   {latestBench.solvedItems.slice(0, 3).join(' | ')}
                 </div>
               )}
               {latestBench.failedItems && latestBench.failedItems.length > 0 && (
                 <div className="text-[11px] text-red-700 dark:text-red-400">
-                  <span className="font-semibold">Sikertelen / Visszaállított: </span>
+                  <span className="font-semibold">{tx('Sikertelen / Visszaállított:')} </span>
                   {latestBench.failedItems.slice(0, 3).join(' | ')}
                 </div>
               )}
@@ -787,10 +805,10 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
           <div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <Network className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Helyi Hálózati Felderítés (RFC1918) &amp; 12-Adapteres Eszközvezérlő
+              {t('autonomyLanDiscoveryTitle')}
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Kizárólag privát LAN IP-címekre korlátozva. Eszközjelszót soha nem találgat — hiányzó belépésnél kártyát hoz létre.
+              {t('autonomyLanDiscoveryDesc')}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -798,7 +816,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               type="text"
               value={scanTargetsInput}
               onChange={(e) => setScanTargetsInput(e.target.value)}
-              placeholder="Opc. cél IP-k (pl. 192.168.1.1, 192.168.1.50)"
+              placeholder={tx('Opc. cél IP-k (pl. 192.168.1.1, 192.168.1.50)')}
               className="w-full sm:w-80 px-2.5 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
             />
             <button
@@ -808,7 +826,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${busyAction === 'discover' ? 'animate-spin' : ''}`} />
-              {busyAction === 'discover' ? 'Szkennelés...' : 'LAN Felderítés Indítása'}
+              {busyAction === 'discover' ? t('autonomyLanScanning') : t('autonomyLanScanBtn')}
             </button>
           </div>
         </div>
@@ -836,7 +854,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                       }}
                       className="text-[11px] text-amber-800 dark:text-amber-300 hover:underline"
                     >
-                      Mellőzés
+                      {tx('Mellőzés')}
                     </button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -861,7 +879,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                       onClick={() => void handleSavePromptCreds(prompt)}
                       className="px-3 py-1.5 text-xs font-semibold bg-amber-800 text-white rounded hover:bg-amber-900 whitespace-nowrap shrink-0"
                     >
-                      Mentés Széfbe
+                      {tx('Mentés Széfbe')}
                     </button>
                   </div>
                 </div>
@@ -879,7 +897,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         {/* Inventory Grid */}
         {networkData.devices.length === 0 ? (
           <div className="text-xs text-slate-500 dark:text-slate-400 py-2">
-            Még nincs felderített helyi eszköz. Indíts LAN felderítést, vagy adj meg belső IP-címet.
+            {tx('Még nincs felderített helyi eszköz. Indíts LAN felderítést, vagy adj meg belső IP-címet.')}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -909,7 +927,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     {dev.status === 'online'
                       ? 'ONLINE'
                       : dev.status === 'needs_credentials'
-                      ? 'HITELESÍTÉS KELL'
+                      ? tx('HITELESÍTÉS KELL')
                       : dev.status.toUpperCase()}
                   </span>
                 </div>
@@ -918,14 +936,14 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     type="text"
                     value={deviceActionName[dev.id] || ''}
                     onChange={(e) => setDeviceActionName((p) => ({ ...p, [dev.id]: e.target.value }))}
-                    placeholder="Művelet (pl. toggle, status)"
+                    placeholder={tx('Művelet (pl. toggle, status)')}
                     className="w-32 px-2 py-1 text-[11px] font-mono border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900"
                   />
                   <input
                     type="text"
                     value={deviceActionParams[dev.id] || ''}
                     onChange={(e) => setDeviceActionParams((p) => ({ ...p, [dev.id]: e.target.value }))}
-                    placeholder='Params JSON (opc.)'
+                    placeholder={tx('Params JSON (opc.)')}
                     className="flex-1 min-w-28 px-2 py-1 text-[11px] font-mono border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900"
                   />
                 </div>
@@ -935,14 +953,14 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     onClick={() => void handleDeviceControl(dev, 'status')}
                     className="px-2 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Állapot
+                    {tx('Állapot')}
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleDeviceControl(dev, 'read')}
                     className="px-2 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Olvasás
+                    {tx('Olvasás')}
                   </button>
                   <button
                     type="button"
@@ -957,7 +975,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     onClick={() => void handleDeviceControl(dev, 'act', false)}
                     className="px-2.5 py-1 text-[11px] font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded disabled:opacity-50 whitespace-nowrap shrink-0"
                   >
-                    Végrehajtás
+                    {tx('Végrehajtás')}
                   </button>
                 </div>
               </div>
@@ -969,7 +987,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         {networkData.actionHistory.length > 0 && (
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
             <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              Legutóbbi Eszközműveletek &amp; Visszavonás
+              {tx('Legutóbbi Eszközműveletek & Visszavonás')}
             </div>
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {networkData.actionHistory.slice(0, 12).map((act) => (
@@ -991,7 +1009,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                       className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                     >
                       <Undo2 className="h-3 w-3" />
-                      Undo
+                      {tx('Visszavonás')}
                     </button>
                   )}
                 </div>
@@ -1006,10 +1024,10 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
             <RotateCcw className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-            Biztonsági Visszaállítási Pontok ({statusData.snapshots.length})
+            {t('autonomySnapshotsTitle')} ({statusData.snapshots.length})
           </h3>
           {statusData.snapshots.length === 0 ? (
-            <div className="text-xs text-slate-500">Még nincs mentett biztonsági pillanatkép.</div>
+            <div className="text-xs text-slate-500">{tx('Még nincs mentett biztonsági pillanatkép.')}</div>
           ) : (
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {statusData.snapshots.map((snap, idx) => (
@@ -1020,7 +1038,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                   <div className="min-w-0">
                     <div className="font-medium truncate">{snap.reason}</div>
                     <div className="text-[11px] font-mono tabular-nums text-slate-500">
-                      #{idx + 1} · {snap.actor} · {new Date(snap.createdAt).toLocaleString()}
+                      #{idx + 1} · {snap.actor} · {new Date(snap.createdAt).toLocaleString(intlLocale)}
                     </div>
                   </div>
                   <button
@@ -1029,7 +1047,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                     onClick={() => void handleRestoreSnapshot(idx + 1)}
                     className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Visszaállítás ({idx + 1})
+                    {tx('Visszaállítás')} ({idx + 1})
                   </button>
                 </div>
               ))}
@@ -1041,7 +1059,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <Activity className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Belső Világmodell ({statusData.worldModelNodes.length} elem)
+              {t('autonomyWorldModelTitle')} ({statusData.worldModelNodes.length})
             </h3>
             <button
               type="button"
@@ -1051,7 +1069,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               }}
               className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              Frissítés
+              {t('autonomyRefresh')}
             </button>
           </div>
           <div className="space-y-1.5 max-h-56 overflow-y-auto">
@@ -1089,14 +1107,14 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
             <Search className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-            Kereshető Autonóm Döntési Napló ({decisionsToRender.length})
+            {t('autonomyDecisionLogTitle')} ({decisionsToRender.length})
           </h3>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="text"
               value={decQuery}
               onChange={(e) => setDecQuery(e.target.value)}
-              placeholder="Keresés döntésben, indoklásban..."
+              placeholder={tx('Keresés döntésben, indoklásban...')}
               className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
             />
             <select
@@ -1104,7 +1122,7 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               onChange={(e) => setDecCategory(e.target.value)}
               className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
             >
-              {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+              {Object.entries(categoryLabels).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
                 </option>
@@ -1116,14 +1134,14 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
                 checked={decHighImpact}
                 onChange={(e) => setDecHighImpact(e.target.checked)}
               />
-              <span>Csak nagy hatású</span>
+              <span>{tx('Csak nagy hatású')}</span>
             </label>
           </div>
         </div>
 
         <div className="space-y-1.5 max-h-72 overflow-y-auto">
           {decisionsToRender.length === 0 ? (
-            <div className="text-xs text-slate-500 py-2">Nincs a szűrőnek megfelelő döntési bejegyzés.</div>
+            <div className="text-xs text-slate-500 py-2">{tx('Nincs a szűrőnek megfelelő döntési bejegyzés.')}</div>
           ) : (
             decisionsToRender.map((dec) => (
               <div
@@ -1132,17 +1150,17 @@ export const AutonomyCenterView: React.FC<Props> = ({ onRefreshState }) => {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold text-slate-900 dark:text-slate-100">
-                    <span className="font-mono text-[11px] text-slate-500 mr-1.5">[{dec.category}]</span>
+                    <span className="font-mono text-[11px] text-slate-500 me-1.5">[{dec.category}]</span>
                     {dec.decision}
                   </div>
                   <span className="font-mono text-[11px] tabular-nums text-slate-500">
-                    {dec.outcome.toUpperCase()} · {new Date(dec.createdAt).toLocaleString()}
+                    {dec.outcome.toUpperCase()} · {new Date(dec.createdAt).toLocaleString(intlLocale)}
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                  Indoklás: {dec.rationale}
+                  {tx('Indoklás:')} {dec.rationale}
                   {dec.rejectedAlternatives.length > 0 && (
-                    <span> · Elvetve: {dec.rejectedAlternatives.join(', ')}</span>
+                    <span> · [{dec.rejectedAlternatives.join(', ')}]</span>
                   )}
                 </div>
               </div>

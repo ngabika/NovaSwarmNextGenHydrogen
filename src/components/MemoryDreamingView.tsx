@@ -22,10 +22,10 @@ import type {
   ReflexionSuggestion,
   Settings,
 } from '../../shared/types';
-import { tr } from '../locales/translations';
+import { useLocale } from '../locales/translations';
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   memories: MemoryEntry[];
   dreamJournal: DreamJournalEntry[];
   dreamSkillDrafts: DreamSkillDraft[];
@@ -67,7 +67,6 @@ interface OfflineSearchResult {
 }
 
 export const MemoryDreamingView: React.FC<Props> = ({
-  language,
   memories,
   dreamJournal,
   dreamSkillDrafts,
@@ -75,6 +74,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
   settings,
   onRefreshState,
 }) => {
+  const { t, tx, intlLocale } = useLocale();
   const [subTab, setSubTab] = useState<'memory' | 'evolution' | 'rag' | 'wiki'>('memory');
   const [query, setQuery] = useState('');
   const [tierFilter, setTierFilter] = useState<MemoryTier | 'all'>('all');
@@ -185,7 +185,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: newContent.trim(),
-        entity: newEntity.trim() || 'Tudásbázis',
+        entity: newEntity.trim() || tx('Tudásbázis'),
         tier: newTier,
         tags: newTags
           .split(',')
@@ -212,8 +212,8 @@ export const MemoryDreamingView: React.FC<Props> = ({
       };
       setDreamMsg(
         data.executed
-          ? `Álmodás kész: Light=${data.lightCount}, Deep tartósítva=${data.deepPromotedCount}`
-          : `Kihagyva: ${data.skippedReason}`
+          ? tx('Álmodás kész: Light={0}, Deep tartósítva={1}', data.lightCount, data.deepPromotedCount)
+          : tx('Kihagyva: {0}', data.skippedReason || '')
       );
       await onRefreshState();
       await loadVaultAndGraph();
@@ -232,7 +232,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
         cooledToCold: number;
       };
       setDecayMsg(
-        `Salience frissítve: ${data.decayed} csökkent · Hot→Warm: ${data.warmedToWarm} · Warm→Cold: ${data.cooledToCold}`
+        tx('Salience frissítve: {0} csökkent · Hot→Warm: {1} · Warm→Cold: {2}', data.decayed, data.warmedToWarm, data.cooledToCold)
       );
       await onRefreshState();
       await loadVaultAndGraph();
@@ -246,7 +246,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
       const commaIdx = result.indexOf(',');
       if (commaIdx === -1) return;
       const base64 = result.slice(commaIdx + 1);
-      setRagStatus(`Indexelés: ${file.name}...`);
+      setRagStatus(tx('Indexelés: {0}...', file.name));
       const res = await fetch('/api/rag/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -255,8 +255,8 @@ export const MemoryDreamingView: React.FC<Props> = ({
       const data = (await res.json()) as { chunksCreated?: number; error?: string };
       setRagStatus(
         res.ok
-          ? `Sikeresen indexelve: ${file.name} (${data.chunksCreated ?? 0} vektoros darab)`
-          : data.error || 'RAG indexelési hiba'
+          ? tx('Sikeresen indexelve: {0} ({1} vektoros darab)', file.name, data.chunksCreated ?? 0)
+          : data.error || tx('RAG indexelési hiba')
       );
       await onRefreshState();
       await loadVaultAndGraph();
@@ -292,7 +292,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
       body: JSON.stringify({ path: wikiDraftPath.trim(), content: wikiDraftContent }),
     });
     if (res.ok) {
-      setWikiMsg(`Mentve: ${wikiDraftPath.trim()}`);
+      setWikiMsg(`${tx('Fájl elmentve.')} (${wikiDraftPath.trim()})`);
       setWikiSelectedPath(wikiDraftPath.trim());
       await loadVaultAndGraph();
     }
@@ -300,7 +300,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
 
   const handleDeleteWiki = async (relPath: string) => {
     await fetch(`/api/memory/wiki?path=${encodeURIComponent(relPath)}`, { method: 'DELETE' });
-    setWikiMsg(`Törölve: ${relPath}`);
+    setWikiMsg(`${tx('Törlés')}: ${relPath}`);
     setWikiSelectedPath('');
     setWikiDraftPath('');
     setWikiDraftContent('');
@@ -340,7 +340,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
       setWikiSelectedPath(d.note.path);
       setWikiDraftPath(d.note.path);
       setWikiDraftContent(d.note.content);
-      setWikiMsg(`Mai napi jegyzet megnyitva: ${d.note.path}`);
+      setWikiMsg(`${tx('Mai Napi Jegyzet')}: ${d.note.path}`);
       await handleLoadBacklinks(d.note.path);
       await loadVaultAndGraph();
     }
@@ -406,7 +406,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">
-              {tr(language, 'dailyBudget')}
+              {t('dailyBudget')}
             </h2>
             <span className="text-xs font-mono tabular-nums text-slate-600">
               ${settings.dailySpendUsd.toFixed(4)} / ${settings.dailyCostLimitUsd.toFixed(2)} USD ({spendPercent}%)
@@ -421,7 +421,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
             />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-            <span>85% felett automatikus Ollama átállás.</span>
+            <span>{tx('85% felett automatikus Ollama átállás.')}</span>
             <span className="font-mono tabular-nums text-slate-700">
               Hot:{tierCounts.hot} · Warm:{tierCounts.warm} · Cold:{tierCounts.cold} · Shared:{tierCounts.shared}
             </span>
@@ -432,10 +432,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-slate-900">
-                Álmodási Ciklus (Light · Deep · REM) & Salience
+                {tx('Álmodási Ciklus (Light · Deep · REM) & Salience')}
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Idle: {settings.dreamingIdleMinutes} perc · Hőkorlát: {settings.thermalThrottleCelsius}°C
+                Idle: {settings.dreamingIdleMinutes} {tx('perc · Hőkorlát:')} {settings.thermalThrottleCelsius}°C
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -445,7 +445,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Salience Decay
+                {tx('Salience Decay')}
               </button>
               <button
                 type="button"
@@ -454,7 +454,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
               >
                 <Moon className="h-3.5 w-3.5" />
-                {tr(language, 'runDreaming')}
+                {t('runDreaming')}
               </button>
             </div>
           </div>
@@ -467,10 +467,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
       <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-200/70 rounded-lg w-fit">
         {(
           [
-            { id: 'memory', label: 'Memória & Tudásgráf' },
-            { id: 'evolution', label: `Álmodás, SkillDraft (${dreamSkillDrafts.length}) & Reflexion (${reflexionSuggestions.length})` },
-            { id: 'rag', label: `Lokális RAG (${ragDocs.length}) & Offline Tudástár` },
-            { id: 'wiki', label: `Obsidian Wiki (${vaultNotes.length})` },
+            { id: 'memory', label: tx('Memória & Tudásgráf') },
+            { id: 'evolution', label: tx('Álmodás, SkillDraft ({0}) & Reflexion ({1})', dreamSkillDrafts.length, reflexionSuggestions.length) },
+            { id: 'rag', label: tx('Lokális RAG ({0}) & Offline Tudástár', ragDocs.length) },
+            { id: 'wiki', label: tx('Obsidian Wiki ({0})', vaultNotes.length) },
           ] as const
         ).map((item) => (
           <button
@@ -493,7 +493,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
                   <Layers className="h-4 w-4 text-slate-500" />
-                  Rétegzett Memória (RRF Hibrid Keresés)
+                  {tx('Rétegzett Memória (RRF Hibrid Keresés)')}
                 </div>
                 <div className="flex items-center gap-1">
                   {(['all', 'hot', 'warm', 'cold', 'shared'] as const).map((tier) => (
@@ -507,7 +507,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      {tier === 'all' ? `Mind (${memories.length})` : tier}
+                      {tier === 'all' ? tx('Mind ({0})', memories.length) : tier}
                     </button>
                   ))}
                 </div>
@@ -518,8 +518,8 @@ export const MemoryDreamingView: React.FC<Props> = ({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Hibrid keresés (vektor + lexikális RRF + salience)..."
-                  aria-label="Search memories"
+                  placeholder={tx('Hibrid keresés (vektor + lexikális RRF + salience)...')}
+                  aria-label={tx('Search memories')}
                   className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
                 <button
@@ -527,7 +527,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
                 >
                   <Search className="h-4 w-4" />
-                  Keresés
+                  {tx('Keresés')}
                 </button>
                 {searchResults && (
                   <button
@@ -538,14 +538,14 @@ export const MemoryDreamingView: React.FC<Props> = ({
                     }}
                     className="px-3 py-2 text-xs text-slate-600 border border-slate-200 rounded-lg"
                   >
-                    Törlés
+                    {tx('Törlés')}
                   </button>
                 )}
               </form>
 
               <div className="space-y-3 max-h-[340px] overflow-y-auto">
                 {displayedMemories.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-8 text-center">Még nincs rögzített tartós memória ebben a rétegben.</p>
+                  <p className="text-xs text-slate-500 py-8 text-center">{tx('Még nincs rögzített tartós memória ebben a rétegben.')}</p>
                 ) : (
                   displayedMemories.map((m) => {
                     const tier = m.tier ?? 'warm';
@@ -556,7 +556,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                           <div className="font-mono">
                             <span className="font-semibold uppercase text-slate-900">{tier}</span> ·{' '}
                             <span className="font-semibold text-slate-800">{m.entity}</span> ·{' '}
-                            <span>{(m.tags || []).map((t) => `#${t}`).join(' ')}</span>
+                            <span>{(m.tags || []).map((tag) => `#${tag}`).join(' ')}</span>
                           </div>
                           <span className="font-mono tabular-nums">
                             sal={salience.toFixed(2)}
@@ -566,24 +566,24 @@ export const MemoryDreamingView: React.FC<Props> = ({
                         <p className="text-sm text-slate-800 whitespace-pre-wrap">{m.content}</p>
                         {m.relations && m.relations.length > 0 && (
                           <div className="text-[11px] font-mono text-slate-600">
-                            Kapcsolatok: {m.relations.map((r) => `${r.relation} -> ${r.target}`).join(' · ')}
+                            {tx('Kapcsolatok:')} {m.relations.map((r) => `${r.relation} -> ${r.target}`).join(' · ')}
                           </div>
                         )}
                         {m.supersededBy && (
                           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-amber-800">
-                            <span>Felülírva újabb ténnyel: {m.supersededBy}</span>
+                            <span>{tx('Felülírva újabb ténnyel:')} {m.supersededBy}</span>
                             <button
                               type="button"
                               onClick={() => void handleRestoreMemory(m.id)}
                               className="px-2 py-0.5 bg-white border border-amber-300 rounded text-amber-900 hover:bg-amber-50 whitespace-nowrap shrink-0"
                             >
-                              Visszaállítás
+                              {tx('Visszaállítás')}
                             </button>
                           </div>
                         )}
                         {m.supersedesId && (
                           <div className="text-[11px] font-mono text-emerald-800">
-                            Frissíti a régebbi emléket: {m.supersedesId}
+                            {tx('Frissíti a régebbi emléket:')} {m.supersedesId}
                           </div>
                         )}
                         {m.obsidianPath && (
@@ -597,19 +597,19 @@ export const MemoryDreamingView: React.FC<Props> = ({
             </div>
 
             <form onSubmit={handleAddMemory} className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-3 h-fit">
-              <h3 className="text-base font-semibold text-slate-900">Új Tartós Memória & Obsidian Jegyzet</h3>
+              <h3 className="text-base font-semibold text-slate-900">{tx('Új Tartós Memória & Obsidian Jegyzet')}</h3>
               <div className="grid grid-cols-3 gap-2">
                 <input
                   type="text"
                   value={newEntity}
                   onChange={(e) => setNewEntity(e.target.value)}
-                  placeholder="Entitás / Téma"
+                  placeholder={tx('Entitás / Téma')}
                   className="col-span-2 px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
                 <select
                   value={newTier}
                   onChange={(e) => setNewTier(e.target.value as MemoryTier)}
-                  aria-label="Memory tier"
+                  aria-label={tx('Memory tier')}
                   className="px-2.5 py-2 text-xs font-mono border border-slate-300 rounded-lg bg-white uppercase"
                 >
                   <option value="hot">HOT</option>
@@ -622,14 +622,14 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 type="text"
                 value={newTags}
                 onChange={(e) => setNewTags(e.target.value)}
-                placeholder="Címkék vesszővel (memory, skill, error)"
+                placeholder={tx('Címkék vesszővel (memory, skill, error)')}
                 className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
               />
               <textarea
                 rows={4}
                 value={newContent}
                 onChange={(e) => setNewContent(e.target.value)}
-                placeholder="Tudáselem tartalma..."
+                placeholder={tx('Tudáselem tartalma...')}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
               <button
@@ -637,7 +637,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800"
               >
                 <Plus className="h-4 w-4" />
-                Rögzítés Vektor DB-be & Obsidianba
+                {tx('Rögzítés Vektor DB-be & Obsidianba')}
               </button>
             </form>
           </div>
@@ -647,14 +647,14 @@ export const MemoryDreamingView: React.FC<Props> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <GitFork className="h-4 w-4 text-slate-600" />
-                Interaktív Tudásgráf (Entitások · #Címkék · [[Wikilinkek]])
+                {tx('Interaktív Tudásgráf (Entitások · #Címkék · [[Wikilinkek]])')}
               </h3>
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-500 tabular-nums">
                 <input
                   type="text"
                   value={graphFilter}
                   onChange={(e) => setGraphFilter(e.target.value)}
-                  placeholder="Csomópont szűrő..."
+                  placeholder={tx('Csomópont szűrő...')}
                   className="px-2 py-1 text-xs border border-slate-300 rounded bg-white text-slate-800"
                 />
                 <button
@@ -685,13 +685,13 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 >
                   +
                 </button>
-                <span>{graphData.nodes.length} csomópont · {graphData.edges.length} él</span>
+                <span>{graphData.nodes.length} {tx('csomópont ·')} {graphData.edges.length} {tx('él')}</span>
               </div>
             </div>
 
             {graphData.nodes.length === 0 ? (
               <p className="text-xs text-slate-500 py-6 text-center">
-                A tudásgráf automatikusan épül, amint memóriabejegyzések kerülnek a vektoros tárba.
+                {tx('A tudásgráf automatikusan épül, amint memóriabejegyzések kerülnek a vektoros tárba.')}
               </p>
             ) : (
               <div className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden">
@@ -699,7 +699,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                   viewBox={`${graphPanX} 0 ${Math.round(graphLayout.width / graphZoom)} ${Math.round(graphLayout.height / graphZoom)}`}
                   className="w-full min-w-[560px] h-64"
                   role="img"
-                  aria-label="Knowledge graph visualization"
+                  aria-label={tx('Knowledge graph visualization')}
                 >
                   {graphData.edges.map((edge, idx) => {
                     const src = graphLayout.pos.get(edge.source);
@@ -771,20 +771,20 @@ export const MemoryDreamingView: React.FC<Props> = ({
       {subTab === 'evolution' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="text-base font-semibold text-slate-900">REM Álomnapló</h3>
+            <h3 className="text-base font-semibold text-slate-900">{tx('REM Álomnapló')}</h3>
             {dreamJournal.length === 0 ? (
-              <p className="text-xs text-slate-500">Még nem futott le álmodási ciklus.</p>
+              <p className="text-xs text-slate-500">{tx('Még nem futott le álmodási ciklus.')}</p>
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto">
                 {dreamJournal.map((j) => (
                   <div key={j.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
                     <div className="text-xs text-slate-500 font-mono tabular-nums">
-                      {new Date(j.timestamp).toLocaleString()} · Light:{j.phaseSummary.lightCandidates} · Deep:{j.phaseSummary.deepPromoted}
+                      {new Date(j.timestamp).toLocaleString(intlLocale)} · Light:{j.phaseSummary.lightCandidates} · Deep:{j.phaseSummary.deepPromoted}
                     </div>
                     <p className="text-sm text-slate-800">{j.narrative}</p>
                     {j.morningDigest && (
                       <div className="p-2 bg-white border border-slate-200 rounded text-xs text-slate-700 whitespace-pre-wrap">
-                        <span className="font-semibold text-slate-900">Reggeli Összefoglaló: </span>
+                        <span className="font-semibold text-slate-900">{tx('Reggeli Összefoglaló:')} </span>
                         {j.morningDigest}
                       </div>
                     )}
@@ -797,10 +797,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-slate-700" />
-              Álmodásból Javasolt Skillek
+              {tx('Álmodásból Javasolt Skillek')}
             </h3>
             {dreamSkillDrafts.length === 0 ? (
-              <p className="text-xs text-slate-500">Az álmodási ciklus ismétlődő témákból automatikusan Skill vázlatokat javasol.</p>
+              <p className="text-xs text-slate-500">{tx('Az álmodási ciklus ismétlődő témákból automatikusan Skill vázlatokat javasol.')}</p>
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto">
                 {dreamSkillDrafts.map((d) => (
@@ -812,7 +812,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                     </pre>
                     {d.testCode && (
                       <pre className="p-2 bg-emerald-50/50 border border-emerald-200 rounded font-mono text-[10px] overflow-x-auto text-slate-700">
-                        {`// Egységteszt\n${d.testCode}`}
+                        {tx('// Egységteszt {0}', `\n${d.testCode}`)}
                       </pre>
                     )}
                     {d.testReport && (
@@ -820,7 +820,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                     )}
                     {d.promotedSkillId ? (
                       <div className="font-mono text-emerald-700">
-                        Előléptetve ({d.promotedSkillId}) {d.testPassed === true ? '· Önteszt OK ✅' : ''}
+                        {tx('Előléptetve (')}{d.promotedSkillId}) {d.testPassed === true ? tx('· Önteszt OK ✅') : ''}
                       </div>
                     ) : (
                       <button
@@ -831,7 +831,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                         }}
                         className="px-3 py-1 bg-slate-900 text-white rounded font-medium"
                       >
-                        1-Kattintásos Skill Aktiválás &amp; Teszt
+                        {tx('1-Kattintásos Skill Aktiválás & Teszt')}
                       </button>
                     )}
                   </div>
@@ -841,9 +841,9 @@ export const MemoryDreamingView: React.FC<Props> = ({
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="text-base font-semibold text-slate-900">Reflexion Öntanuló Prompt Javaslatok</h3>
+            <h3 className="text-base font-semibold text-slate-900">{tx('Reflexion Öntanuló Prompt Javaslatok')}</h3>
             {reflexionSuggestions.length === 0 ? (
-              <p className="text-xs text-slate-500">Ha egy ágens ismétlődő hibát vagy eszközkudarcot vét, a Reflexion motor javaslatot készít.</p>
+              <p className="text-xs text-slate-500">{tx('Ha egy ágens ismétlődő hibát vagy eszközkudarcot vét, a Reflexion motor javaslatot készít.')}</p>
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto">
                 {reflexionSuggestions.map((r) => (
@@ -855,7 +855,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                       {r.proposedPrompt}
                     </div>
                     {r.applied ? (
-                      <div className="font-mono text-emerald-700">Alkalmazva az ágens promptjára</div>
+                      <div className="font-mono text-emerald-700">{tx('Alkalmazva az ágens promptjára')}</div>
                     ) : (
                       <button
                         type="button"
@@ -865,7 +865,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                         }}
                         className="px-3 py-1 bg-slate-900 text-white rounded font-medium"
                       >
-                        Javaslat Alkalmazása
+                        {tx('Javaslat Alkalmazása')}
                       </button>
                     )}
                   </div>
@@ -882,11 +882,11 @@ export const MemoryDreamingView: React.FC<Props> = ({
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-slate-700" />
-                Lokális Dokumentum RAG (.pdf, .md, .txt, .csv, .json)
+                {tx('Lokális Dokumentum RAG (.pdf, .md, .txt, .csv, .json)')}
               </h3>
               <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg cursor-pointer hover:bg-slate-800 whitespace-nowrap shrink-0">
                 <Upload className="h-3.5 w-3.5" />
-                Fájl Indexelése
+                {tx('Fájl Indexelése')}
                 <input
                   type="file"
                   accept=".txt,.md,.pdf,.csv,.json,.log,.ts,.js"
@@ -902,13 +902,13 @@ export const MemoryDreamingView: React.FC<Props> = ({
             {ragStatus && <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs font-mono">{ragStatus}</div>}
             <div className="space-y-2 max-h-[320px] overflow-y-auto">
               {ragDocs.length === 0 ? (
-                <p className="text-xs text-slate-500">Nincs még feltöltött dokumentum a rag-docs/ mappában.</p>
+                <p className="text-xs text-slate-500">{tx('Nincs még feltöltött dokumentum a rag-docs/ mappában.')}</p>
               ) : (
                 ragDocs.map((d) => (
                   <div key={d.name} className="p-3 bg-slate-50 border border-slate-200 rounded flex justify-between text-xs">
                     <span className="font-mono font-semibold text-slate-900">{d.name}</span>
                     <span className="font-mono text-slate-500 tabular-nums">
-                      {(d.sizeBytes / 1024).toFixed(1)} KB · {new Date(d.updatedAt).toLocaleDateString()}
+                      {(d.sizeBytes / 1024).toFixed(1)} KB · {new Date(d.updatedAt).toLocaleDateString(intlLocale)}
                     </span>
                   </div>
                 ))
@@ -920,11 +920,11 @@ export const MemoryDreamingView: React.FC<Props> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <BookOpen className="h-4 w-4 text-slate-700" />
-                Offline Túlélő Tudáscsomag (Internet nélkül is elérhető)
+                {tx('Offline Túlélő Tudáscsomag (Internet nélkül is elérhető)')}
               </h3>
               {offlineStats && (
                 <span className="text-xs font-mono text-slate-500 tabular-nums">
-                  {offlineStats.ragDocsCount} doksi · {offlineStats.memoryCount} memória · {offlineStats.vaultFilesCount} wiki
+                  {offlineStats.ragDocsCount} {tx('doksi ·')} {offlineStats.memoryCount} {tx('memória ·')} {offlineStats.vaultFilesCount} wiki
                 </span>
               )}
             </div>
@@ -933,28 +933,28 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 type="text"
                 value={offlineQuery}
                 onChange={(e) => setOfflineQuery(e.target.value)}
-                placeholder="Pl. systemd, docker, ssh, raspberry, git, ufw..."
+                placeholder={tx('Pl. systemd, docker, ssh, raspberry, git, ufw...')}
                 className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
               />
               <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg">
-                Keresés
+                {tx('Keresés')}
               </button>
             </form>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
               {!offlineResult ? (
                 <p className="text-xs text-slate-500">
-                  Helyi keresés internet nélkül a tartós memóriákban, feltöltött RAG dokumentumokban, Obsidian jegyzetekben és a Linux man oldalakban.
+                  {tx('Helyi keresés internet nélkül a tartós memóriákban, feltöltött RAG dokumentumokban, Obsidian jegyzetekben és a Linux man oldalakban.')}
                 </p>
               ) : offlineResult.memoryHits.length === 0 &&
                 offlineResult.localDocHits.length === 0 &&
                 !offlineResult.manPageExcerpt ? (
-                <p className="text-xs text-slate-500">Nincs találat erre a kifejezésre a helyi tudástárban.</p>
+                <p className="text-xs text-slate-500">{tx('Nincs találat erre a kifejezésre a helyi tudástárban.')}</p>
               ) : (
                 <>
                   {offlineResult.memoryHits.map((m, idx) => (
                     <div key={`mem-${idx}`} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
                       <div className="font-semibold text-slate-900">
-                        Memória: {m.entity} · <span className="font-mono text-slate-500">score={m.score}</span>
+                        {tx('Memória:')} {m.entity} · <span className="font-mono text-slate-500">score={m.score}</span>
                       </div>
                       <p className="text-slate-700 whitespace-pre-wrap">{m.content}</p>
                     </div>
@@ -967,7 +967,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                   ))}
                   {offlineResult.manPageExcerpt && (
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
-                      <div className="font-semibold text-slate-900">Linux man oldal kivonat</div>
+                      <div className="font-semibold text-slate-900">{tx('Linux man oldal kivonat')}</div>
                       <pre className="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">
                         {offlineResult.manPageExcerpt}
                       </pre>
@@ -984,26 +984,26 @@ export const MemoryDreamingView: React.FC<Props> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Markdown Jegyzetek</h3>
+              <h3 className="text-base font-semibold text-slate-900">{tx('Markdown Jegyzetek')}</h3>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => void handleCreateDailyNote()}
                   className="px-2.5 py-1 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
                 >
-                  Mai Napi Jegyzet
+                  {tx('Mai Napi Jegyzet')}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setWikiSelectedPath('');
                     setWikiDraftPath(`jegyzet-${new Date().toISOString().slice(0, 10)}.md`);
-                    setWikiDraftContent('# Új Wiki Jegyzet\n\n');
+                    setWikiDraftContent(`${tx('# Új Wiki Jegyzet')}\n\n`);
                     setWikiBacklinks([]);
                   }}
                   className="px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
                 >
-                  + Új fájl
+                  {tx('+ Új fájl')}
                 </button>
               </div>
             </div>
@@ -1013,18 +1013,18 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 type="text"
                 value={wikiQuery}
                 onChange={(e) => setWikiQuery(e.target.value)}
-                placeholder="Keresés a jegyzetekben..."
+                placeholder={tx('Keresés a jegyzetekben...')}
                 className="flex-1 px-2.5 py-1 text-xs border border-slate-300 rounded"
               />
               <button type="submit" className="px-2.5 py-1 text-xs bg-slate-900 text-white rounded">
-                Keres
+                {tx('Keresés')}
               </button>
             </form>
 
             {wikiHits.length > 0 && (
               <div className="p-2 bg-slate-50 border border-slate-200 rounded space-y-1 max-h-36 overflow-y-auto text-[11px]">
                 <div className="font-semibold text-slate-700 flex justify-between">
-                  <span>Keresési találatok ({wikiHits.length})</span>
+                  <span>{tx('Keresési találatok (')}{wikiHits.length})</span>
                   <button type="button" onClick={() => setWikiHits([])} className="text-slate-400">×</button>
                 </div>
                 {wikiHits.map((h, i) => (
@@ -1040,7 +1040,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                         void handleLoadBacklinks(found.path);
                       }
                     }}
-                    className="w-full text-left p-1 hover:bg-white rounded"
+                    className="w-full text-start p-1 hover:bg-white rounded"
                   >
                     <div className="font-mono font-semibold text-slate-900">{h.path}:{h.line}</div>
                     <div className="text-slate-600 truncate">{h.excerpt}</div>
@@ -1060,7 +1060,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                       setWikiDraftContent(n.content);
                       void handleLoadBacklinks(n.path);
                     }}
-                    className={`flex-1 text-left px-2.5 py-1.5 rounded font-mono truncate ${
+                    className={`flex-1 text-start px-2.5 py-1.5 rounded font-mono truncate ${
                       wikiSelectedPath === n.path ? 'bg-slate-900 text-white' : 'bg-slate-50 hover:bg-slate-100 text-slate-800'
                     }`}
                   >
@@ -1068,7 +1068,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                   </button>
                   <button
                     type="button"
-                    aria-label={`Delete wiki ${n.path}`}
+                    aria-label={tx('Delete wiki {0}', n.path)}
                     onClick={() => void handleDeleteWiki(n.path)}
                     className="p-1 text-slate-400 hover:text-red-600"
                   >
@@ -1081,10 +1081,10 @@ export const MemoryDreamingView: React.FC<Props> = ({
             {wikiSelectedPath && (
               <div className="pt-2 border-t border-slate-100 text-xs">
                 <div className="font-semibold text-slate-700 mb-1">
-                  Hivatkozó Jegyzetek (Backlinks: {wikiBacklinks.length})
+                  {tx('Hivatkozó Jegyzetek (Backlinks:')} {wikiBacklinks.length})
                 </div>
                 {wikiBacklinks.length === 0 ? (
-                  <p className="text-[11px] text-slate-500">Nincs bejövő [[wikilink]] erre a jegyzetre.</p>
+                  <p className="text-[11px] text-slate-500">{tx('Nincs bejövő [[wikilink]] erre a jegyzetre.')}</p>
                 ) : (
                   <div className="flex flex-wrap gap-1">
                     {wikiBacklinks.map((bl) => (
@@ -1117,7 +1117,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 type="text"
                 value={wikiDraftPath}
                 onChange={(e) => setWikiDraftPath(e.target.value)}
-                placeholder="fájlnév.md (a memory-vault/ alá)"
+                placeholder={tx('fájlnév.md (a memory-vault/ alá)')}
                 className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
               />
               <button
@@ -1125,7 +1125,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
                 <Save className="h-3.5 w-3.5" />
-                Mentés Vaultba
+                {tx('Mentés Vaultba')}
               </button>
             </div>
             {wikiMsg && <div className="text-xs font-mono text-emerald-700">{wikiMsg}</div>}
@@ -1134,7 +1134,7 @@ export const MemoryDreamingView: React.FC<Props> = ({
               value={wikiDraftContent}
               onChange={(e) => setWikiDraftContent(e.target.value)}
               className="w-full p-3 text-xs font-mono border border-slate-300 rounded-lg"
-              placeholder="# Markdown tartalom..."
+              placeholder={tx('# Markdown tartalom...')}
             />
           </form>
         </div>

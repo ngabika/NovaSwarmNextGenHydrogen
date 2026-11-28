@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bell, Download, WifiOff } from 'lucide-react';
+import { useLocale } from '../locales/translations';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -7,6 +8,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export const PWAControls: React.FC = () => {
+  const { t } = useLocale();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(
@@ -59,10 +61,10 @@ export const PWAControls: React.FC = () => {
       {!isOnline && (
         <span
           className="inline-flex items-center gap-1 text-xs font-mono text-amber-700 whitespace-nowrap"
-          title="Hálózati kapcsolat megszakadt — offline mód"
+          title={t('pwaOfflineTitle')}
         >
           <WifiOff className="h-3.5 w-3.5" />
-          Offline
+          {t('pwaOffline')}
         </span>
       )}
 
@@ -70,11 +72,11 @@ export const PWAControls: React.FC = () => {
         <button
           type="button"
           onClick={() => void handleEnableNotifs()}
-          title="Böngésző értesítések engedélyezése emlékeztetőkhöz"
+          title={t('pwaNotificationsTitle')}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
         >
           <Bell className="h-3.5 w-3.5" />
-          Értesítések
+          {t('pwaNotifications')}
         </button>
       )}
 
@@ -83,19 +85,16 @@ export const PWAControls: React.FC = () => {
           <button
             type="button"
             onClick={() => void handleInstall()}
-            title="NovaSwarm telepítése PWA alkalmazásként"
+            title={t('pwaInstallTitle')}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             <Download className="h-3.5 w-3.5" />
             PWA
           </button>
           {showIosHelp && (
-            <div className="absolute right-0 mt-2 w-64 p-3 bg-white border border-slate-200 rounded-lg shadow-lg text-xs text-slate-700 z-40">
-              <div className="font-semibold text-slate-900 mb-1">Telepítés eszközhöz (PWA)</div>
-              <p>
-                Chrome/Edge alatt kattints a címsor jobb oldalán lévő telepítés ikonra, iOS Safariban pedig válaszd a
-                Megosztás → Főképernyőhöz adás opciót.
-              </p>
+            <div className="absolute end-0 mt-2 w-64 p-3 bg-white border border-slate-200 rounded-lg shadow-lg text-xs text-slate-700 z-40">
+              <div className="font-semibold text-slate-900 mb-1">{t('pwaHelpTitle')}</div>
+              <p>{t('pwaHelpBody')}</p>
             </div>
           )}
         </div>

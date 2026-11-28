@@ -3,8 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Film, Plus, Send, ShieldAlert, Trash2, X } from 'lucide-react';
-import type { LanguageCode } from '../../shared/types';
-import { tr } from '../locales/translations';
+import { useLocale } from '../locales/translations';
 
 export interface TerminalSessionSummary {
   id: string;
@@ -29,7 +28,7 @@ interface RecordingFull extends RecordingSummary {
 }
 
 interface Props {
-  language: LanguageCode;
+  language?: string;
   hostPermissionsGranted: boolean;
   sessions: TerminalSessionSummary[];
   onRefreshState: () => Promise<void>;
@@ -38,13 +37,13 @@ interface Props {
 }
 
 export const TerminalView: React.FC<Props> = ({
-  language,
   hostPermissionsGranted,
   sessions,
   onRefreshState,
   onOpenSettings,
   onSendToSwarm,
 }) => {
+  const { t, tx } = useLocale();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     sessions[0]?.id ?? null
   );
@@ -171,7 +170,7 @@ export const TerminalView: React.FC<Props> = ({
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initiator: 'Felhasználó', cols: 100, rows: 30 }),
+        body: JSON.stringify({ initiator: tx('Felhasználó'), cols: 100, rows: 30 }),
       });
       const data = (await res.json()) as { session?: TerminalSessionSummary; error?: string };
       if (!res.ok) throw new Error(data.error || 'Failed to create PTY session');
@@ -202,7 +201,7 @@ export const TerminalView: React.FC<Props> = ({
     const data = (await res.json()) as { buffer?: string };
     const text = (data.buffer || '').trim();
     if (!text) return;
-    onSendToSwarm(`Elemezd ezt a terminál kimenetet (utolsó 50 sor):\n\`\`\`\n${text.slice(-3000)}\n\`\`\``);
+    onSendToSwarm(`${tx('Elemezd ezt a terminál kimenetet (utolsó 50 sor)')}:\n\`\`\`\n${text.slice(-3000)}\n\`\`\``);
   };
 
   if (!hostPermissionsGranted) {
@@ -212,15 +211,15 @@ export const TerminalView: React.FC<Props> = ({
           <ShieldAlert className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-slate-900">
-              {tr(language, 'terminalLockedTitle')}
+              {t('terminalLockedTitle')}
             </h2>
-            <p className="text-sm text-slate-600">{tr(language, 'terminalLockedDesc')}</p>
+            <p className="text-sm text-slate-600">{t('terminalLockedDesc')}</p>
             <button
               type="button"
               onClick={onOpenSettings}
               className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
-              {tr(language, 'navSettings')}
+              {t('navSettings')}
             </button>
           </div>
         </div>
@@ -233,7 +232,7 @@ export const TerminalView: React.FC<Props> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
         <div className="flex items-center gap-2 overflow-x-auto">
           {sessions.length === 0 ? (
-            <span className="text-xs text-slate-500">Nincs aktív PTY munkamenet. Indíts egyet a gombbal.</span>
+            <span className="text-xs text-slate-500">{t('terminalNoSession')}</span>
           ) : (
             sessions.map((s) => (
               <div key={s.id} className="flex items-center gap-1">
@@ -284,7 +283,7 @@ export const TerminalView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white text-slate-900 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
                 <Send className="h-3.5 w-3.5" />
-                Küldés a Rajnak (50 sor)
+                {t('terminalSendSwarm50')}
               </button>
             </>
           )}
@@ -297,7 +296,7 @@ export const TerminalView: React.FC<Props> = ({
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
           >
             <Film className="h-3.5 w-3.5" />
-            Felvételek
+            {t('terminalRecordings')}
           </button>
           <button
             type="button"
@@ -305,7 +304,7 @@ export const TerminalView: React.FC<Props> = ({
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
-            {tr(language, 'terminalNewSession')}
+            {t('terminalNewSession')}
           </button>
         </div>
       </div>
@@ -319,13 +318,13 @@ export const TerminalView: React.FC<Props> = ({
       {showRecordings && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Terminál Felvételek & Visszajátszás</h3>
+            <h3 className="text-sm font-semibold text-slate-900">{t('terminalRecordingsTitle')}</h3>
             <button type="button" onClick={() => setShowRecordings(false)} className="text-slate-400 hover:text-slate-900">
               <X className="h-4 w-4" />
             </button>
           </div>
           {recordings.length === 0 ? (
-            <p className="text-xs text-slate-500">Még nincs rögzített terminál munkamenet.</p>
+            <p className="text-xs text-slate-500">{t('terminalNoRecordings')}</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {recordings.map((rec) => (
@@ -339,7 +338,7 @@ export const TerminalView: React.FC<Props> = ({
                       : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  {rec.sessionId} · {rec.frameCount} frame {rec.active ? '(élő)' : ''}
+                  {rec.sessionId} · {rec.frameCount} frame {rec.active ? tx('(élő)') : ''}
                 </button>
               ))}
             </div>
@@ -347,7 +346,7 @@ export const TerminalView: React.FC<Props> = ({
           {activeRecording && (
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <div className="flex items-center gap-3 text-xs font-mono">
-                <span>Időcsúszka: {replayIndex + 1} / {Math.max(1, activeRecording.frames.length)}</span>
+                <span>{tx('Időcsúszka:')} {replayIndex + 1} / {Math.max(1, activeRecording.frames.length)}</span>
                 <input
                   type="range"
                   min={0}
@@ -374,8 +373,8 @@ export const TerminalView: React.FC<Props> = ({
           <div ref={containerRef} className="w-full h-[440px]" data-testid="xterm-container" />
         ) : (
           <div className="h-[440px] flex flex-col items-center justify-center text-slate-400 text-sm gap-2 px-6 text-center">
-            <p>Valódi Linux PTY terminál (node-pty + xterm.js). Teljes képernyős CLI programok is támogatottak.</p>
-            <p className="text-xs text-slate-500">Kattints a fenti {tr(language, 'terminalNewSession')} gombra egy interaktív shell indításához.</p>
+            <p>{t('terminalEmptyTitle')}</p>
+            <p className="text-xs text-slate-500">{t('terminalEmptyDesc', t('terminalNewSession'))}</p>
           </div>
         )}
       </div>

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import type {
   HardwareMetrics,
+  LanguageCode,
   NovaSwarmState,
   PhoenixAutonomyStatus,
   SandboxCapabilities,
@@ -43,7 +44,16 @@ import { OverviewDashboard } from './components/OverviewDashboard';
 import { PWAControls } from './components/PWAControls';
 import { SwarmChatView } from './components/SwarmChatView';
 import type { TerminalSessionSummary } from './components/TerminalView';
-import { getLanguageDir, tr } from './locales/translations';
+import {
+  getLanguageDir,
+  getSavedLanguage,
+  isSupportedLanguage,
+  LocaleProvider,
+  saveLanguagePreference,
+  SUPPORTED_LANGUAGES,
+  tr,
+  tx,
+} from './locales/translations';
 
 const EcosystemView = lazy(() =>
   import('./components/EcosystemView').then((m) => ({ default: m.EcosystemView }))
@@ -121,6 +131,9 @@ export default function App() {
   // M238: Live LAN Ping Latency Indicator (ms)
   const [lanPingMs, setLanPingMs] = useState<number | null>(null);
 
+  // Active UI language (falls back to saved local preference while auth-locked)
+  const [uiLang, setUiLang] = useState<LanguageCode>(() => getSavedLanguage('hu'));
+
   // LAN Operator Auth Gate
   const [authLocked, setAuthLocked] = useState(false);
   const [authSetupRequired, setAuthSetupRequired] = useState(false);
@@ -137,6 +150,18 @@ export default function App() {
       return 0;
     }
   });
+
+  const activeLang: LanguageCode = isSupportedLanguage(state?.settings.language)
+    ? state.settings.language
+    : uiLang;
+
+  useEffect(() => {
+    saveLanguagePreference(activeLang);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = activeLang;
+      document.documentElement.dir = getLanguageDir(activeLang);
+    }
+  }, [activeLang]);
 
   const navigateToPasswordSetup = useCallback(() => {
     setActiveTab('settings');
@@ -197,6 +222,9 @@ export default function App() {
       setAuthSetupRequired(false);
       setAuthMissingPassword(false);
       setState(data.state);
+      if (isSupportedLanguage(data.state?.settings?.language)) {
+        setUiLang(data.state.settings.language);
+      }
       setHardware(data.hardware);
       setTerminalSessions(data.terminalSessions || []);
       setCacheSize(data.cacheSize ?? 0);
@@ -207,14 +235,33 @@ export default function App() {
       setLoadError(null);
       return true;
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Server connection unavailable');
+      setLoadError(err instanceof Error ? err.message : tr(uiLang, 'lockSaveErr'));
       return false;
     }
-  }, []);
+  }, [uiLang]);
 
   const fetchState = useCallback(async (): Promise<void> => {
     await tryFetchState();
   }, [tryFetchState]);
+
+  const handleLanguageChange = useCallback(
+    async (nextLang: LanguageCode) => {
+      setUiLang(nextLang);
+      saveLanguagePreference(nextLang);
+      setState((prev) =>
+        prev ? { ...prev, settings: { ...prev.settings, language: nextLang } } : prev
+      );
+      if (!authLocked && state) {
+        await fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: nextLang }),
+        }).catch(() => {});
+        await fetchState();
+      }
+    },
+    [authLocked, state, fetchState]
+  );
 
   useEffect(() => {
     const mode = state?.settings.themeMode || 'light';
@@ -360,10 +407,13 @@ export default function App() {
             payload?: { title?: string; startAt?: string; text?: string };
           };
           if (parsed.type === 'reminder:alert' && parsed.payload?.title) {
-            const msg = `Emlékeztető: ${parsed.payload.title}`;
+            const reminderLabel = tx(activeLang, 'Emlékeztető üzenet');
+            const msg = `${reminderLabel}: ${parsed.payload.title}`;
             setReminderBanner(msg);
             if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              new Notification('NovaSwarm Emlékeztető', { body: parsed.payload.title });
+              new Notification(`${tr(activeLang, 'appName')} · ${reminderLabel}`, {
+                body: parsed.payload.title,
+              });
             }
           }
           if (parsed.type === 'scratchpad:sync' && typeof parsed.payload?.text === 'string') {
@@ -387,7 +437,7 @@ export default function App() {
       ws?.close();
       clearInterval(poll);
     };
-  }, [fetchState, authLocked, state]);
+  }, [fetchState, authLocked, state, activeLang]);
 
   const handleOperatorLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -402,14 +452,14 @@ export default function App() {
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) {
-        setAuthError(data.error || 'Sikertelen belépés');
+        setAuthError(data.error || tr(activeLang, 'lockInvalidErr'));
         return;
       }
       setAuthPassword('');
       setAuthLocked(false);
       await fetchState();
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Hálózati hiba');
+      setAuthError(err instanceof Error ? err.message : tx(activeLang, 'Hálózati hiba'));
     } finally {
       setAuthSubmitting(false);
     }
@@ -440,71 +490,95 @@ export default function App() {
     await fetchState();
   };
 
+  const lang = activeLang;
+
   if (authLocked) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
-        <form
-          onSubmit={handleOperatorLogin}
-          className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm"
+      <LocaleProvider lang={lang} setLang={(next) => void handleLanguageChange(next)}>
+        <div
+          dir={getLanguageDir(lang)}
+          className="min-h-screen bg-slate-50 flex items-center justify-center px-6"
         >
-          <div className="flex items-center gap-2.5 text-slate-900">
-            <Lock className="h-5 w-5" />
-            <h1 className="text-base font-bold">NovaSwarm LAN Operátori Zár</h1>
-          </div>
-          <p className="text-xs text-slate-600">
-            {authMissingPassword
-              ? "Félbehagyott telepítés: nincs beállított operátori jelszó. Állíts be jelszót helyben vagy a 'novaswarm set-password' paranccsal."
-              : authSetupRequired
-              ? 'Első indítás: még nincs beállítva operátori jelszó. Nyisd meg a vezérlőpultot helyi (localhost) címről a kezdő jelszó megadásához.'
-              : 'Add meg a beállított operátori jelszót a vezérlőpult feloldásához.'}
-          </p>
-          {authError && (
-            <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
-              {authError}
-            </div>
-          )}
-          <input
-            type="password"
-            value={authPassword}
-            onChange={(e) => setAuthPassword(e.target.value)}
-            placeholder="Operátori jelszó..."
-            aria-label="Operator password"
-            autoFocus
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
-          />
-          <button
-            type="submit"
-            disabled={authSubmitting || !authPassword.trim()}
-            className="w-full py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+          <form
+            onSubmit={handleOperatorLogin}
+            className="w-full max-w-sm bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm"
           >
-            {authSubmitting ? 'Ellenőrzés...' : 'Feloldás'}
-          </button>
-        </form>
-      </div>
+            <div className="flex items-center justify-between gap-2 text-slate-900">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Lock className="h-5 w-5 shrink-0" />
+                <h1 className="text-base font-bold truncate">{tr(lang, 'lockTitle')}</h1>
+              </div>
+              <select
+                aria-label={tr(lang, 'languageSwitchLabel')}
+                value={lang}
+                onChange={(e) => void handleLanguageChange(e.target.value as LanguageCode)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 shrink-0"
+              >
+                {SUPPORTED_LANGUAGES.map((opt) => (
+                  <option key={opt.code} value={opt.code}>
+                    {opt.nativeName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-slate-600">
+              {authMissingPassword
+                ? tr(lang, 'lockHalfInstalledDesc')
+                : authSetupRequired
+                ? tr(lang, 'lockSetupDesc')
+                : tr(lang, 'lockPasswordDesc')}
+            </p>
+            {authError && (
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+                {authError}
+              </div>
+            )}
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              placeholder={tr(lang, 'lockPasswordPlaceholder')}
+              aria-label={tr(lang, 'lockPasswordPlaceholder')}
+              autoFocus
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+            />
+            <button
+              type="submit"
+              disabled={authSubmitting || !authPassword.trim()}
+              className="w-full py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            >
+              {authSubmitting ? tr(lang, 'lockUnlockingBtn') : tr(lang, 'lockLoginBtn')}
+            </button>
+          </form>
+        </div>
+      </LocaleProvider>
     );
   }
 
   if (!state) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3 text-sm text-slate-600 px-6">
-        <div>NovaSwarm betöltése...</div>
-        {loadError && (
-          <div className="flex flex-col items-center gap-2 text-xs text-slate-500">
-            <span>Kapcsolódás a szerverhez: {loadError}</span>
-            <button
-              type="button"
-              onClick={() => void fetchState()}
-              className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800"
-            >
-              Újrapróbálás
-            </button>
-          </div>
-        )}
-      </div>
+      <LocaleProvider lang={lang} setLang={(next) => void handleLanguageChange(next)}>
+        <div
+          dir={getLanguageDir(lang)}
+          className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3 text-sm text-slate-600 px-6"
+        >
+          <div>{tr(lang, 'loadingAppTitle')}</div>
+          {loadError && (
+            <div className="flex flex-col items-center gap-2 text-xs text-slate-500">
+              <span>{tr(lang, 'loadingAppDesc', loadError)}</span>
+              <button
+                type="button"
+                onClick={() => void fetchState()}
+                className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+              >
+                {tr(lang, 'retryBtn')}
+              </button>
+            </div>
+          )}
+        </div>
+      </LocaleProvider>
     );
   }
-
-  const lang = state.settings.language;
 
   if (!state.settings.onboardingCompleted) {
     const hasEnvGemini = state.settings.providerKeys.gemini.some(
@@ -527,94 +601,94 @@ export default function App() {
     items: Array<{ id: TabId; label: string; icon: React.ReactNode; hint: string }>;
   }> = [
     {
-      groupLabel: 'Napi munka',
+      groupLabel: tr(lang, 'navGroupDaily'),
       items: [
         {
           id: 'overview',
           label: tr(lang, 'navOverview'),
           icon: <LayoutDashboard className="h-4 w-4 shrink-0" />,
-          hint: 'Egy helyen mutatja a gép terhelését, a mai AI-költést, az aktív teendőket, az időjárást és a gyors keresőt.',
+          hint: tr(lang, 'navOverviewHint'),
         },
         {
           id: 'swarm',
           label: tr(lang, 'navSwarm'),
           icon: <MessageSquare className="h-4 w-4 shrink-0" />,
-          hint: 'Itt tudsz beszélgetni a digitális segítőiddel, feladatot adni nekik és követni a táblán, mi készült el.',
+          hint: tr(lang, 'navSwarmHint'),
         },
         {
           id: 'workbench',
           label: tr(lang, 'navWorkbench'),
           icon: <Wrench className="h-4 w-4 shrink-0" />,
-          hint: 'Speciális műhely eszközök: kód-összehasonlító, API/adatbázis tesztelő, nyelvtanulás, kutatás és diagramok.',
+          hint: tr(lang, 'navWorkbenchHint'),
         },
         {
           id: 'terminal',
           label: tr(lang, 'navTerminal'),
           icon: <TerminalIcon className="h-4 w-4 shrink-0" />,
-          hint: 'Valódi Linux parancssor közvetlenül a böngészőben. Biztonsági okból csak akkor aktív, ha engedélyezed a Beállításokban.',
+          hint: tr(lang, 'navTerminalHint'),
         },
       ],
     },
     {
-      groupLabel: 'Tudás & AI',
+      groupLabel: tr(lang, 'navGroupKnowledge'),
       items: [
         {
           id: 'agents',
           label: tr(lang, 'navAgents'),
           icon: <Bot className="h-4 w-4 shrink-0" />,
-          hint: 'Itt hozhatsz létre új AI munkatársakat különböző szerepkörökre (pl. fejlesztő, rendszergazda), és szabályozhatod a jogaikat.',
+          hint: tr(lang, 'navAgentsHint'),
         },
         {
           id: 'memory',
           label: tr(lang, 'navMemory'),
           icon: <Brain className="h-4 w-4 shrink-0" />,
-          hint: 'Minden megjegyzett tudás rólad és a projektjeidről, plusz a saját jegyzet-tudástárad és az éjszakai összefoglalók.',
+          hint: tr(lang, 'navMemoryHint'),
         },
         {
           id: 'models',
           label: tr(lang, 'navModels'),
           icon: <Cpu className="h-4 w-4 shrink-0" />,
-          hint: 'AI kulcsok kezelése (Gemini, OpenAI, helyi Ollama), havi költségbecslés, virtuális kulcsok és tartalék modell-láncok.',
+          hint: tr(lang, 'navModelsHint'),
         },
         {
           id: 'mcp',
           label: tr(lang, 'navMcp'),
           icon: <Plug className="h-4 w-4 shrink-0" />,
-          hint: 'Külső bővítmények (MCP), saját mini-skillek, Telegram/Discord összekapcsolás, böngészős kutatás és párosítás.',
+          hint: tr(lang, 'navMcpHint'),
         },
       ],
     },
     {
-      groupLabel: 'Mindennapok & Otthon',
+      groupLabel: tr(lang, 'navGroupLife'),
       items: [
         {
           id: 'ecosystem',
           label: tr(lang, 'navEcosystem'),
           icon: <Layers className="h-4 w-4 shrink-0" />,
-          hint: 'Napi szokások, e-mail, naptár, okosotthon, költségkövető, okmányszéf, árfigyelő, receptötletek és automatizmusok.',
+          hint: tr(lang, 'navEcosystemHint'),
         },
       ],
     },
     {
-      groupLabel: 'Rendszer',
+      groupLabel: tr(lang, 'navGroupSystem'),
       items: [
         {
           id: 'system',
           label: tr(lang, 'navSystem'),
           icon: <Activity className="h-4 w-4 shrink-0" />,
-          hint: 'Biztonsági mentések, teljes gép-költöztetés másik gépre SSH-n, frissítések, szerver-diagnosztika és jóváhagyások.',
+          hint: tr(lang, 'navSystemHint'),
         },
         {
           id: 'autonomy',
-          label: 'Autonómia központ',
+          label: tr(lang, 'navAutonomy'),
           icon: <Shield className="h-4 w-4 shrink-0" />,
-          hint: 'Totális autonómia garanciák, LOCKDOWN vészleállítás, biztonsági visszaállítási pontok, LAN felderítés/eszközvezérlés és döntési napló.',
+          hint: tr(lang, 'navAutonomyHint'),
         },
         {
           id: 'settings',
           label: tr(lang, 'navSettings'),
           icon: <SettingsIcon className="h-4 w-4 shrink-0" />,
-          hint: 'Nyelv, világos/sötét téma, jelszózár, Telegram engedélylista, költséghatárok, önállósági szint és vészleállító.',
+          hint: tr(lang, 'navSettingsHint'),
         },
       ],
     },
@@ -624,11 +698,12 @@ export default function App() {
   const activeNavLabel = allNavItems.find((n) => n.id === activeTab)?.label || '';
 
   return (
+    <LocaleProvider lang={lang} setLang={(next) => void handleLanguageChange(next)}>
     <div dir={getLanguageDir(lang)} className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex">
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform lg:static lg:translate-x-0 ${
-          mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 ltr:left-0 rtl:right-0 z-30 w-64 bg-white dark:bg-slate-900 ltr:border-r rtl:border-l border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform lg:static lg:translate-x-0 ${
+          mobileNavOpen ? 'translate-x-0' : 'max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full'
         }`}
       >
         <div className="overflow-y-auto flex-1">
@@ -638,7 +713,7 @@ export default function App() {
             </span>
             <button
               type="button"
-              aria-label="Navigáció bezárása"
+              aria-label={tr(lang, 'closeNavAria')}
               onClick={() => setMobileNavOpen(false)}
               className="lg:hidden p-1 text-slate-500 dark:text-slate-400"
             >
@@ -652,21 +727,21 @@ export default function App() {
               onClick={() => setPaletteOpen(true)}
               className="flex-1 flex items-center justify-between px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
             >
-              <span className="inline-flex items-center gap-1.5">
-                <Command className="h-3.5 w-3.5" />
-                Gyorskereső...
+              <span className="inline-flex items-center gap-1.5 truncate">
+                <Command className="h-3.5 w-3.5 shrink-0" />
+                {tr(lang, 'quickSearch')}
               </span>
-              <span className="font-mono text-[10px] text-slate-400">Ctrl+K</span>
+              <span className="font-mono text-[10px] text-slate-400 shrink-0">Ctrl+K</span>
             </button>
             <InfoHint
               theme={hintTheme}
               align="right"
-              label="Gyorskereső (Ctrl+K)"
-              description="Bárhonnan megnyitható ugrómenü: egyetlen gombnyomással válthatsz oldalt, vagy indíthatsz gyors műveletet."
+              label={tr(lang, 'quickSearchHintTitle')}
+              description={tr(lang, 'quickSearchHintDesc')}
             />
           </div>
 
-          <nav className="p-3 space-y-4" aria-label="Fő navigáció">
+          <nav className="p-3 space-y-4" aria-label={tr(lang, 'mainNavLabel')}>
             {navGroups.map((group) => (
               <div key={group.groupLabel} className="space-y-1">
                 <div className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -680,7 +755,7 @@ export default function App() {
                         setActiveTab(item.id);
                         setMobileNavOpen(false);
                       }}
-                      className={`flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] font-medium rounded-lg transition-colors text-left ${
+                      className={`flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] font-medium rounded-lg transition-colors text-start ${
                         activeTab === item.id
                           ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
                           : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
@@ -708,8 +783,8 @@ export default function App() {
               <InfoHint
                 theme={hintTheme}
                 align="right"
-                label="Rendszerfelügyelő"
-                description="A háttérben figyeli, hogy az adatok, a memória és a beépített védelmek rendben vannak-e."
+                label={tr(lang, 'supervisorPanelTitle')}
+                description={tr(lang, 'supervisorPanelDesc')}
               />
             </div>
             <span
@@ -745,7 +820,7 @@ export default function App() {
             }}
             className="w-full px-2.5 py-1 text-[11px] font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
           >
-            Gyors állapot-ellenőrzés
+            {tr(lang, 'quickHealthCheck')}
           </button>
         </div>
       </aside>
@@ -756,7 +831,7 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               type="button"
-              aria-label="Open navigation"
+              aria-label={tr(lang, 'openNavAria')}
               onClick={() => setMobileNavOpen(true)}
               className="lg:hidden p-1.5 text-slate-600 dark:text-slate-300 shrink-0"
             >
@@ -771,7 +846,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <span>
               {state.settings.fullAutonomousMode
-                ? '100% Autonóm'
+                ? tr(lang, 'hostPermAutonomous')
                 : state.settings.hostPermissionsGranted
                 ? tr(lang, 'hostPermGranted')
                 : tr(lang, 'hostPermRestricted')}
@@ -783,16 +858,29 @@ export default function App() {
             {state.settings.killSwitchActive && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="text-red-700 font-semibold">KILL SWITCH AKTÍV</span>
+                <span className="text-red-700 font-semibold">{tr(lang, 'killSwitchActiveBadge')}</span>
               </>
             )}
           </div>
 
           <div className="shrink-0 flex items-center gap-1 sm:gap-1.5">
+            <select
+              aria-label={tr(lang, 'languageSwitchLabel')}
+              title={tr(lang, 'languageSwitchLabel')}
+              value={lang}
+              onChange={(e) => void handleLanguageChange(e.target.value as LanguageCode)}
+              className="px-1.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shrink-0"
+            >
+              {SUPPORTED_LANGUAGES.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.nativeName}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
-              title="Téma váltása (Világos / Sötét)"
-              aria-label="Toggle theme mode"
+              title={tr(lang, 'themeToggleTitle')}
+              aria-label={tr(lang, 'themeToggleTitle')}
               onClick={async () => {
                 const next = state.settings.themeMode === 'dark' ? 'light' : 'dark';
                 await fetch('/api/settings', {
@@ -808,8 +896,8 @@ export default function App() {
             </button>
             <button
               type="button"
-              title="Kávézó Mód (Összegek elmosása)"
-              aria-label="Toggle privacy mask"
+              title={tr(lang, 'privacyMaskTitle')}
+              aria-label={tr(lang, 'privacyMaskTitle')}
               onClick={async () => {
                 await fetch('/api/settings', {
                   method: 'PATCH',
@@ -826,14 +914,14 @@ export default function App() {
             >
               {state.settings.privacyMaskEnabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             </button>
-            <div className="hidden md:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg shrink-0" title="LAN Ping késleltetés">
+            <div className="hidden md:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg shrink-0" title={tr(lang, 'lanPingTitle')}>
               <Wifi className="h-3 w-3" />
               <span>{lanPingMs !== null ? `${lanPingMs}ms` : 'LAN'}</span>
             </div>
             <button
               type="button"
-              title="Gyors Jegyzetfiók (Alt+N)"
-              aria-label="Toggle scratchpad drawer"
+              title={tr(lang, 'scratchpadBtnTitle')}
+              aria-label={tr(lang, 'scratchpadBtnTitle')}
               onClick={() => setScratchpadOpen((v) => !v)}
               className={`p-1.5 border rounded-lg shrink-0 ${
                 scratchpadOpen
@@ -845,8 +933,8 @@ export default function App() {
             </button>
             <button
               type="button"
-              title="Billentyűparancsok (?)"
-              aria-label="Keyboard shortcuts"
+              title={tr(lang, 'shortcutsBtnTitle')}
+              aria-label={tr(lang, 'shortcutsBtnTitle')}
               onClick={() => setShortcutsOpen(true)}
               className="hidden sm:inline-flex p-1.5 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
             >
@@ -859,11 +947,11 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => void handleOperatorLogout()}
-                title="LAN Zár / Kijelentkezés"
+                title={tr(lang, 'lockLogoutTitle')}
                 className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
                 <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Zárolás</span>
+                <span className="hidden sm:inline">{tr(lang, 'lockLogoutBtn')}</span>
               </button>
             )}
             <button
@@ -872,7 +960,7 @@ export default function App() {
               className="px-2.5 sm:px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 whitespace-nowrap shrink-0"
             >
               <span className="hidden sm:inline">{tr(lang, 'approvalsPending')}: </span>
-              <span className="sm:hidden">Jóváhagyás: </span>
+              <span className="sm:hidden">{tr(lang, 'approvalsPendingShort')}: </span>
               {state.approvals.filter((a) => a.status === 'pending').length}
             </button>
           </div>
@@ -886,7 +974,7 @@ export default function App() {
           >
             <span className="inline-flex items-center gap-2 font-semibold">
               <KeyRound className="h-4 w-4 shrink-0 text-amber-800 dark:text-amber-300" />
-              A felület jelszó nélkül elérhető a helyi hálózaton: bárki irányíthatja az ágenst.
+              {tr(lang, 'passwordlessBannerText')}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -894,16 +982,16 @@ export default function App() {
                 onClick={navigateToPasswordSetup}
                 className="px-3 py-1 text-[11px] font-semibold bg-amber-900 text-white rounded hover:bg-amber-950 whitespace-nowrap"
               >
-                Jelszó beállítása
+                {tr(lang, 'setPasswordBtn')}
               </button>
               <button
                 type="button"
-                aria-label="Figyelmeztetés elrejtése 7 napra"
+                aria-label={tr(lang, 'snooze7DaysAria')}
                 onClick={snoozePasswordBanner7Days}
                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-amber-900 dark:text-amber-200 hover:bg-amber-200/60 dark:hover:bg-amber-900/40 rounded"
               >
                 <X className="h-3.5 w-3.5" />
-                <span>Elrejtés 7 napra</span>
+                <span>{tr(lang, 'snooze7DaysBtn')}</span>
               </button>
             </div>
           </div>
@@ -913,14 +1001,14 @@ export default function App() {
           <div className="bg-red-50 dark:bg-red-950/60 border-b border-red-300 dark:border-red-800 px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-red-900 dark:text-red-100">
             <span className="inline-flex items-center gap-2 font-semibold">
               <KeyRound className="h-3.5 w-3.5 shrink-0" />
-              Félbehagyott telepítés: a webes zár be van kapcsolva, de nincs beállított jelszó. Állíts be jelszót vagy futtasd a novaswarm set-password parancsot.
+              {tr(lang, 'halfInstalledBannerText')}
             </span>
             <button
               type="button"
               onClick={navigateToPasswordSetup}
               className="px-2.5 py-1 text-[11px] font-semibold bg-red-700 text-white rounded hover:bg-red-800"
             >
-              Jelszó beállítása
+              {tr(lang, 'setPasswordBtn')}
             </button>
           </div>
         )}
@@ -935,10 +1023,10 @@ export default function App() {
             <span className="inline-flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {state.settings.lockdownActive
-                ? `VÉSZLEÁLLÍTÁS (LOCKDOWN) AKTÍV — minden autonóm futtatás zárolva! Feloldás csak a tulajdonos jelszavával.`
+                ? tr(lang, 'lockdownBannerText')
                 : state.settings.totalAutonomyEnabled
-                ? 'TOTÁLIS AUTONÓMIA AKTÍV — teljes önálló végrehajtás · A 3 sérthetetlen garancia (append-only audit, /stop LOCKDOWN, visszaállítási pontok) védve van.'
-                : 'TELJES AUTONÓMIA PROFIL AKTÍV — az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat! Telegram engedélylista, Web jelszó és a /stop vészleállító továbbra is aktív.'}
+                ? tr(lang, 'totalAutonomyBannerText')
+                : tr(lang, 'fullAutonomyBannerText')}
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {phoenixAutonomy?.staleWarning && !state.settings.lockdownActive && (
@@ -956,7 +1044,7 @@ export default function App() {
                   }}
                   className="px-2.5 py-1 text-[11px] font-semibold bg-amber-300 text-slate-950 rounded hover:bg-amber-200 disabled:opacity-60 whitespace-nowrap"
                 >
-                  {creatingPhoenixSnap ? 'Mentés...' : 'Phoenix Mentés (>24h!)'}
+                  {creatingPhoenixSnap ? tr(lang, 'phoenixSavingBtn') : tr(lang, 'phoenixSaveBtn')}
                 </button>
               )}
               {!state.settings.lockdownActive && (
@@ -966,13 +1054,13 @@ export default function App() {
                     await fetch('/api/total-autonomy/lockdown', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ reason: 'Felső figyelmeztető sáv vészleállítás' }),
+                      body: JSON.stringify({ reason: tr(lang, 'bannerStopReason') }),
                     });
                     await fetchState();
                   }}
                   className="px-2.5 py-1 text-[11px] font-semibold bg-red-950 text-white rounded hover:bg-black whitespace-nowrap"
                 >
-                  Vészleállítás (/stop)
+                  {tr(lang, 'emergencyStopBtn')}
                 </button>
               )}
               <button
@@ -980,14 +1068,14 @@ export default function App() {
                 onClick={() => setActiveTab('autonomy')}
                 className="px-2.5 py-1 text-[11px] font-semibold bg-white text-red-700 rounded hover:bg-red-50 whitespace-nowrap"
               >
-                Autonómia központ
+                {tr(lang, 'autonomyCenterBtn')}
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('settings')}
                 className="px-2.5 py-1 text-[11px] font-semibold bg-red-700/80 text-white border border-red-400 rounded hover:bg-red-700 whitespace-nowrap"
               >
-                Beállítások
+                {tr(lang, 'settingsBtn')}
               </button>
             </div>
           </div>
@@ -1019,7 +1107,7 @@ export default function App() {
             state.settings.compactUiMode ? 'p-3 sm:p-4 pb-16 lg:pb-4' : 'p-6 pb-20 lg:pb-6'
           }`}
         >
-          <Suspense fallback={<div className="p-8 text-xs text-slate-500 font-mono">Nézet betöltése...</div>}>
+          <Suspense fallback={<div className="p-8 text-xs text-slate-500 font-mono">{tr(lang, 'viewLoadingText')}</div>}>
             {activeTab === 'overview' && (
               <OverviewDashboard
                 state={state}
@@ -1152,16 +1240,16 @@ export default function App() {
 
       {/* Compact Mobile Bottom Nav Bar */}
       <nav
-        aria-label="Mobil gyorsnavigáció"
+        aria-label={tr(lang, 'mobileNavAria')}
         className="lg:hidden fixed bottom-0 left-0 right-0 z-20 h-14 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-1 flex items-center justify-around"
       >
         {(
           [
-            { id: 'overview', label: 'Főoldal', icon: <LayoutDashboard className="h-4 w-4" /> },
-            { id: 'swarm', label: 'Chat', icon: <MessageSquare className="h-4 w-4" /> },
-            { id: 'workbench', label: 'Munkapad', icon: <Wrench className="h-4 w-4" /> },
-            { id: 'ecosystem', label: 'Életvitel', icon: <Layers className="h-4 w-4" /> },
-            { id: 'system', label: 'Rendszer', icon: <Activity className="h-4 w-4" /> },
+            { id: 'overview', label: tr(lang, 'mobileHome'), icon: <LayoutDashboard className="h-4 w-4" /> },
+            { id: 'swarm', label: 'Swarm', icon: <MessageSquare className="h-4 w-4" /> },
+            { id: 'workbench', label: tr(lang, 'navWorkbench').split(' ')[0], icon: <Wrench className="h-4 w-4" /> },
+            { id: 'ecosystem', label: tr(lang, 'mobileLife'), icon: <Layers className="h-4 w-4" /> },
+            { id: 'system', label: tr(lang, 'navGroupSystem'), icon: <Activity className="h-4 w-4" /> },
           ] as const
         ).map((item) => (
           <button
@@ -1169,7 +1257,7 @@ export default function App() {
             type="button"
             onClick={() => setActiveTab(item.id)}
             className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1 text-[10px] font-medium rounded whitespace-nowrap shrink-0 ${
-              activeTab === item.id ? 'text-slate-900 font-semibold' : 'text-slate-500'
+              activeTab === item.id ? 'text-slate-900 dark:text-slate-100 font-semibold' : 'text-slate-500'
             }`}
           >
             {item.icon}
@@ -1192,17 +1280,17 @@ export default function App() {
 
       {scratchpadOpen && (
         <aside
-          aria-label="Jegyzetfiók (Scratchpad Drawer)"
-          className="fixed bottom-16 right-4 z-40 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-4 space-y-3"
+          aria-label={tr(lang, 'scratchpadDrawerTitle')}
+          className="fixed bottom-16 ltr:right-4 rtl:left-4 z-40 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-4 space-y-3"
         >
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <StickyNote className="h-3.5 w-3.5 text-amber-500" />
-              Gyors Jegyzetfiók (Alt+N)
+              {tr(lang, 'scratchpadBtnTitle')}
             </h2>
             <button
               type="button"
-              aria-label="Jegyzetfiók bezárása"
+              aria-label={tr(lang, 'closeBtn')}
               onClick={() => setScratchpadOpen(false)}
               className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
             >
@@ -1213,8 +1301,8 @@ export default function App() {
             rows={6}
             value={scratchpadText}
             onChange={(e) => setScratchpadText(e.target.value)}
-            placeholder="Gyors jegyzetek, prompt vázlatok, parancsok (automatikusan mentve)..."
-            aria-label="Jegyzetfiók tartalma"
+            placeholder={tr(lang, 'scratchpadPlaceholder')}
+            aria-label={tr(lang, 'scratchpadAria')}
             className="w-full p-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950 font-mono"
           />
           <div className="flex items-center justify-between gap-2">
@@ -1223,7 +1311,7 @@ export default function App() {
               onClick={() => setScratchpadText('')}
               className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
-              Törlés
+              {tr(lang, 'scratchpadClearBtn')}
             </button>
             <div className="flex items-center gap-1.5">
               <button
@@ -1238,7 +1326,7 @@ export default function App() {
                 }}
                 className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
               >
-                LAN Szinkron
+                LAN
               </button>
               <button
                 type="button"
@@ -1251,7 +1339,7 @@ export default function App() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg disabled:opacity-50 whitespace-nowrap"
               >
                 <Send className="h-3 w-3" />
-                Küldés Raj Chatbe
+                {tr(lang, 'send')}
               </button>
             </div>
           </div>
@@ -1268,26 +1356,34 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold">Billentyűparancsok</h2>
-              <button type="button" onClick={() => setShortcutsOpen(false)} className="text-slate-400 hover:text-slate-700">
+              <h2 className="text-sm font-bold">{tr(lang, 'shortcutsModalTitle')}</h2>
+              <button
+                type="button"
+                aria-label={tr(lang, 'closeBtn')}
+                onClick={() => setShortcutsOpen(false)}
+                className="text-slate-400 hover:text-slate-700"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="space-y-1.5 text-xs font-mono">
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Ctrl+K / Cmd+K</span><span>Gyorskereső</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Alt+N</span><span>Gyors Jegyzetfiók</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>?</span><span>Súgóablak</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>Áttekintő</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>Csapat Chat &amp; Feladatok</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>Munkapad &amp; Eszközök</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>Ágensek &amp; Csapat</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>Memória &amp; Jegyzetek</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → r</span><span>Rendszer &amp; Költöztetés</span></div>
-              <div className="flex justify-between py-1"><span>g → s</span><span>Beállítások</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Ctrl+K / Cmd+K</span><span>{tr(lang, 'shortcutQuickPalette')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Alt+N</span><span>{tr(lang, 'shortcutScratchpad')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>?</span><span>{tr(lang, 'shortcutHelp')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>Esc</span><span>{tr(lang, 'shortcutEsc')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → o</span><span>{tr(lang, 'navOverview')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → c</span><span>{tr(lang, 'navSwarm')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → w</span><span>{tr(lang, 'navWorkbench')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → a</span><span>{tr(lang, 'navAgents')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → m</span><span>{tr(lang, 'navMemory')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → r</span><span>{tr(lang, 'navSystem')}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800"><span>g → t</span><span>{tr(lang, 'navAutonomy')}</span></div>
+              <div className="flex justify-between py-1"><span>g → s</span><span>{tr(lang, 'navSettings')}</span></div>
             </div>
           </div>
         </div>
       )}
     </div>
+    </LocaleProvider>
   );
 }

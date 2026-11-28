@@ -46,7 +46,7 @@ import type {
   SudoCheckStatus,
   UptimeTarget,
 } from '../../shared/types';
-import { tr } from '../locales/translations';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 const Batch3InfraClusterPanel = lazy(() =>
@@ -72,7 +72,7 @@ const AutonomyCenterView = lazy(() =>
 );
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   hardware: HardwareMetrics | null;
   approvals: ApprovalRequest[];
   cronTasks: CronTask[];
@@ -92,7 +92,6 @@ interface Props {
 }
 
 export const SystemOpsView: React.FC<Props> = ({
-  language,
   hardware,
   approvals,
   cronTasks,
@@ -110,6 +109,7 @@ export const SystemOpsView: React.FC<Props> = ({
   phoenixAutonomy,
   onRefreshState,
 }) => {
+  const { t, tx, intlLocale } = useLocale();
   const [subTab, setSubTab] = useState<'ops' | 'autonomy_center' | 'selfmod' | 'infra' | 'pi_hw_b4' | 'b5_migrate' | 'b6_apex' | 'b7_universe' | 'b8_omni' | 'diagnostics'>('ops');
   const [sudoLocal, setSudoLocal] = useState<SudoCheckStatus | null>(sudoStatus ?? null);
   const [sudoChecking, setSudoChecking] = useState(false);
@@ -326,7 +326,7 @@ export const SystemOpsView: React.FC<Props> = ({
   };
 
   const handleApplyOta = async () => {
-    setOtaApplyMsg('Frissítés folyamatban...');
+    setOtaApplyMsg(tx('Frissítés folyamatban...'));
     const res = await fetch('/api/system/ota/apply', { method: 'POST' });
     const data = (await res.json()) as { ok: boolean; message: string };
     setOtaApplyMsg(data.message);
@@ -347,7 +347,12 @@ export const SystemOpsView: React.FC<Props> = ({
       sandboxResult: { isolationMode: string };
     };
     setProofResult(
-      `Destruktív sandbox bizonyíték: ${data.proofPassed ? 'SIKERES' : 'SIKERTELEN'} | Mód: ${data.sandboxResult.isolationMode} | Őrszem fájl érintetlen: ${data.sentinelStillExists}`
+      tx(
+        'Destruktív sandbox bizonyíték: {0} | Mód: {1} | Őrszem fájl érintetlen: {2}',
+        data.proofPassed ? tx('SIKERES') : tx('SIKERTELEN'),
+        data.sandboxResult.isolationMode,
+        String(data.sentinelStillExists)
+      )
     );
     await onRefreshState();
   };
@@ -364,14 +369,14 @@ export const SystemOpsView: React.FC<Props> = ({
       }),
     });
     const data = (await res.json()) as { message?: string; error?: string };
-    setSelfModMsg(data.message || data.error || 'Done');
+    setSelfModMsg(data.message || data.error || tx('Kész.'));
     await onRefreshState();
   };
 
   const handleInspectCommit = async (hash: string) => {
     const res = await fetch(`/api/selfmod/diff/${hash}`);
     const data = (await res.json()) as { diff?: string };
-    setSelectedDiff(data.diff || 'Nincs elérhető diff.');
+    setSelectedDiff(data.diff || tx('Nincs elérhető diff.'));
   };
 
   const handleRollbackCommit = async (hash: string) => {
@@ -381,7 +386,7 @@ export const SystemOpsView: React.FC<Props> = ({
       body: JSON.stringify({ hash }),
     });
     const data = (await res.json()) as { message?: string; error?: string };
-    setSelfModMsg(data.message || data.error || 'Rollback kész.');
+    setSelfModMsg(data.message || data.error || tx('Rollback kész.'));
     await onRefreshState();
   };
 
@@ -472,29 +477,29 @@ export const SystemOpsView: React.FC<Props> = ({
         <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-slate-200/70 rounded-lg">
           {(
             [
-              { id: 'ops', label: 'Üzemeltetés & Mentés', hint: 'Jóváhagyásra váró műveletek, uptime és SSL figyelés, valamint teljes biztonsági mentések és visszaállítás.' },
-              { id: 'autonomy_center', label: 'Autonómia központ', hint: 'Totális autonómia garanciák, LOCKDOWN vészleállító, biztonsági visszaállítási pontok, LAN felderítés és döntési napló.' },
-              { id: 'selfmod', label: 'Önfejlesztés & Frissítés', hint: 'A program önmódosító előzményei és hivatalos GitHub frissítések ellenőrzése vagy telepítése.' },
-              { id: 'infra', label: 'Szerver & Konténerek', hint: 'Docker konténerek, Linux szolgáltatások (systemd), helyi eszközök, VPN és távoli SSH gépek kezelése.' },
-              { id: 'pi_hw_b4', label: 'Hardver & Fájlok', hint: 'Hőmérséklet, Raspberry Pi szenzorok, behatolás-szűrő, okosmérő, fájlböngésző és saját állapotdobozok.' },
-              { id: 'b5_migrate', label: 'Költöztető & Önhangolás', hint: 'Egygombos átköltöztetés másik Linux gépre SSH-n keresztül, és hardverhez igazított teljesítmény-optimalizálás.' },
-              { id: 'b6_apex', label: 'Hálózat & Tartalék', hint: 'Haladó hálózati eszközök, tartalék csomópontok és megbízhatósági ellenőrzések.' },
-              { id: 'b7_universe', label: 'Életvitel & Automaták', hint: 'Napi rutinokat segítő gyors automaták, árfolyam- és üzemmód-vezérlők.' },
-              { id: 'b8_omni', label: 'Tudás & Tervező Stúdió', hint: 'Személyiségek (personák), ténybank, döntési mátrixok, célfák és további segédeszközök.' },
-              { id: 'diagnostics', label: 'Diagnosztika & Naplók', hint: 'Biztonsági pontszám, környezeti változók, ütemezett feladatok, hibakereső és aláírt auditnapló export.' },
+              { id: 'ops', label: tx('Üzemeltetés & Mentés'), hint: tx('Jóváhagyásra váró műveletek, uptime és SSL figyelés, valamint teljes biztonsági mentések és visszaállítás.') },
+              { id: 'autonomy_center', label: tx('Autonómia központ'), hint: tx('Totális autonómia garanciák, LOCKDOWN vészleállító, biztonsági visszaállítási pontok, LAN felderítés és döntési napló.') },
+              { id: 'selfmod', label: tx('Önfejlesztés & Frissítés'), hint: tx('A program önmódosító előzményei és hivatalos GitHub frissítések ellenőrzése vagy telepítése.') },
+              { id: 'infra', label: tx('Szerver & Konténerek'), hint: tx('Docker konténerek, Linux szolgáltatások (systemd), helyi eszközök, VPN és távoli SSH gépek kezelése.') },
+              { id: 'pi_hw_b4', label: tx('Hardver & Fájlok'), hint: tx('Hőmérséklet, Raspberry Pi szenzorok, behatolás-szűrő, okosmérő, fájlböngésző és saját állapotdobozok.') },
+              { id: 'b5_migrate', label: tx('Költöztető & Önhangolás'), hint: tx('Egygombos átköltöztetés másik Linux gépre SSH-n keresztül, és hardverhez igazított teljesítmény-optimalizálás.') },
+              { id: 'b6_apex', label: tx('Hálózat & Tartalék'), hint: tx('Haladó hálózati eszközök, tartalék csomópontok és megbízhatósági ellenőrzések.') },
+              { id: 'b7_universe', label: tx('Életvitel & Automaták'), hint: tx('Napi rutinokat segítő gyors automaták, árfolyam- és üzemmód-vezérlők.') },
+              { id: 'b8_omni', label: tx('Tudás & Tervező Stúdió'), hint: tx('Személyiségek (personák), ténybank, döntési mátrixok, célfák és további segédeszközök.') },
+              { id: 'diagnostics', label: tx('Diagnosztika & Naplók'), hint: tx('Biztonsági pontszám, környezeti változók, ütemezett feladatok, hibakereső és aláírt auditnapló export.') },
             ] as const
-          ).map((t) => (
-            <div key={t.id} className="inline-flex items-center gap-0.5">
+          ).map((tabItem) => (
+            <div key={tabItem.id} className="inline-flex items-center gap-0.5">
               <button
                 type="button"
-                onClick={() => setSubTab(t.id)}
+                onClick={() => setSubTab(tabItem.id)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  subTab === t.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  subTab === tabItem.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {t.label}
+                {tabItem.label}
               </button>
-              <InfoHint theme="light" label={t.label} description={t.hint} />
+              <InfoHint theme="light" label={tabItem.label} description={tabItem.hint} />
             </div>
           ))}
         </div>
@@ -506,7 +511,7 @@ export const SystemOpsView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <Cpu className="h-4 w-4 text-slate-600" />
-              Valós Idejű Hardver Monitor ({hardware.cpuModel})
+              {tx('Valós Idejű Hardver Monitor ({0})', hardware.cpuModel)}
             </h2>
             {hardware.throttledReason && (
               <span className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded">
@@ -516,35 +521,35 @@ export const SystemOpsView: React.FC<Props> = ({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 pt-1">
             <div>
-              <div className="text-xs text-slate-500">CPU Terhelés</div>
+              <div className="text-xs text-slate-500">{tx('CPU Terhelés')}</div>
               <div className="text-lg font-mono font-semibold tabular-nums">
-                {hardware.cpuLoadPercent}% · {hardware.cpuCores} mag
+                {tx('{0}% · {1} mag', hardware.cpuLoadPercent, hardware.cpuCores)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">RAM Memória</div>
+              <div className="text-xs text-slate-500">{tx('RAM Memória')}</div>
               <div className="text-lg font-mono font-semibold tabular-nums">
                 {hardware.ramUsedMb} / {hardware.ramTotalMb} MB
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">Tárhely</div>
+              <div className="text-xs text-slate-500">{tx('Tárhely')}</div>
               <div className="text-lg font-mono font-semibold tabular-nums">
                 {hardware.diskUsedGb} / {hardware.diskTotalGb} GB
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">Hőmérséklet</div>
+              <div className="text-xs text-slate-500">{tx('Hőmérséklet')}</div>
               <div className="text-lg font-mono font-semibold tabular-nums">
                 {hardware.temperatureCelsius !== null ? `${hardware.temperatureCelsius}°C` : 'N/A'}
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">Akkumulátor</div>
+              <div className="text-xs text-slate-500">{tx('Akkumulátor')}</div>
               <div className="text-lg font-mono font-semibold tabular-nums">
                 {hardware.batteryPercent !== null
-                  ? `${hardware.batteryPercent}% (${hardware.isCharging ? 'AC' : 'Akku'})`
-                  : 'Asztali / AC'}
+                  ? `${hardware.batteryPercent}% (${hardware.isCharging ? 'AC' : tx('Akku')})`
+                  : tx('Asztali / AC')}
               </div>
             </div>
           </div>
@@ -558,7 +563,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-slate-700" />
-                  Sudo (NOPASSWD) Jogosultság
+                  {tx('Sudo (NOPASSWD) Jogosultság')}
                 </h3>
                 <div className="flex items-center gap-2">
                   <span
@@ -568,7 +573,7 @@ export const SystemOpsView: React.FC<Props> = ({
                         : 'bg-red-50 border-red-300 text-red-800'
                     }`}
                   >
-                    {sudoLocal ? (sudoLocal.hasNopasswd ? 'RENDBEN' : 'HIÁNYZIK') : 'Ellenőrzés...'}
+                    {sudoLocal ? (sudoLocal.hasNopasswd ? tx('RENDBEN') : tx('HIÁNYZIK')) : tx('Ellenőrzés...')}
                   </span>
                   <button
                     type="button"
@@ -589,17 +594,17 @@ export const SystemOpsView: React.FC<Props> = ({
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
                   >
                     <RefreshCw className="h-3 w-3" />
-                    Újraellenőrzés
+                    {tx('Újraellenőrzés')}
                   </button>
                 </div>
               </div>
               <p className="text-xs text-slate-700">
-                {sudoLocal?.message || 'Jelszó nélküli sudo (sudo -n true) állapot ellenőrzése...'}
+                {sudoLocal?.message || tx('Jelszó nélküli sudo (sudo -n true) állapot ellenőrzése...')}
               </p>
               {sudoLocal && !sudoLocal.hasNopasswd && (
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
                   <div className="font-semibold text-slate-800">
-                    Manuális beállítás (a rendszer soha nem ír sudoers fájlt automatikusan):
+                    {tx('Manuális beállítás (a rendszer soha nem ír sudoers fájlt automatikusan):')}
                   </div>
                   <pre className="p-2 rounded bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto">
                     {`${sudoLocal.visudoCommand}\n${sudoLocal.sudoersLine}`}
@@ -612,7 +617,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <Flame className="h-4 w-4 text-slate-700" />
-                  Phoenix Pillanatkép Őrszem
+                  {tx('Phoenix Pillanatkép Őrszem')}
                 </h3>
                 <button
                   type="button"
@@ -629,16 +634,16 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
                 >
                   <Save className="h-3.5 w-3.5" />
-                  {phoenixSaving ? 'Készítés...' : 'Phoenix Pillanatkép Készítése'}
+                  {phoenixSaving ? tx('Készítés...') : tx('Phoenix Pillanatkép Készítése')}
                 </button>
               </div>
               <div className="text-xs text-slate-600 space-y-1">
                 <div>
-                  Legutóbbi pillanatkép:{' '}
+                  {tx('Legutóbbi pillanatkép:')}{' '}
                   <span className="font-mono font-semibold">
                     {phoenixAutonomy?.lastSnapshotAt
-                      ? `${new Date(phoenixAutonomy.lastSnapshotAt).toLocaleString()} (${phoenixAutonomy.ageHours ?? 0} órája)`
-                      : 'Még nincs rögzített Phoenix mentés'}
+                      ? tx('{0} ({1} órája)', new Date(phoenixAutonomy.lastSnapshotAt).toLocaleString(intlLocale), phoenixAutonomy.ageHours ?? 0)
+                      : tx('Még nincs rögzített Phoenix mentés')}
                   </span>
                 </div>
                 {phoenixAutonomy?.staleWarning && (
@@ -655,7 +660,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <HeartPulse className="h-4 w-4 text-slate-700" />
-                  Autonóm Heartbeat
+                  {tx('Autonóm Heartbeat')}
                 </h3>
                 <button
                   type="button"
@@ -664,23 +669,23 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Heartbeat Futtatása
+                  {tx('Heartbeat Futtatása')}
                 </button>
               </div>
               <div className="text-xs text-slate-600 space-y-1">
                 <div>
-                  Állapot:{' '}
+                  {tx('Állapot:')}{' '}
                   <span className="font-mono font-semibold">
-                    {settings.heartbeatEnabled ? `Aktív (${settings.heartbeatIntervalMinutes} perc)` : 'Kikapcsolva'}
+                    {settings.heartbeatEnabled ? tx('Aktív ({0} perc)', settings.heartbeatIntervalMinutes) : tx('Kikapcsolva')}
                   </span>
                 </div>
                 {settings.lastHeartbeatAt && (
                   <div className="font-mono tabular-nums text-[11px] text-slate-500">
-                    Utolsó: {new Date(settings.lastHeartbeatAt).toLocaleString()}
+                    {tx('Utolsó: {0}', new Date(settings.lastHeartbeatAt).toLocaleString(intlLocale))}
                   </div>
                 )}
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono text-slate-800">
-                  {hbResult || settings.lastHeartbeatSummary || 'Még nem futott heartbeat ciklus.'}
+                  {hbResult || settings.lastHeartbeatSummary || tx('Még nem futott heartbeat ciklus.')}
                 </div>
               </div>
             </div>
@@ -689,7 +694,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <Activity className="h-4 w-4 text-slate-700" />
-                  Two-Strikes Uptime & SSL Figyelő
+                  {tx('Two-Strikes Uptime & SSL Figyelő')}
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
@@ -700,7 +705,7 @@ export const SystemOpsView: React.FC<Props> = ({
                     }}
                     className="px-2.5 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
                   >
-                    SSL Ellenőrzés
+                    {tx('SSL Ellenőrzés')}
                   </button>
                   <button
                     type="button"
@@ -709,7 +714,7 @@ export const SystemOpsView: React.FC<Props> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    Uptime Fut
+                    {tx('Uptime Fut')}
                   </button>
                 </div>
               </div>
@@ -719,7 +724,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   type="text"
                   value={upName}
                   onChange={(e) => setUpName(e.target.value)}
-                  placeholder="Szolgáltatás neve"
+                  placeholder={tx('Szolgáltatás neve')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
                 />
                 <input
@@ -733,7 +738,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   type="text"
                   value={upExpect}
                   onChange={(e) => setUpExpect(e.target.value)}
-                  placeholder="Elvárt szöveg (opc.)"
+                  placeholder={tx('Elvárt szöveg (opc.)')}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
                 />
                 <button
@@ -741,7 +746,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Uptime
+                  {tx('Uptime')}
                 </button>
               </form>
 
@@ -750,7 +755,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   type="text"
                   value={sslHost}
                   onChange={(e) => setSslHost(e.target.value)}
-                  placeholder="SSL Domain (pl. github.com)"
+                  placeholder={tx('SSL Domain (pl. github.com)')}
                   className="sm:col-span-2 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
                 />
                 <input
@@ -764,7 +769,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 rounded hover:bg-slate-50"
                 >
                   <Lock className="h-3.5 w-3.5" />
-                  + SSL Figyelés
+                  {tx('+ SSL Figyelés')}
                 </button>
               </form>
 
@@ -775,7 +780,7 @@ export const SystemOpsView: React.FC<Props> = ({
                     className="flex flex-wrap items-center justify-between gap-2 text-xs p-2 bg-slate-50 border border-slate-200 rounded"
                   >
                     <div className="min-w-0">
-                      <span className={`font-mono font-bold uppercase mr-2 ${u.status === 'up' ? 'text-emerald-700' : 'text-red-700'}`}>
+                      <span className={`font-mono font-bold uppercase me-2 ${u.status === 'up' ? 'text-emerald-700' : 'text-red-700'}`}>
                         {u.status}
                       </span>
                       <span className="font-semibold text-slate-900">{u.name}</span>{' '}
@@ -807,7 +812,7 @@ export const SystemOpsView: React.FC<Props> = ({
                     </div>
                     <div className="flex items-center gap-3 font-mono tabular-nums text-[11px]">
                       <span className={(s.daysRemaining ?? 99) < 14 ? 'text-amber-700 font-semibold' : 'text-emerald-700'}>
-                        {s.daysRemaining !== undefined && s.daysRemaining !== null ? `${s.daysRemaining} nap` : s.lastError || 'Ellenőrzés...'}
+                        {s.daysRemaining !== undefined && s.daysRemaining !== null ? tx('{0} nap', s.daysRemaining) : s.lastError || tx('Ellenőrzés...')}
                       </span>
                       <button
                         type="button"
@@ -831,18 +836,18 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900">
-                  {tr(language, 'approvalsPending')} ({pendingApprovals.length})
+                  {t('approvalsPending')} ({pendingApprovals.length})
                 </h3>
                 <button
                   type="button"
                   onClick={() => void handleOsUpgrade()}
                   className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
                 >
-                  {tr(language, 'osUpgrade')}
+                  {t('osUpgrade')}
                 </button>
               </div>
               {pendingApprovals.length === 0 ? (
-                <p className="text-xs text-slate-500">Nincs függőben lévő visszafordíthatatlan művelet.</p>
+                <p className="text-xs text-slate-500">{tx('Nincs függőben lévő visszafordíthatatlan művelet.')}</p>
               ) : (
                 <div className="space-y-2.5">
                   {pendingApprovals.map((app) => (
@@ -852,7 +857,7 @@ export const SystemOpsView: React.FC<Props> = ({
                       {app.impactSummary && <div className="text-xs text-amber-900">{app.impactSummary}</div>}
                       {app.expiresAt && (
                         <div className="text-[11px] font-mono text-slate-500">
-                          Lejárat: {new Date(app.expiresAt).toLocaleTimeString()}
+                          {tx('Lejárat: {0}', new Date(app.expiresAt).toLocaleTimeString(intlLocale))}
                         </div>
                       )}
                       <div className="flex gap-2">
@@ -862,7 +867,7 @@ export const SystemOpsView: React.FC<Props> = ({
                           className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium bg-emerald-700 text-white rounded"
                         >
                           <Check className="h-3.5 w-3.5" />
-                          {tr(language, 'approve')}
+                          {t('approve')}
                         </button>
                         <button
                           type="button"
@@ -870,7 +875,7 @@ export const SystemOpsView: React.FC<Props> = ({
                           className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium bg-red-700 text-white rounded"
                         >
                           <X className="h-3.5 w-3.5" />
-                          {tr(language, 'reject')}
+                          {t('reject')}
                         </button>
                       </div>
                     </div>
@@ -883,7 +888,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
                   <HardDrive className="h-4 w-4 text-slate-500" />
-                  Biztonsági Mentések & Visszaállítás
+                  {tx('Biztonsági Mentések & Visszaállítás')}
                 </h3>
                 <button
                   type="button"
@@ -891,7 +896,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  {tr(language, 'createBackup')}
+                  {t('createBackup')}
                 </button>
               </div>
               <div className="space-y-2 max-h-[240px] overflow-y-auto">
@@ -900,7 +905,7 @@ export const SystemOpsView: React.FC<Props> = ({
                     <div>
                       <div className="font-mono text-slate-800">{b.fileName}</div>
                       <div className="text-slate-500">
-                        {b.destination === 'local_and_drive' ? 'Lokális + Google Drive' : 'Lokális'}
+                        {b.destination === 'local_and_drive' ? tx('Lokális + Google Drive') : tx('Lokális')}
                       </div>
                     </div>
                     <button
@@ -909,7 +914,7 @@ export const SystemOpsView: React.FC<Props> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-300 rounded hover:bg-white"
                     >
                       <RotateCcw className="h-3 w-3" />
-                      Visszaállítás
+                      {tx('Visszaállítás')}
                     </button>
                   </div>
                 ))}
@@ -925,17 +930,17 @@ export const SystemOpsView: React.FC<Props> = ({
             <div>
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
                 <ShieldCheck className="h-4 w-4 text-slate-700" />
-                Önfejlesztés, Sandbox Bizonyíték, Git Diff & 1-Kattintásos Rollback
+                {tx('Önfejlesztés, Sandbox Bizonyíték, Git Diff & 1-Kattintásos Rollback')}
               </h3>
               <div className="text-[11px] font-mono text-slate-600 mt-1 space-y-0.5">
                 <div>
-                  Supervisor dry-run mód:{' '}
+                  {tx('Supervisor dry-run mód:')}{' '}
                   <span className="font-semibold text-slate-900">
                     {sandboxCapabilities?.supervisorBackend || sandboxBackend || 'isolated_tmpfs_subprocess'}
                   </span>
                 </div>
                 <div>
-                  Szigorú JS Sandbox (<code>sandbox_js</code>):{' '}
+                  {tx('Szigorú JS Sandbox')} (<code>sandbox_js</code>):{' '}
                   <span
                     className={`font-semibold ${
                       sandboxCapabilities?.jsSandboxAvailable ? 'text-emerald-700' : 'text-red-700'
@@ -943,9 +948,9 @@ export const SystemOpsView: React.FC<Props> = ({
                   >
                     {sandboxCapabilities
                       ? sandboxCapabilities.jsSandboxAvailable
-                        ? `${sandboxCapabilities.jsSandboxBackend} (aktív)`
-                        : 'unavailable — letiltva (Docker vagy bwrap szükséges)'
-                      : 'ellenőrzés...'}
+                        ? tx('{0} (aktív)', sandboxCapabilities.jsSandboxBackend || '')
+                        : tx('nem elérhető — letiltva (Docker vagy bwrap szükséges)')
+                      : tx('ellenőrzés...')}
                   </span>
                   {' · '}
                   Node <code>--permission</code>:{' '}
@@ -956,8 +961,8 @@ export const SystemOpsView: React.FC<Props> = ({
                   >
                     {sandboxCapabilities
                       ? sandboxCapabilities.nodePermissionSupported
-                        ? `${sandboxCapabilities.nodePermissionFlag} (Node ${sandboxCapabilities.nodeVersion})`
-                        : `nem támogatott (Node ${sandboxCapabilities.nodeVersion})`
+                        ? tx('{0} (Node {1})', sandboxCapabilities.nodePermissionFlag || '', sandboxCapabilities.nodeVersion || '')
+                        : tx('nem támogatott (Node {0})', sandboxCapabilities.nodeVersion || '')
                       : '—'}
                   </span>
                 </div>
@@ -974,7 +979,7 @@ export const SystemOpsView: React.FC<Props> = ({
                 onClick={() => void handleDestructiveProof()}
                 className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
               >
-                Sandbox Destruktív Teszt
+                {tx('Sandbox Destruktív Teszt')}
               </button>
               <button
                 type="button"
@@ -982,7 +987,7 @@ export const SystemOpsView: React.FC<Props> = ({
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                {tr(language, 'checkOta')}
+                {t('checkOta')}
               </button>
             </div>
           </div>
@@ -996,14 +1001,14 @@ export const SystemOpsView: React.FC<Props> = ({
           {ota && (
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
               <div className="font-mono">
-                Helyi: {ota.currentVersion} {ota.localCommit ? `(${ota.localCommit})` : ''} · Távoli ({ota.source}):{' '}
-                {ota.latestVersion ?? 'N/A'} · Lemaradás: {ota.commitsBehind ?? 0} commit ·{' '}
+                {tx('Helyi:')} {ota.currentVersion} {ota.localCommit ? `(${ota.localCommit})` : ''} · {tx('Távoli')} ({ota.source}):{' '}
+                {ota.latestVersion ?? 'N/A'} · {tx('Lemaradás: {0} commit', ota.commitsBehind ?? 0)} ·{' '}
                 <span className={ota.updateAvailable ? 'font-bold text-amber-800' : 'font-bold text-emerald-700'}>
-                  {ota.updateAvailable ? 'FRISSÍTÉS ELÉRHETŐ' : 'Naprakész'}
+                  {ota.updateAvailable ? tx('FRISSÍTÉS ELÉRHETŐ') : tx('Naprakész')}
                 </span>
                 {' · '}
                 <span className={ota.signatureVerificationActive ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700'}>
-                  {ota.signatureVerificationActive ? 'GPG-ellenőrzés aktív' : 'Aláíratlan csatorna'}
+                  {ota.signatureVerificationActive ? tx('GPG-ellenőrzés aktív') : tx('Aláíratlan csatorna')}
                 </span>
               </div>
               {ota.signatureWarning && (
@@ -1017,7 +1022,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   onClick={() => void handleFetchOtaDiff()}
                   className="px-2.5 py-1 text-[11px] font-medium border border-slate-300 bg-white rounded hover:bg-slate-100"
                 >
-                  Git Diff Előnézet
+                  {tx('Git Diff Előnézet')}
                 </button>
                 <button
                   type="button"
@@ -1025,7 +1030,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-900 text-white rounded hover:bg-slate-800"
                 >
                   <Download className="h-3 w-3" />
-                  Frissítés Alkalmazása (GitHub OTA)
+                  {tx('Frissítés Alkalmazása (GitHub OTA)')}
                 </button>
               </div>
               {otaApplyMsg && <div className="font-mono text-[11px] text-slate-800">{otaApplyMsg}</div>}
@@ -1039,7 +1044,7 @@ export const SystemOpsView: React.FC<Props> = ({
 
           {otaCommits.length > 0 && (
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
-              <div className="font-semibold text-slate-800">Frissítési Verzió-előzmények &amp; Visszaállás</div>
+              <div className="font-semibold text-slate-800">{tx('Frissítési Verzió-előzmények & Visszaállás')}</div>
               <div className="space-y-1 max-h-36 overflow-y-auto">
                 {otaCommits.map((c) => (
                   <div key={c.hash} className="flex items-center justify-between gap-2 font-mono text-[11px] bg-white border border-slate-200 px-2.5 py-1.5 rounded">
@@ -1053,12 +1058,12 @@ export const SystemOpsView: React.FC<Props> = ({
                           body: JSON.stringify({ hash: c.hash }),
                         });
                         const d = (await r.json()) as { message?: string; error?: string };
-                        setOtaApplyMsg(d.message || d.error || 'Visszaállítva.');
+                        setOtaApplyMsg(d.message || d.error || tx('Visszaállítva.'));
                         await onRefreshState();
                       }}
                       className="px-2 py-0.5 bg-slate-900 text-white rounded shrink-0 whitespace-nowrap"
                     >
-                      Visszaállás
+                      {tx('Visszaállás')}
                     </button>
                   </div>
                 ))}
@@ -1069,13 +1074,13 @@ export const SystemOpsView: React.FC<Props> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
             <form onSubmit={handleSelfMod} className="space-y-2">
               <div className="text-xs font-semibold text-slate-700">
-                Védett Teljes Fájl Önmódosítás (Tiltott zóna & Git-Rollback védelemmel)
+                {tx('Védett Teljes Fájl Önmódosítás (Tiltott zóna & Git-Rollback védelemmel)')}
               </div>
               <input
                 type="text"
                 value={selfModPath}
                 onChange={(e) => setSelfModPath(e.target.value)}
-                placeholder="Relatív fájlútvonal (pl. .env tiltva lesz)"
+                placeholder={tx('Relatív fájlútvonal (pl. .env tiltva lesz)')}
                 className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
               <textarea
@@ -1085,7 +1090,7 @@ export const SystemOpsView: React.FC<Props> = ({
                 className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
               <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-800 text-white rounded">
-                Módosítás Alkalmazása (Commit + Verify)
+                {tx('Módosítás Alkalmazása (Commit + Verify)')}
               </button>
             </form>
 
@@ -1105,19 +1110,19 @@ export const SystemOpsView: React.FC<Props> = ({
                   }),
                 });
                 const d = (await r.json()) as { message?: string; error?: string };
-                setSelfModMsg(d.message || d.error || 'Patch alkalmazva.');
+                setSelfModMsg(d.message || d.error || tx('Patch alkalmazva.'));
                 await onRefreshState();
               }}
               className="space-y-2"
             >
               <div className="text-xs font-semibold text-slate-700">
-                Célzott Diff Patch Önmódosítás (Search & Replace — M33)
+                {tx('Célzott Diff Patch Önmódosítás (Search & Replace — M33)')}
               </div>
               <input
                 type="text"
                 value={diffPath}
                 onChange={(e) => setDiffPath(e.target.value)}
-                placeholder="Célfájl (pl. src/locales/translations.ts)"
+                placeholder={tx('Célfájl (pl. src/locales/translations.ts)')}
                 className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
               <div className="grid grid-cols-2 gap-2">
@@ -1125,19 +1130,19 @@ export const SystemOpsView: React.FC<Props> = ({
                   rows={3}
                   value={diffSearch}
                   onChange={(e) => setDiffSearch(e.target.value)}
-                  placeholder="Keresendő pontos blokk..."
+                  placeholder={tx('Keresendő pontos blokk...')}
                   className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
                 />
                 <textarea
                   rows={3}
                   value={diffReplace}
                   onChange={(e) => setDiffReplace(e.target.value)}
-                  placeholder="Új kódblokk..."
+                  placeholder={tx('Új kódblokk...')}
                   className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
                 />
               </div>
               <button type="submit" className="px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white rounded hover:bg-slate-50">
-                Scoped Patch Alkalmazása
+                {tx('Scoped Patch Alkalmazása')}
               </button>
             </form>
           </div>
@@ -1146,7 +1151,7 @@ export const SystemOpsView: React.FC<Props> = ({
           <div className="pt-2 border-t border-slate-100 space-y-2">
             <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
               <History className="h-3.5 w-3.5" />
-              Git Előzmények (Diff & Rollback)
+              {tx('Git Előzmények (Diff & Rollback)')}
             </div>
             <div className="max-h-48 overflow-y-auto space-y-1.5">
               {gitHistory.map((c) => (
@@ -1192,20 +1197,20 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <Box className="h-4 w-4 text-slate-700" />
-                  Docker Konténerek
+                  {tx('Docker Konténerek')}
                 </h3>
                 <button
                   type="button"
                   onClick={() => void loadInfra()}
                   className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50"
                 >
-                  Frissítés
+                  {tx('Frissítés')}
                 </button>
               </div>
               {!dockerData ? (
-                <p className="text-xs text-slate-500">Betöltés...</p>
+                <p className="text-xs text-slate-500">{tx('Betöltés...')}</p>
               ) : !dockerData.available ? (
-                <p className="text-xs text-slate-500 font-mono">{dockerData.error || 'Docker CLI nem érhető el ezen a gépen.'}</p>
+                <p className="text-xs text-slate-500 font-mono">{dockerData.error || tx('Docker CLI nem érhető el ezen a gépen.')}</p>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto">
                   {dockerData.containers.map((c) => (
@@ -1237,11 +1242,11 @@ export const SystemOpsView: React.FC<Props> = ({
                           onClick={async () => {
                             const r = await fetch(`/api/infra/docker/${c.id}/logs`);
                             const d = (await r.json()) as { logs?: string };
-                            setDockerLogs(d.logs || 'Nincs log.');
+                            setDockerLogs(d.logs || tx('Nincs log.'));
                           }}
                           className="px-2 py-0.5 bg-slate-900 text-white rounded"
                         >
-                          Log
+                          {tx('Log')}
                         </button>
                       </div>
                     </div>
@@ -1259,12 +1264,12 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Server className="h-4 w-4 text-slate-700" />
-                Systemd Egységek & Journalctl AI Elemző
+                {tx('Systemd Egységek & Journalctl AI Elemző')}
               </h3>
               {!systemdData ? (
-                <p className="text-xs text-slate-500">Betöltés...</p>
+                <p className="text-xs text-slate-500">{tx('Betöltés...')}</p>
               ) : !systemdData.available ? (
-                <p className="text-xs text-slate-500 font-mono">{systemdData.error || 'Systemctl nem érhető el.'}</p>
+                <p className="text-xs text-slate-500 font-mono">{systemdData.error || tx('Systemctl nem érhető el.')}</p>
               ) : (
                 <div className="space-y-1.5 max-h-56 overflow-y-auto">
                   {systemdData.units.slice(0, 20).map((u) => (
@@ -1285,19 +1290,19 @@ export const SystemOpsView: React.FC<Props> = ({
                           }}
                           className="px-2 py-0.5 text-[11px] border border-slate-300 bg-white rounded hover:bg-slate-100"
                         >
-                          Részletek
+                          {tx('Részletek')}
                         </button>
                         <button
                           type="button"
                           onClick={async () => {
-                            setSystemdAnalysis(`Elemzés (${u.unit})...`);
+                            setSystemdAnalysis(tx('Elemzés ({0})...', u.unit));
                             const r = await fetch(`/api/infra/systemd/${encodeURIComponent(u.unit)}/analyze`, { method: 'POST' });
                             const d = (await r.json()) as { aiAnalysis?: string; logs?: string };
-                            setSystemdAnalysis(d.aiAnalysis || d.logs || 'Kész.');
+                            setSystemdAnalysis(d.aiAnalysis || d.logs || tx('Kész.'));
                           }}
                           className="px-2 py-0.5 text-[11px] bg-slate-900 text-white rounded"
                         >
-                          AI Elemzés
+                          {tx('AI Elemzés')}
                         </button>
                       </div>
                     </div>
@@ -1307,11 +1312,11 @@ export const SystemOpsView: React.FC<Props> = ({
               {systemdDetails && (
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs space-y-1 font-mono">
                   <div className="font-semibold text-slate-900">
-                    {systemdDetails.unit} · RAM: {systemdDetails.memoryMb !== null ? `${systemdDetails.memoryMb} MB` : 'n/a'} · Újraindítások: {systemdDetails.restarts ?? 'n/a'}
+                    {systemdDetails.unit} · RAM: {systemdDetails.memoryMb !== null ? `${systemdDetails.memoryMb} MB` : 'n/a'} · {tx('Újraindítások:')} {systemdDetails.restarts ?? 'n/a'}
                   </div>
                   {systemdDetails.dependencies.length > 0 && (
                     <div className="text-[11px] text-slate-600 max-h-24 overflow-y-auto">
-                      Függőségek: {systemdDetails.dependencies.join(', ')}
+                      {tx('Függőségek:')} {systemdDetails.dependencies.join(', ')}
                     </div>
                   )}
                 </div>
@@ -1329,9 +1334,9 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Network className="h-4 w-4 text-slate-700" />
-                Helyi Hálózat (LAN ARP/Szomszédok)
+                {tx('Helyi Hálózat (LAN ARP/Szomszédok)')}
               </h3>
-              <div className="text-[11px] font-mono text-slate-500">Forrás: {lanData?.method || '-'}</div>
+              <div className="text-[11px] font-mono text-slate-500">{tx('Forrás:')} {lanData?.method || '-'}</div>
               <div className="space-y-1 max-h-44 overflow-y-auto font-mono text-[11px]">
                 {(lanData?.devices || []).map((d, i) => (
                   <div key={i} className="p-1.5 bg-slate-50 border border-slate-200 rounded">
@@ -1344,7 +1349,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Wifi className="h-4 w-4 text-slate-700" />
-                VPN Állapot (Tailscale & WireGuard)
+                {tx('VPN Állapot (Tailscale & WireGuard)')}
               </h3>
               <div className="p-2 bg-slate-50 border border-slate-200 rounded font-mono text-[11px] space-y-1">
                 <div>
@@ -1352,10 +1357,10 @@ export const SystemOpsView: React.FC<Props> = ({
                   {vpnData?.tailscale
                     ? vpnData.tailscale.installed
                       ? vpnData.tailscale.running
-                        ? `Fut (${vpnData.tailscale.ip || 'IP n/a'}, ${vpnData.tailscale.peers} peer)`
-                        : 'Telepítve (nem fut)'
-                      : 'Nincs telepítve'
-                    : 'Betöltés...'}
+                        ? tx('Fut ({0}, {1} peer)', vpnData.tailscale.ip || 'IP n/a', vpnData.tailscale.peers)
+                        : tx('Telepítve (nem fut)')
+                      : tx('Nincs telepítve')
+                    : tx('Betöltés...')}
                 </div>
                 {vpnData?.tailscale?.rawError && (
                   <div className="text-slate-600">{vpnData.tailscale.rawError}</div>
@@ -1367,10 +1372,10 @@ export const SystemOpsView: React.FC<Props> = ({
                   {vpnData?.wireguard
                     ? vpnData.wireguard.installed
                       ? vpnData.wireguard.active
-                        ? 'Aktív'
-                        : 'Telepítve (inaktív)'
-                      : 'Nincs telepítve'
-                    : 'Betöltés...'}
+                        ? tx('Aktív')
+                        : tx('Telepítve (inaktív)')
+                      : tx('Nincs telepítve')
+                    : tx('Betöltés...')}
                 </div>
                 {vpnData?.wireguard?.output && (
                   <div className="text-slate-600 truncate">{vpnData.wireguard.output}</div>
@@ -1381,7 +1386,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <HardDrive className="h-4 w-4 text-slate-700" />
-                Lemezek (df / SMART) & Rsync Mentés
+                {tx('Lemezek (df / SMART) & Rsync Mentés')}
               </h3>
               <div className="space-y-1 max-h-28 overflow-y-auto font-mono text-[11px]">
                 {(diskData?.blockDevices || []).map((b, i) => (
@@ -1413,7 +1418,7 @@ export const SystemOpsView: React.FC<Props> = ({
                       body: JSON.stringify({ targetDir: rsyncTarget }),
                     });
                     const d = (await r.json()) as { output?: string; error?: string };
-                    setInfraMsg(d.output || d.error || 'Rsync lefutott.');
+                    setInfraMsg(d.output || d.error || tx('Rsync lefutott.'));
                   }}
                   className="px-2.5 py-1 bg-slate-900 text-white rounded font-medium"
                 >
@@ -1428,7 +1433,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Terminal className="h-4 w-4 text-slate-700" />
-                SSH Flotta Profilok & Párhuzamos Távoli Parancsfuttatás
+                {tx('SSH Flotta Profilok & Párhuzamos Távoli Parancsfuttatás')}
               </h3>
               {sshProfiles.length > 0 && (
                 <button
@@ -1450,13 +1455,13 @@ export const SystemOpsView: React.FC<Props> = ({
                           .join('\n\n')
                       );
                     } else {
-                      setSshOut(d.error || 'Hiba.');
+                      setSshOut(d.error || tx('Hiba.'));
                     }
                     await onRefreshState();
                   }}
                   className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
                 >
-                  Futtatás az Összesen ({sshProfiles.length})
+                  {tx('Futtatás az Összesen ({0})', sshProfiles.length)}
                 </button>
               )}
             </div>
@@ -1475,14 +1480,14 @@ export const SystemOpsView: React.FC<Props> = ({
               }}
               className="grid grid-cols-1 sm:grid-cols-5 gap-2"
             >
-              <input type="text" value={sshName} onChange={(e) => setSshName(e.target.value)} placeholder="Profil neve (pl. NAS)" className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+              <input type="text" value={sshName} onChange={(e) => setSshName(e.target.value)} placeholder={tx('Profil neve (pl. NAS)')} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
               <input type="text" value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="192.168.1.50" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-              <input type="text" value={sshUser} onChange={(e) => setSshUser(e.target.value)} placeholder="Felhasználó" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+              <input type="text" value={sshUser} onChange={(e) => setSshUser(e.target.value)} placeholder={tx('Felhasználó')} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
               <input type="number" value={sshPort} onChange={(e) => setSshPort(Number(e.target.value))} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">+ SSH Profil</button>
+              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">{tx('+ SSH Profil')}</button>
             </form>
             <div className="flex gap-2 items-center">
-              <span className="text-xs text-slate-500">Távoli parancs:</span>
+              <span className="text-xs text-slate-500">{tx('Távoli parancs:')}</span>
               <input type="text" value={sshCmd} onChange={(e) => setSshCmd(e.target.value)} className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1501,12 +1506,12 @@ export const SystemOpsView: React.FC<Props> = ({
                           body: JSON.stringify({ command: sshCmd }),
                         });
                         const d = (await r.json()) as { output?: string; error?: string };
-                        setSshOut(d.output || d.error || 'Kész.');
+                        setSshOut(d.output || d.error || tx('Kész.'));
                         await onRefreshState();
                       }}
                       className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-900 text-white rounded"
                     >
-                      <Play className="h-3 w-3" /> Fut
+                      <Play className="h-3 w-3" /> {tx('Fut')}
                     </button>
                     <button
                       type="button"
@@ -1530,7 +1535,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Flame className="h-4 w-4 text-slate-700" />
-                Tűzfal (UFW/nft) & Nyitott Portok (`ss`)
+                {tx('Tűzfal (UFW/nft) & Nyitott Portok (`ss`)')}
               </h3>
               <form
                 onSubmit={async (e) => {
@@ -1541,17 +1546,17 @@ export const SystemOpsView: React.FC<Props> = ({
                     body: JSON.stringify({ rule: fwRule }),
                   });
                   const d = (await r.json()) as { command?: string; error?: string };
-                  setInfraMsg(d.command ? `Jóváhagyási sorba téve: ${d.command}` : d.error || 'Hiba');
+                  setInfraMsg(d.command ? tx('Jóváhagyási sorba téve: {0}', d.command) : d.error || tx('Hiba'));
                   await onRefreshState();
                 }}
                 className="flex gap-2"
               >
                 <input type="text" value={fwRule} onChange={(e) => setFwRule(e.target.value)} placeholder="allow 3000/tcp" className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">UFW Szabály Javaslata</button>
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">{tx('UFW Szabály Javaslata')}</button>
               </form>
               {fwData && (
                 <div className="space-y-2">
-                  <div className="font-mono text-slate-600">Aktív tűzfal: {fwData.firewallTool}</div>
+                  <div className="font-mono text-slate-600">{tx('Aktív tűzfal:')} {fwData.firewallTool}</div>
                   <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono max-h-32 overflow-auto">{fwData.firewallOutput}</pre>
                   <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-32 overflow-auto">{fwData.portsOutput}</pre>
                 </div>
@@ -1561,7 +1566,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Cpu className="h-4 w-4 text-slate-700" />
-                Hardver Szenzorok, Raspberry Pi GPIO & I2C
+                {tx('Hardver Szenzorok, Raspberry Pi GPIO & I2C')}
               </h3>
               {hwSensors ? (
                 <div className="space-y-2 font-mono text-[11px]">
@@ -1582,14 +1587,14 @@ export const SystemOpsView: React.FC<Props> = ({
                   </pre>
                 </div>
               ) : (
-                <p className="text-slate-500">Szenzoradatok betöltése...</p>
+                <p className="text-slate-500">{tx('Szenzoradatok betöltése...')}</p>
               )}
             </div>
 
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Network className="h-4 w-4 text-slate-700" />
-                Hálózati Diagnosztika (DNS · Ping · Traceroute · Publikus IP)
+                {tx('Hálózati Diagnosztika (DNS · Ping · Traceroute · Publikus IP)')}
               </h3>
               <form
                 onSubmit={async (e) => {
@@ -1603,12 +1608,12 @@ export const SystemOpsView: React.FC<Props> = ({
                 }}
                 className="flex gap-2"
               >
-                <input type="text" value={netTarget} onChange={(e) => setNetTarget(e.target.value)} placeholder="1.1.1.1 vagy github.com" className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">Diagnosztika</button>
+                <input type="text" value={netTarget} onChange={(e) => setNetTarget(e.target.value)} placeholder={tx('1.1.1.1 vagy github.com')} className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded whitespace-nowrap shrink-0">{tx('Diagnosztika')}</button>
               </form>
               {netResult && (
                 <pre className="p-2.5 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-44 overflow-auto whitespace-pre-wrap">
-                  {`Cél: ${netResult.target} | Publikus IP: ${netResult.publicIp || 'n/a'}\nDNS: ${netResult.dnsAddresses.join(', ')}\n\n${netResult.pingOutput}\n\n${netResult.tracerouteOutput}`}
+                  {`${tx('Cél:')} ${netResult.target} | ${tx('Publikus IP:')} ${netResult.publicIp || 'n/a'}\nDNS: ${netResult.dnsAddresses.join(', ')}\n\n${netResult.pingOutput}\n\n${netResult.tracerouteOutput}`}
                 </pre>
               )}
             </div>
@@ -1616,7 +1621,7 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-slate-700" />
-                Gazdagép Linux Crontab & Systemd Timerek
+                {tx('Gazdagép Linux Crontab & Systemd Timerek')}
               </h3>
               {linuxCron ? (
                 <div className="space-y-2">
@@ -1624,7 +1629,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   <pre className="p-2 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono max-h-28 overflow-auto">{linuxCron.systemdTimers}</pre>
                 </div>
               ) : (
-                <p className="text-slate-500">Betöltés...</p>
+                <p className="text-slate-500">{tx('Betöltés...')}</p>
               )}
             </div>
           </div>
@@ -1634,10 +1639,10 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <KeyRound className="h-4 w-4 text-slate-700" />
-                AES-256-GCM Fájl Széf (`.nsenc`)
+                {tx('AES-256-GCM Fájl Széf (`.nsenc`)')}
               </h3>
-              <input type="text" value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} placeholder="Relatív fájlútvonal (pl. README.md)" className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-              <input type="password" value={vaultPass} onChange={(e) => setVaultPass(e.target.value)} placeholder="Titkosítási jelszó (min. 4 kar.)" className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} placeholder={tx('Relatív fájlútvonal (pl. README.md)')} className="w-full px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+              <input type="password" value={vaultPass} onChange={(e) => setVaultPass(e.target.value)} placeholder={tx('Titkosítási jelszó (min. 4 kar.)')} className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1648,11 +1653,11 @@ export const SystemOpsView: React.FC<Props> = ({
                       body: JSON.stringify({ relPath: vaultPath, passphrase: vaultPass }),
                     });
                     const d = (await r.json()) as { outputPath?: string; bytes?: number; error?: string };
-                    setVaultResult(d.outputPath ? `Titkosítva: ${d.outputPath} (${d.bytes} B)` : d.error || 'Hiba');
+                    setVaultResult(d.outputPath ? tx('Titkosítva: {0} ({1} B)', d.outputPath, d.bytes ?? 0) : d.error || tx('Hiba'));
                   }}
                   className="flex-1 px-2.5 py-1.5 bg-slate-900 text-white rounded font-medium"
                 >
-                  Titkosítás
+                  {tx('Titkosítás')}
                 </button>
                 <button
                   type="button"
@@ -1663,11 +1668,11 @@ export const SystemOpsView: React.FC<Props> = ({
                       body: JSON.stringify({ relEncPath: vaultPath, passphrase: vaultPass }),
                     });
                     const d = (await r.json()) as { outputPath?: string; bytes?: number; error?: string };
-                    setVaultResult(d.outputPath ? `Visszafejtve: ${d.outputPath} (${d.bytes} B)` : d.error || 'Hiba');
+                    setVaultResult(d.outputPath ? tx('Visszafejtve: {0} ({1} B)', d.outputPath, d.bytes ?? 0) : d.error || tx('Hiba'));
                   }}
                   className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded font-medium hover:bg-slate-50"
                 >
-                  Visszafejtés
+                  {tx('Visszafejtés')}
                 </button>
               </div>
               {vaultResult && <div className="font-mono text-[11px] text-slate-700">{vaultResult}</div>}
@@ -1676,11 +1681,11 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Server className="h-4 w-4 text-slate-700" />
-                Reverse Proxy (Nginx / Caddy)
+                {tx('Reverse Proxy (Nginx / Caddy)')}
               </h3>
               {proxyData && (
                 <div className="font-mono text-[11px] text-slate-600">
-                  Nginx: {proxyData.nginxAvailable ? 'OK' : 'nincs'} · Caddy: {proxyData.caddyAvailable ? 'OK' : 'nincs'} · Oldalak: {proxyData.sites.length}
+                  Nginx: {proxyData.nginxAvailable ? tx('OK') : tx('nincs')} · Caddy: {proxyData.caddyAvailable ? tx('OK') : tx('nincs')} · {tx('Oldalak:')} {proxyData.sites.length}
                 </div>
               )}
               <div className="grid grid-cols-3 gap-1.5">
@@ -1704,7 +1709,7 @@ export const SystemOpsView: React.FC<Props> = ({
                 }}
                 className="w-full px-3 py-1.5 bg-slate-900 text-white rounded font-medium"
               >
-                Konfig Sablon Generálása
+                {tx('Konfig Sablon Generálása')}
               </button>
               {proxyTplOut && <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-32 overflow-auto">{proxyTplOut}</pre>}
             </div>
@@ -1712,17 +1717,17 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <FileCode2 className="h-4 w-4 text-slate-700" />
-                <span>Docker Compose Sablon Generátor</span>
+                <span>{tx('Docker Compose Sablon Generátor')}</span>
                 <InfoHint
-                  label="Docker Compose generátor"
-                  text="Kész konfigurációs fájlokat állít elő népszerű otthoni szerver programok (pl. kereső, MQTT, adatbázis) gyors indításához."
+                  label={tx('Docker Compose generátor')}
+                  text={tx('Kész konfigurációs fájlokat állít elő népszerű otthoni szerver programok (pl. kereső, MQTT, adatbázis) gyors indításához.')}
                 />
               </h3>
               <div className="flex gap-2">
                 <select value={composeStack} onChange={(e) => setComposeStack(e.target.value as typeof composeStack)} className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white">
-                  <option value="searxng">SearXNG (Privát Kereső)</option>
-                  <option value="mosquitto">Mosquitto (MQTT Broker)</option>
-                  <option value="ntfy">ntfy (Push Értesítő)</option>
+                  <option value="searxng">{tx('SearXNG (Privát Kereső)')}</option>
+                  <option value="mosquitto">{tx('Mosquitto (MQTT Broker)')}</option>
+                  <option value="ntfy">{tx('ntfy (Push Értesítő)')}</option>
                   <option value="uptime_kuma">Uptime Kuma</option>
                   <option value="postgres">PostgreSQL 16</option>
                 </select>
@@ -1739,14 +1744,14 @@ export const SystemOpsView: React.FC<Props> = ({
                   }}
                   className="px-3 py-1.5 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0"
                 >
-                  YAML Készítése
+                  {tx('YAML Készítése')}
                 </button>
               </div>
               {composeYaml && <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] font-mono max-h-36 overflow-auto">{composeYaml}</pre>}
             </div>
           </div>
 
-          <Suspense fallback={<div className="p-4 text-xs text-slate-500">Cluster & Hálózati modul betöltése...</div>}>
+          <Suspense fallback={<div className="p-4 text-xs text-slate-500">{tx('Cluster & Hálózati modul betöltése...')}</div>}>
             <Batch3InfraClusterPanel clusterNodes={clusterNodes} onRefreshState={onRefreshState} />
           </Suspense>
         </div>
@@ -1760,7 +1765,7 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                   <Shield className="h-4 w-4 text-slate-700" />
-                  Biztonsági Keményítési Pontszám
+                  {tx('Biztonsági Keményítési Pontszám')}
                 </h3>
                 {hardeningData && (
                   <span className="font-mono font-bold tabular-nums text-slate-900">
@@ -1773,7 +1778,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   <div key={c.id} className="p-2 bg-slate-50 border border-slate-200 rounded">
                     <div className="flex justify-between gap-2 font-medium">
                       <span className={c.ok ? 'text-emerald-800' : 'text-amber-800'}>
-                        [{c.ok ? 'OK' : 'HIÁNY'}] {c.label}
+                        [{c.ok ? tx('OK') : tx('HIÁNY')}] {c.label}
                       </span>
                       <span className="font-mono tabular-nums shrink-0">{c.ok ? c.points : 0}/{c.points}p</span>
                     </div>
@@ -1787,10 +1792,10 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                   <HeartPulse className="h-4 w-4 text-slate-700" />
-                  <span>Rendszer Gyorsjavító &amp; Öngyógyítás</span>
+                  <span>{tx('Rendszer Gyorsjavító & Öngyógyítás')}</span>
                   <InfoHint
-                    label="Rendszer gyorsjavító"
-                    text="Egy kattintással ellenőrzi az adatbázist, a kulcsok állapotát és elhárítja a kisebb elakadásokat."
+                    label={tx('Rendszer gyorsjavító')}
+                    text={tx('Egy kattintással ellenőrzi az adatbázist, a kulcsok állapotát és elhárítja a kisebb elakadásokat.')}
                   />
                 </h3>
                 <button
@@ -1804,7 +1809,7 @@ export const SystemOpsView: React.FC<Props> = ({
                   }}
                   className="px-3 py-1 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0"
                 >
-                  Doktor Futtatása
+                  {tx('Doktor Futtatása')}
                 </button>
               </div>
               {doctorData ? (
@@ -1817,20 +1822,20 @@ export const SystemOpsView: React.FC<Props> = ({
                     <div key={i} className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-900">{w}</div>
                   ))}
                   {doctorData.healedActions.length === 0 && doctorData.warnings.length === 0 && (
-                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-slate-700">Minden alrendszer egészséges.</div>
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-slate-700">{tx('Minden alrendszer egészséges.')}</div>
                   )}
                 </div>
               ) : (
-                <p className="text-slate-500">Indítsd el a Raj Auto-Doktort az API kulcs cooldown-ok, memória salience és uptime célok azonnali javításához.</p>
+                <p className="text-slate-500">{tx('Indítsd el a Raj Auto-Doktort az API kulcs cooldown-ok, memória salience és uptime célok azonnali javításához.')}</p>
               )}
             </div>
 
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3 text-xs">
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
                 <Lock className="h-4 w-4 text-slate-700" />
-                Jelszó Entrópia & HIBP k-Anonymity Ellenőrző
+                {tx('Jelszó Entrópia & HIBP k-Anonymity Ellenőrző')}
               </h3>
-              <p className="text-[11px] text-slate-500">Csak a SHA-1 hash első 5 karaktere hagyja el a gépet; nyílt szövegű jelszó soha nem kerül továbbításra.</p>
+              <p className="text-[11px] text-slate-500">{tx('Csak a SHA-1 hash első 5 karaktere hagyja el a gépet; nyílt szövegű jelszó soha nem kerül továbbításra.')}</p>
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
@@ -1844,18 +1849,18 @@ export const SystemOpsView: React.FC<Props> = ({
                 }}
                 className="flex gap-2"
               >
-                <input type="password" value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder="Tesztelendő jelszó..." className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded" />
-                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0">Ellenőrzés</button>
+                <input type="password" value={pwInput} onChange={(e) => setPwInput(e.target.value)} placeholder={tx('Tesztelendő jelszó...')} className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 bg-slate-900 text-white rounded font-medium whitespace-nowrap shrink-0">{tx('Ellenőrzés')}</button>
               </form>
               {pwResult && (
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded space-y-1 font-mono text-[11px] tabular-nums">
-                  <div>Hossz: {pwResult.length} kar. · Entrópia: {pwResult.entropyBits} bit ({pwResult.strengthLabel})</div>
+                  <div>{tx('Hossz:')} {pwResult.length} {tx('kar.')} · {tx('Entrópia:')} {pwResult.entropyBits} bit ({pwResult.strengthLabel})</div>
                   <div className={pwResult.breached ? 'text-red-700 font-semibold' : 'text-emerald-800 font-semibold'}>
                     {pwResult.hibpChecked
                       ? pwResult.breached
-                        ? `VESZÉLY: ${pwResult.breachCount} adatszivárgásban szerepelt!`
-                        : 'Nem szerepel az ismert adatszivárgásokban (HIBP OK).'
-                      : `HIBP offline (${pwResult.hibpError || 'nincs hálózat'})`}
+                        ? tx('VESZÉLY: {0} adatszivárgásban szerepelt!', pwResult.breachCount)
+                        : tx('Nem szerepel az ismert adatszivárgásokban (HIBP OK).')
+                      : tx('HIBP offline ({0})', pwResult.hibpError || tx('nincs hálózat'))}
                   </div>
                 </div>
               )}
@@ -1868,39 +1873,39 @@ export const SystemOpsView: React.FC<Props> = ({
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                   <Stethoscope className="h-4 w-4 text-slate-700" />
-                  Gazdagép Öndiagnosztika
+                  {tx('Gazdagép Öndiagnosztika')}
                 </h3>
                 <button
                   type="button"
                   onClick={() => void loadDiagAndEnv()}
                   className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50"
                 >
-                  Újraellenőrzés
+                  {tx('Újraellenőrzés')}
                 </button>
               </div>
               {diagData ? (
                 <div className="space-y-1.5 text-xs">
                   <div className="font-mono text-slate-500">
-                    Ellenőrizve: {new Date(diagData.checkedAt).toLocaleTimeString()}
+                    {tx('Ellenőrizve:')} {new Date(diagData.checkedAt).toLocaleTimeString(intlLocale)}
                   </div>
                   {(diagData.checks || []).map((chk, idx) => (
                     <div key={idx} className="p-2 bg-slate-50 border border-slate-200 rounded flex justify-between gap-2 font-mono">
                       <span className={chk.ok ? 'text-emerald-800 font-semibold' : 'text-amber-800 font-semibold'}>
-                        [{chk.ok ? 'OK' : 'WARN'}] {chk.name}
+                        [{chk.ok ? tx('OK') : 'WARN'}] {chk.name}
                       </span>
                       <span className="text-slate-600 truncate">{chk.detail}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">Ellenőrzés futtatása...</p>
+                <p className="text-xs text-slate-500">{tx('Ellenőrzés futtatása...')}</p>
               )}
             </div>
 
             {/* M26 Safe .env Config Editor */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">Biztonságos .env Konfig (Titkok maszkázva)</h3>
+                <h3 className="text-base font-semibold text-slate-900">{tx('Biztonságos .env Konfig (Titkok maszkázva)')}</h3>
                 <button
                   type="button"
                   onClick={async () => {
@@ -1909,12 +1914,12 @@ export const SystemOpsView: React.FC<Props> = ({
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ vars: envVars }),
                     });
-                    if (r.ok) setEnvMsg('.env változók mentve.');
+                    if (r.ok) setEnvMsg(tx('.env változók mentve.'));
                   }}
                   className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium bg-slate-900 text-white rounded"
                 >
                   <Save className="h-3.5 w-3.5" />
-                  .env Mentése
+                  {tx('.env Mentése')}
                 </button>
               </div>
               {envMsg && <div className="text-xs font-mono text-emerald-700">{envMsg}</div>}
@@ -1939,15 +1944,15 @@ export const SystemOpsView: React.FC<Props> = ({
             <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-slate-600" />
-                Cron Időzített Ágens Feladatok
+                {tx('Cron Időzített Ágens Feladatok')}
               </h3>
               <form onSubmit={handleAddCron} className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="text" value={cronName} onChange={(e) => setCronName(e.target.value)} placeholder="Feladat neve" className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+                  <input type="text" value={cronName} onChange={(e) => setCronName(e.target.value)} placeholder={tx('Feladat neve')} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
                   <input type="text" value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} placeholder="0 8 * * *" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
                 </div>
-                <input type="text" value={cronPrompt} onChange={(e) => setCronPrompt(e.target.value)} placeholder="Ágens prompt..." className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
-                <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">Cron Feladat Mentése</button>
+                <input type="text" value={cronPrompt} onChange={(e) => setCronPrompt(e.target.value)} placeholder={tx('Ágens prompt...')} className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+                <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">{tx('Cron Feladat Mentése')}</button>
               </form>
               <div className="space-y-1.5">
                 {cronTasks.map((c) => (
@@ -1969,10 +1974,10 @@ export const SystemOpsView: React.FC<Props> = ({
                 ))}
               </div>
               <div className="pt-3 border-t border-slate-200 space-y-2">
-                <div className="text-xs font-semibold text-slate-700">Telegram Parancs Paritás</div>
+                <div className="text-xs font-semibold text-slate-700">{tx('Telegram Parancs Paritás')}</div>
                 <form onSubmit={handleTelegramCmd} className="flex gap-2">
                   <input type="text" value={tgCmd} onChange={(e) => setTgCmd(e.target.value)} className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-                  <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">Futtatás</button>
+                  <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">{tx('Futtatás')}</button>
                 </form>
                 {tgReply && <pre className="p-2.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-mono whitespace-pre-wrap">{tgReply}</pre>}
               </div>
@@ -1980,14 +1985,14 @@ export const SystemOpsView: React.FC<Props> = ({
 
             <div className="lg:col-span-7 space-y-6">
               <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-2">
-                <h3 className="text-base font-semibold text-slate-900">Beépített Önismereti Dokumentáció</h3>
+                <h3 className="text-base font-semibold text-slate-900">{tx('Beépített Önismereti Dokumentáció')}</h3>
                 <pre className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-sans max-h-40 overflow-y-auto">{docs}</pre>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-base font-semibold text-slate-900">
-                    Audit Napló ({auditLogs.length})
+                    {tx('Audit Napló ({0})', auditLogs.length)}
                   </h3>
                   <div className="flex gap-2">
                     <a
@@ -1996,7 +2001,7 @@ export const SystemOpsView: React.FC<Props> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50"
                     >
                       <Download className="h-3 w-3" />
-                      CSV Export
+                      {tx('CSV Export')}
                     </a>
                     <a
                       href="/api/audit/export?format=json"
@@ -2004,7 +2009,7 @@ export const SystemOpsView: React.FC<Props> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50"
                     >
                       <Download className="h-3 w-3" />
-                      JSON Export
+                      {tx('JSON Export')}
                     </a>
                   </div>
                 </div>
@@ -2017,7 +2022,7 @@ export const SystemOpsView: React.FC<Props> = ({
                         <span className="text-slate-700">{log.message}</span>
                       </div>
                       <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
-                        {new Date(log.timestamp).toLocaleTimeString()}
+                        {new Date(log.timestamp).toLocaleTimeString(intlLocale)}
                       </span>
                     </div>
                   ))}
@@ -2028,32 +2033,32 @@ export const SystemOpsView: React.FC<Props> = ({
         </div>
       )}
       {subTab === 'pi_hw_b4' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Hardver &amp; Fájlok betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Hardver & Fájlok betöltése...')}</div>}>
           <Batch4HardwareNetPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b5_migrate' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Költöztető &amp; Optimalizáló betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Költöztető & Optimalizáló betöltése...')}</div>}>
           <Batch5MigrationAndAutoPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b6_apex' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Labor &amp; Hálózat betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Labor & Hálózat betöltése...')}</div>}>
           <Batch6ApexLabPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b7_universe' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Eszköztár &amp; Készségek betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Eszköztár & Készségek betöltése...')}</div>}>
           <Batch7UniverseLabPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'b8_omni' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Képesség Stúdió betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Képesség Stúdió betöltése...')}</div>}>
           <Batch8SingularityPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
       {subTab === 'autonomy_center' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Autonómia központ betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Autonómia központ betöltése...')}</div>}>
           <AutonomyCenterView onRefreshState={onRefreshState} />
         </Suspense>
       )}

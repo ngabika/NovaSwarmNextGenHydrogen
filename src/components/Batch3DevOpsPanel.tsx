@@ -8,9 +8,11 @@ import {
   ShieldAlert,
   Sparkles,
 } from 'lucide-react';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 export const Batch3DevOpsPanel: React.FC = () => {
+  const { tx } = useLocale();
   const [xray, setXray] = useState<{
     totalFiles: number;
     totalLines: number;
@@ -24,7 +26,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
   } | null>(null);
   const [rxPattern, setRxPattern] = useState('(\\w+)@([\\w.]+)');
   const [rxSample, setRxSample] = useState('kapcsolat: dev@novaswarm.local es admin@example.com');
-  const [nlCron, setNlCron] = useState('minden 15 percben');
+  const [nlCron, setNlCron] = useState(() => tx('minden 15 percben'));
   const [rxOut, setRxOut] = useState<string>('');
   const [sqlIn, setSqlIn] = useState(
     'CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT);\nCREATE TABLE memories (id TEXT PRIMARY KEY, agent_id TEXT REFERENCES agents(id));'
@@ -55,10 +57,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <FolderGit2 className="h-4 w-4" />
-              <span>Kódbázis Röntgen &amp; Függőségi Gráf</span>
+              <span>{tx('Kódbázis Röntgen & Függőségi Gráf')}</span>
               <InfoHint
-                label="Kódbázis Röntgen"
-                text="Átnézi a szerver mappát, megmutatja a legnagyobb fájlokat és lerajzolja, melyik modul mire épül."
+                label={tx('Kódbázis Röntgen')}
+                text={tx('Átnézi a szerver mappát, megmutatja a legnagyobb fájlokat és lerajzolja, melyik modul mire épül.')}
               />
             </h3>
             <button
@@ -74,19 +76,19 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              Elemzés Futtatása
+              {tx('Elemzés Futtatása')}
             </button>
           </div>
           {xray && (
             <div className="space-y-2 text-xs">
               <div className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                Fájlok: {xray.totalFiles} · Összes sor: {xray.totalLines}
+                {tx('Fájlok: {0} · Összes sor: {1}', xray.totalFiles, xray.totalLines)}
               </div>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {xray.largestFiles.slice(0, 6).map((f) => (
                   <div key={f.file} className="flex justify-between font-mono text-[11px]">
                     <span className="truncate">{f.file}</span>
-                    <span className="tabular-nums text-slate-500">{f.lines} sor</span>
+                    <span className="tabular-nums text-slate-500">{tx('{0} sor', f.lines)}</span>
                   </div>
                 ))}
               </div>
@@ -101,10 +103,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />
-              <span>Csomag Sebezhetőségi Vizsgálat (CVE)</span>
+              <span>{tx('Csomag Sebezhetőségi Vizsgálat (CVE)')}</span>
               <InfoHint
-                label="CVE vizsgálat"
-                text="Leellenőrzi a projekt külső programcsomagjait, hogy van-e bennük ismert biztonsági rés."
+                label={tx('CVE vizsgálat')}
+                text={tx('Leellenőrzi a projekt külső programcsomagjait, hogy van-e bennük ismert biztonsági rés.')}
               />
             </h3>
             <button
@@ -121,7 +123,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              CVE Ellenőrzés
+              {tx('CVE Ellenőrzés')}
             </button>
           </div>
           {cve && (
@@ -141,10 +143,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Braces className="h-4 w-4" />
-            <span>Szövegminta (Regex) &amp; Időzítés-Generátor</span>
+            <span>{tx('Szövegminta (Regex) & Időzítés-Generátor')}</span>
             <InfoHint
-              label="Regex és időzítés-generátor"
-              text="Tesztelheted a keresőmintákat, vagy magyar mondatból (pl. minden 15 percben) automatikus időzítő kódot készíthetsz."
+              label={tx('Regex és időzítés-generátor')}
+              text={tx('Tesztelheted a keresőmintákat, vagy természetes mondatból (pl. minden 15 percben) automatikus időzítő kódot készíthetsz.')}
             />
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -152,14 +154,14 @@ export const Batch3DevOpsPanel: React.FC = () => {
               type="text"
               value={rxPattern}
               onChange={(e) => setRxPattern(e.target.value)}
-              placeholder="Regex minta..."
+              placeholder={tx('Regex minta...')}
               className="px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
             />
             <input
               type="text"
               value={nlCron}
               onChange={(e) => setNlCron(e.target.value)}
-              placeholder="Magyar ütemezés (pl. minden hétfő 09:00)"
+              placeholder={tx('Ütemezés leírása (pl. minden hétfő 09:00)')}
               className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent"
             />
           </div>
@@ -167,7 +169,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
             type="text"
             value={rxSample}
             onChange={(e) => setRxSample(e.target.value)}
-            placeholder="Teszt szöveg..."
+            placeholder={tx('Teszt szöveg...')}
             className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-transparent"
           />
           <button
@@ -182,7 +184,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
             }}
             className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
           >
-            Kiértékelés
+            {tx('Kiértékelés')}
           </button>
           {rxOut && <pre className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono max-h-32 overflow-auto">{rxOut}</pre>}
         </div>
@@ -190,10 +192,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Activity className="h-4 w-4" />
-            <span>Weboldal Terhelés- és Sebességteszt</span>
+            <span>{tx('Weboldal Terhelés- és Sebességteszt')}</span>
             <InfoHint
-              label="Weboldal terhelésteszt"
-              text="Több párhuzamos lekéréssel megméri, milyen gyorsan és megbízhatóan válaszol egy webcím."
+              label={tx('Weboldal terhelésteszt')}
+              text={tx('Több párhuzamos lekéréssel megméri, milyen gyorsan és megbízhatóan válaszol egy webcím.')}
             />
           </h3>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -223,7 +225,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              Terhelés Indítása
+              {tx('Terhelés Indítása')}
             </button>
           </div>
           {loadOut && (
@@ -239,10 +241,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FileCode2 className="h-4 w-4" />
-            <span>Adatbázis Tervrajz &amp; Dockerfile Ellenőrző</span>
+            <span>{tx('Adatbázis Tervrajz & Dockerfile Ellenőrző')}</span>
             <InfoHint
-              label="Adatbázis tervrajz és Dockerfile"
-              text="SQL táblákból vizuális kapcsolati ábrát rajzol, valamint átnézi a Docker fájlt tipikus hibák után."
+              label={tx('Adatbázis tervrajz és Dockerfile')}
+              text={tx('SQL táblákból vizuális kapcsolati ábrát rajzol, valamint átnézi a Docker fájlt tipikus hibák után.')}
             />
           </h3>
           <textarea
@@ -267,7 +269,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              ER Diagram Generálás
+              {tx('ER Diagram Generálás')}
             </button>
             <button
               type="button"
@@ -281,7 +283,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
             >
-              Dockerfile Audit
+              {tx('Dockerfile Audit')}
             </button>
           </div>
           {sqlMermaid && <pre className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono max-h-28 overflow-auto">{sqlMermaid}</pre>}
@@ -293,7 +295,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
           />
           {dockerOut && (
             <div className="text-xs space-y-1">
-              <div className="font-mono font-semibold">Dockerfile Pontszám: {dockerOut.score}/100</div>
+              <div className="font-mono font-semibold">{tx('Dockerfile Pontszám: {0}/100', dockerOut.score)}</div>
               {dockerOut.findings.map((f, i) => (
                 <div key={i} className="text-[11px] text-slate-600 dark:text-slate-400">
                   • [{f.severity}] {f.issue} → {f.fix}
@@ -306,10 +308,10 @@ export const Batch3DevOpsPanel: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Globe className="h-4 w-4" />
-            <span>Oldal SEO Ellenőrző &amp; Változásnapló</span>
+            <span>{tx('Oldal SEO Ellenőrző & Változásnapló')}</span>
             <InfoHint
-              label="SEO ellenőrző és napló"
-              text="Megvizsgálja egy weboldal keresőoptimalizálási beállításait és letölti a projekt friss változásnaplóját."
+              label={tx('SEO ellenőrző és napló')}
+              text={tx('Megvizsgálja egy weboldal keresőoptimalizálási beállításait és letölti a projekt friss változásnaplóját.')}
             />
           </h3>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -331,7 +333,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
             >
-              UI/SEO Audit
+              {tx('UI/SEO Audit')}
             </button>
             <button
               type="button"
@@ -344,7 +346,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
               }}
               className="px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg whitespace-nowrap shrink-0"
             >
-              Changelog
+              {tx('Changelog')}
             </button>
             <a
               href="/api/openapi.json"
@@ -358,7 +360,7 @@ export const Batch3DevOpsPanel: React.FC = () => {
           </div>
           {seoOut && (
             <div className="text-xs font-mono space-y-1">
-              <div>SEO Pont: {seoOut.seoScore}/100 · H1: {seoOut.h1Count} · {seoOut.title}</div>
+              <div>{tx('SEO Pont: {0}/100', seoOut.seoScore)} · H1: {seoOut.h1Count} · {seoOut.title}</div>
               {seoOut.warnings.map((w, i) => (
                 <div key={i} className="text-amber-700 dark:text-amber-400">• {w}</div>
               ))}

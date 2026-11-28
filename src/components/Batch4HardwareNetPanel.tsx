@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { NovaSwarmState } from '../../shared/types';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx } = useLocale();
   // Pi Deep Hardware (Ú161–Ú165, M207–M208)
   const [deepHw, setDeepHw] = useState<{
     hostname: string;
@@ -77,7 +79,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
       error?: string;
     };
     if (!r.ok) {
-      setFileMsg(d.error || 'Hiba');
+      setFileMsg(d.error || tx('Hiba'));
       return;
     }
     setDirPath(d.currentPath || targetPath);
@@ -109,10 +111,10 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Cpu className="h-4 w-4 text-emerald-600" />
-              <span>Hardver, Hőfok &amp; Memória Állapot</span>
+              <span>{tx('Hardver, Hőfok & Memória Állapot')}</span>
               <InfoHint
-                label="Hardver és hőfok állapot"
-                text="Valós időben mutatja a gép szabad memóriáját, processzor-terhelését, hőmérsékletét és a Raspberry Pi csatolókat."
+                label={tx('Hardver és hőfok állapot')}
+                text={tx('Valós időben mutatja a gép szabad memóriáját, processzor-terhelését, hőmérsékletét és a Raspberry Pi csatolókat.')}
               />
             </h3>
             <button
@@ -123,16 +125,16 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Mély Diagnosztika
+              {tx('Mély Diagnosztika')}
             </button>
           </div>
           {deepHw && (
             <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-xs space-y-1 font-mono">
               <div>{deepHw.hostname} ({deepHw.arch}) · Load 1m: {deepHw.loadAvg1m} {deepHw.loadThrottleActive ? '[THROTTLE]' : ''}</div>
-              <div>Szabad RAM: {deepHw.memAvailableMb} MB · ZRAM: {deepHw.zramPresent ? 'AKTÍV' : 'Nem'} · Swap: {deepHw.swapFreeMb}/{deepHw.swapTotalMb} MB</div>
+              <div>{tx('Szabad RAM: {0} MB · ZRAM: {1} · Swap: {2}/{3} MB', deepHw.memAvailableMb, deepHw.zramPresent ? tx('AKTÍV') : tx('Nem'), deepHw.swapFreeMb, deepHw.swapTotalMb)}</div>
               <div>GPIO: {deepHw.gpioChips.length} · I2C: {deepHw.i2cBuses.length} · FFmpeg: {deepHw.ffmpegAvailable ? 'OK' : '-'} · Whisper: {deepHw.whisperAvailable ? 'OK' : '-'}</div>
-              <div>Hőfokok: {deepHw.thermalZones.map((t) => `${t.name}=${t.tempC}°C`).join(' | ') || 'N/A'}</div>
-              <div>Lemezek: {deepHw.blockDevices.map((b) => `${b.name}(${b.size})`).join(', ') || 'N/A'}</div>
+              <div>{tx('Hőfokok:')} {deepHw.thermalZones.map((zone) => `${zone.name}=${zone.tempC}°C`).join(' | ') || 'N/A'}</div>
+              <div>{tx('Lemezek:')} {deepHw.blockDevices.map((b) => `${b.name}(${b.size})`).join(', ') || 'N/A'}</div>
             </div>
           )}
         </section>
@@ -141,10 +143,10 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-amber-600" />
-            <span>Helyi Hálózat Figyelő &amp; Okosmérő</span>
+            <span>{tx('Helyi Hálózat Figyelő & Okosmérő')}</span>
             <InfoHint
-              label="Hálózati figyelő és okosmérő"
-              text="Észreveszi, ha ismeretlen eszköz csatlakozott az otthoni Wi-Fi-re, és leolvassa a Shelly vagy P1 okoskonnektor adatait."
+              label={tx('Hálózati figyelő és okosmérő')}
+              text={tx('Észreveszi, ha ismeretlen eszköz csatlakozott az otthoni Wi-Fi-re, és leolvassa a Shelly vagy P1 okoskonnektor adatait.')}
             />
           </h3>
           <div className="flex flex-wrap gap-2">
@@ -160,7 +162,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Ismeretlen MAC Keresés
+              {tx('Ismeretlen MAC Keresés')}
             </button>
             <button
               type="button"
@@ -175,12 +177,12 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
-              Jelenlegi Eszközök Rögzítése
+              {tx('Jelenlegi Eszközök Rögzítése')}
             </button>
           </div>
           {intruderRes && (
             <div className="text-xs font-mono text-slate-700 dark:text-slate-300">
-              Látott: {intruderRes.totalSeen} · Ismert: {intruderRes.knownCount} · Ismeretlen: {intruderRes.unknownDevices.length}
+              {tx('Látott: {0} · Ismert: {1} · Ismeretlen: {2}', intruderRes.totalSeen, intruderRes.knownCount, intruderRes.unknownDevices.length)}
             </div>
           )}
           <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
@@ -200,12 +202,12 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                   body: JSON.stringify({ url: meterUrl, pricePerKwh: 38 }),
                 });
                 const d = (await r.json()) as { rawSummary?: string; error?: string };
-                setMeterOut(d.rawSummary || d.error || 'Kész');
+                setMeterOut(d.rawSummary || d.error || tx('Kész'));
               }}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
               <Zap className="h-3.5 w-3.5" />
-              Mérés
+              {tx('Mérés')}
             </button>
           </div>
           {meterOut && <div className="text-xs text-slate-600 dark:text-slate-300">{meterOut}</div>}
@@ -215,10 +217,10 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Terminal className="h-4 w-4" />
-            <span>Magyar Parancs-Segéd &amp; Hiba-Elemző</span>
+            <span>{tx('Parancs-Segéd & Hiba-Elemző')}</span>
             <InfoHint
-              label="Magyar parancs-segéd"
-              text="Ha magyarul leírod, mit szeretnél látni a gépen, javasol egy Linux parancsot. A Post-Mortem gomb pedig kinyomozza a hibák okát."
+              label={tx('Parancs-segéd')}
+              text={tx('Ha saját szavaiddal leírod, mit szeretnél látni a gépen, javasol egy Linux parancsot. A Post-Mortem gomb pedig kinyomozza a hibák okát.')}
             />
           </h3>
           <div className="flex gap-2">
@@ -226,7 +228,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               type="text"
               value={bashIntent}
               onChange={(e) => setBashIntent(e.target.value)}
-              placeholder="Írd le magyarul (pl. mennyi szabad tárhely van?)"
+              placeholder={tx('Írd le, mit szeretnél (pl. mennyi szabad tárhely van?)')}
               className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <button
@@ -242,7 +244,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Futtat
+              {tx('Futtat')}
             </button>
           </div>
           {bashRes && (
@@ -250,7 +252,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               $ {bashRes.command}
               {'\n'}# {bashRes.explanation}
               {'\n\n'}
-              {bashRes.output || '(üres)'}
+              {bashRes.output || tx('(üres)')}
             </pre>
           )}
           <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
@@ -259,19 +261,19 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               onClick={async () => {
                 const r = await fetch('/api/v4/system/post-mortem', { method: 'POST' });
                 const d = (await r.json()) as { report?: { rootCause: string; remediationSteps: string[] } };
-                if (d.report) setPmText(`${d.report.rootCause}\nJavaslat: ${d.report.remediationSteps.join(' | ')}`);
+                if (d.report) setPmText(`${d.report.rootCause}\n${tx('Javaslat:')} ${d.report.remediationSteps.join(' | ')}`);
                 await onRefreshState();
               }}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
               <AlertTriangle className="h-3.5 w-3.5" />
-              Post-Mortem Hiba-Elemzés
+              {tx('Post-Mortem Hiba-Elemzés')}
             </button>
             <button
               type="button"
               onClick={async () => {
                 await fetch('/api/v4/sqlite/maintenance', { method: 'POST' });
-                setPmText('SQLite WAL Checkpoint + VACUUM sikeresen lefutott.');
+                setPmText(tx('SQLite WAL Checkpoint + VACUUM sikeresen lefutott.'));
               }}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
             >
@@ -286,10 +288,10 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <LayoutGrid className="h-4 w-4 text-blue-600" />
-            <span>Egyedi Főoldali Dobozok &amp; Gyors Fájlküldés</span>
+            <span>{tx('Egyedi Főoldali Dobozok & Gyors Fájlküldés')}</span>
             <InfoHint
-              label="Főoldali dobozok és fájlküldés"
-              text="Saját mérődobozokat tehetsz az Áttekintés oldalra, a LAN Drop-pal pedig egy kattintással küldhetsz fájlokat a telefon és a gép között."
+              label={tx('Főoldali dobozok és fájlküldés')}
+              text={tx('Saját mérődobozokat tehetsz az Áttekintés oldalra, a LAN Drop-pal pedig egy kattintással küldhetsz fájlokat a telefon és a gép között.')}
             />
           </h3>
           <div className="flex flex-wrap sm:flex-nowrap gap-2">
@@ -297,23 +299,23 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               type="text"
               value={wTitle}
               onChange={(e) => setWTitle(e.target.value)}
-              placeholder="Widget neve"
+              placeholder={tx('Widget neve')}
               className="w-full sm:w-32 min-w-0 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
             />
             <select
-              aria-label="Widget típusa"
+              aria-label={tx('Widget típusa')}
               value={wKind}
               onChange={(e) => setWKind(e.target.value as 'shell_cmd' | 'http_json')}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg shrink-0"
             >
-              <option value="shell_cmd">Linux Parancs</option>
+              <option value="shell_cmd">{tx('Linux Parancs')}</option>
               <option value="http_json">HTTP JSON</option>
             </select>
             <input
               type="text"
               value={wSource}
               onChange={(e) => setWSource(e.target.value)}
-              placeholder="uptime -p vagy http://..."
+              placeholder={tx('uptime -p vagy http://...')}
               className="flex-1 min-w-[120px] px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
             />
             <button
@@ -330,7 +332,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               }}
               className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
             >
-              Hozzáad
+              {tx('Hozzáad')}
             </button>
           </div>
           {(state?.customWidgets || []).length > 0 && (
@@ -346,7 +348,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="text-red-600"
                   >
-                    Törlés
+                    {tx('Törlés')}
                   </button>
                 </div>
               ))}
@@ -354,7 +356,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
           )}
           <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
             <div className="flex items-center justify-between text-xs font-medium">
-              <span className="inline-flex items-center gap-1.5"><UploadCloud className="h-3.5 w-3.5" /> LAN Drop Fájlcserélő</span>
+              <span className="inline-flex items-center gap-1.5"><UploadCloud className="h-3.5 w-3.5" /> {tx('LAN Drop Fájlcserélő')}</span>
               <button
                 type="button"
                 onClick={async () => {
@@ -364,12 +366,12 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                 }}
                 className="text-blue-700 underline"
               >
-                Lista Frissítése
+                {tx('Lista Frissítése')}
               </button>
             </div>
             <input
               type="file"
-              aria-label="LAN Drop fájl feltöltése"
+              aria-label={tx('LAN Drop fájl feltöltése')}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -405,10 +407,10 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FolderOpen className="h-4 w-4 text-amber-600" />
-            <span>Webes Fájlkezelő &amp; Szerkesztő</span>
+            <span>{tx('Webes Fájlkezelő & Szerkesztő')}</span>
             <InfoHint
-              label="Webes fájlkezelő"
-              text="Böngészőből nézheted át és szerkesztheted a munkamappád fájljait; a jelszavakat tartalmazó titkos fájlok automatikusan védve vannak."
+              label={tx('Webes fájlkezelő')}
+              text={tx('Böngészőből nézheted át és szerkesztheted a munkamappád fájljait; a jelszavakat tartalmazó titkos fájlok automatikusan védve vannak.')}
             />
           </h3>
           <div className="flex gap-2">
@@ -423,7 +425,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
               onClick={() => void loadDir(dirPath)}
               className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg"
             >
-              Listázás
+              {tx('Listázás')}
             </button>
             {parentPath && (
               <button
@@ -431,7 +433,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                 onClick={() => void loadDir(parentPath)}
                 className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg"
               >
-                .. Fel
+                {tx('.. Fel')}
               </button>
             )}
           </div>
@@ -448,7 +450,7 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                     } else {
                       const r = await fetch(`/api/v4/files/read?path=${encodeURIComponent(ent.path)}`);
                       const d = (await r.json()) as { path?: string; content?: string; error?: string };
-                      if (!r.ok) setFileMsg(d.error || 'Hiba');
+                      if (!r.ok) setFileMsg(d.error || tx('Hiba'));
                       else {
                         setEditPath(d.path || ent.path);
                         setEditContent(d.content || '');
@@ -456,17 +458,17 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                       }
                     }
                   }}
-                  className="text-left font-mono truncate flex-1"
+                  className="text-start font-mono truncate flex-1"
                 >
                   {ent.isDir ? `📁 ${ent.name}` : `📄 ${ent.name}`}
                 </button>
-                <span className="text-[11px] text-slate-400 ml-2">{ent.isDir ? 'DIR' : `${ent.sizeBytes} B`}</span>
+                <span className="text-[11px] text-slate-400 ms-2">{ent.isDir ? 'DIR' : `${ent.sizeBytes} B`}</span>
               </div>
             ))}
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-mono">
-              <span className="truncate">{editPath || 'Válassz egy szöveges fájlt balról...'}</span>
+              <span className="truncate">{editPath || tx('Válassz egy szöveges fájlt balról...')}</span>
               {editPath && (
                 <button
                   type="button"
@@ -476,12 +478,12 @@ export const Batch4HardwareNetPanel: React.FC<Props> = ({ state, onRefreshState 
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ path: editPath, content: editContent }),
                     });
-                    setFileMsg(r.ok ? 'Fájl elmentve.' : 'Mentési hiba.');
+                    setFileMsg(r.ok ? tx('Fájl elmentve.') : tx('Mentési hiba.'));
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded"
                 >
                   <Save className="h-3 w-3" />
-                  Mentés
+                  {tx('Mentés')}
                 </button>
               )}
             </div>

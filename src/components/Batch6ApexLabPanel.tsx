@@ -21,13 +21,15 @@ import type {
   MacroStepKind,
   NovaSwarmState,
 } from '../../shared/types';
+import type { PhraseKey } from '../locales/phraseKeys';
+import { useLocale } from '../locales/translations';
 
 interface Props {
   state?: NovaSwarmState;
   onRefreshState: () => Promise<void>;
 }
 
-const TRIGGER_LABELS: Record<AutonomyRuleTriggerKind, string> = {
+const TRIGGER_LABELS: Record<AutonomyRuleTriggerKind, PhraseKey> = {
   ram_above: 'RAM % felett (>=)',
   cpu_above: 'CPU % felett (>=)',
   temp_above: 'Hőmérséklet °C felett (>=)',
@@ -37,7 +39,7 @@ const TRIGGER_LABELS: Record<AutonomyRuleTriggerKind, string> = {
   manual_event: 'Kézi / API esemény',
 };
 
-const ACTION_LABELS: Record<AutonomyRuleActionKind, string> = {
+const ACTION_LABELS: Record<AutonomyRuleActionKind, PhraseKey> = {
   ram_cleanup: 'RAM & Cache felszabadítás',
   telegram_notify: 'Telegram riasztás küldése',
   run_agent_prompt: 'AI Ágens prompt futtatása',
@@ -48,12 +50,14 @@ const ACTION_LABELS: Record<AutonomyRuleActionKind, string> = {
 };
 
 export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx, intlLocale } = useLocale();
+
   // 1. Rules
   const [ruleName, setRuleName] = useState('');
   const [triggerKind, setTriggerKind] = useState<AutonomyRuleTriggerKind>('ram_above');
   const [thresholdValue, setThresholdValue] = useState(85);
   const [actionKind, setActionKind] = useState<AutonomyRuleActionKind>('telegram_notify');
-  const [actionTarget, setActionTarget] = useState('Magas terhelés észlelve');
+  const [actionTarget, setActionTarget] = useState(() => tx('Magas terhelés észlelve'));
   const [cooldownMinutes, setCooldownMinutes] = useState(10);
   const [ruleOut, setRuleOut] = useState<string | null>(null);
 
@@ -69,7 +73,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
   const [macroOut, setMacroOut] = useState<string | null>(null);
 
   // 4. Mesh Dispatch
-  const [meshPrompt, setMeshPrompt] = useState('Készíts rövid, 2 mondatos státuszjelentést a csomópont terhelhetőségéről.');
+  const [meshPrompt, setMeshPrompt] = useState(() => tx('Készíts rövid, 2 mondatos státuszjelentést a csomópont terhelhetőségéről.'));
   const [meshBusy, setMeshBusy] = useState(false);
 
   // 5. LAN Sentinel & Docker Heal
@@ -105,10 +109,10 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) {
-      setRuleOut(`Hiba: ${data.error || 'Sikertelen szabálymentés'}`);
+      setRuleOut(tx('Hiba: {0}', data.error || tx('Sikertelen szabálymentés')));
     } else {
       setRuleName('');
-      setRuleOut('Új autonóm szabály elmentve.');
+      setRuleOut(tx('Új autonóm szabály elmentve.'));
       await onRefreshState();
     }
   };
@@ -125,8 +129,8 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
     };
     setRuleOut(
       data.triggered.length > 0
-        ? `${data.triggered.length} szabály lépett életbe: ${data.triggered.map((t) => t.ruleName).join(', ')}`
-        : `${data.checkedRules} szabály ellenőrizve — jelenleg minden küszöbérték alatt.`
+        ? tx('{0} szabály lépett életbe: {1}', data.triggered.length, data.triggered.map((t) => t.ruleName).join(', '))
+        : tx('{0} szabály ellenőrizve — jelenleg minden küszöbérték alatt.', data.checkedRules)
     );
     await onRefreshState();
   };
@@ -141,7 +145,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) {
-      setRemErr(data.error || 'Érvénytelen emlékeztető formátum.');
+      setRemErr(data.error || tx('Érvénytelen emlékeztető formátum.'));
     } else {
       setRemMsg('');
       await onRefreshState();
@@ -152,7 +156,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
     setMacroOut(null);
     const res = await fetch(`/api/v6/macros/${encodeURIComponent(idOrSlug)}/run`, { method: 'POST' });
     const data = (await res.json()) as { ok?: boolean; summary?: string; error?: string };
-    setMacroOut(data.ok ? data.summary || 'Makró lefutott.' : `Hiba: ${data.error}`);
+    setMacroOut(data.ok ? data.summary || tx('Makró lefutott.') : tx('Hiba: {0}', data.error || ''));
     await onRefreshState();
   };
 
@@ -165,7 +169,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
       body: JSON.stringify({
         name: macroName.trim(),
         slug: macroSlug.trim(),
-        description: `Egyéni ${macroSteps.length} lépéses makró`,
+        description: tx('Egyéni {0} lépéses makró', macroSteps.length),
         steps: macroSteps,
       }),
     });
@@ -212,7 +216,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
       body: JSON.stringify({ autoRestartExited: true }),
     });
     const data = (await res.json()) as { summary?: string };
-    setDockerMsg(data.summary || 'Docker ellenőrzés kész.');
+    setDockerMsg(data.summary || tx('Docker ellenőrzés kész.'));
     await onRefreshState();
   };
 
@@ -235,10 +239,10 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
             <div>
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Zap className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-                1-Kattintásos Kompozit Makrók (/makro)
+                {tx('1-Kattintásos Kompozit Makrók (/makro)')}
               </h3>
               <p className="text-xs text-slate-500">
-                Többlépcsős karbantartási és diagnosztikai rutinok egy gombnyomással vagy Telegramon.
+                {tx('Többlépcsős karbantartási és diagnosztikai rutinok egy gombnyomással vagy Telegramon.')}
               </p>
             </div>
           </div>
@@ -255,7 +259,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                     <span className="font-mono text-[11px] font-normal text-slate-500">/makro {m.slug}</span>
                   </div>
                   <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                    {m.description} ({m.steps.join(' → ')}) · Futás: {m.runCount}x
+                    {m.description} ({m.steps.join(' → ')}) · {tx('Futás: {0}x', m.runCount)}
                   </div>
                 </div>
                 <button
@@ -264,7 +268,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 whitespace-nowrap"
                 >
                   <Play className="h-3.5 w-3.5" />
-                  Futtatás
+                  {tx('Futtatás')}
                 </button>
               </div>
             ))}
@@ -279,16 +283,16 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <form onSubmit={handleCreateMacro} className="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
             <input
               type="text"
-              aria-label="Új makró neve"
-              placeholder="Új makró neve"
+              aria-label={tx('Új makró neve')}
+              placeholder={tx('Új makró neve')}
               value={macroName}
               onChange={(e) => setMacroName(e.target.value)}
               className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent"
             />
             <input
               type="text"
-              aria-label="Makró parancs slug"
-              placeholder="slug (pl. gyors_teszt)"
+              aria-label={tx('Makró parancs slug')}
+              placeholder={tx('slug (pl. gyors_teszt)')}
               value={macroSlug}
               onChange={(e) => setMacroSlug(e.target.value)}
               className="px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
@@ -298,7 +302,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               className="inline-flex items-center justify-center gap-1 px-3 py-1.5 font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               <Plus className="h-3.5 w-3.5" />
-              Makró Mentése
+              {tx('Makró Mentése')}
             </button>
           </form>
           <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -311,7 +315,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                 ['lan_sentinel', 'LAN Őrszem'],
                 ['forensic_snapshot', 'Kórkép'],
                 ['self_heal', 'Öngyógyítás'],
-              ] as Array<[MacroStepKind, string]>
+              ] as Array<[MacroStepKind, PhraseKey]>
             ).map(([step, label]) => {
               const active = macroSteps.includes(step);
               return (
@@ -327,7 +331,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                       : 'border-slate-300 dark:border-slate-700 text-slate-600'
                   }`}
                 >
-                  {label}
+                  {tx(label)}
                 </button>
               );
             })}
@@ -338,35 +342,35 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <BellRing className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              Okos Időzített Emlékeztetők (/emlekezteto)
+              {tx('Okos Időzített Emlékeztetők (/emlekezteto)')}
             </h3>
             <p className="text-xs text-slate-500">
-              Relatív (15m, 2h, 30s) vagy pontos (08:30) időzítés, amely Telegramon és hangszórón is jelez.
+              {tx('Relatív (15m, 2h, 30s) vagy pontos (08:30) időzítés, amely Telegramon és hangszórón is jelez.')}
             </p>
           </div>
 
           <form onSubmit={handleAddReminder} className="flex flex-wrap sm:flex-nowrap gap-2 text-xs">
             <input
               type="text"
-              aria-label="Időpont vagy késleltetés"
+              aria-label={tx('Időpont vagy késleltetés')}
               value={remTime}
               onChange={(e) => setRemTime(e.target.value)}
-              placeholder="15m vagy 08:30"
+              placeholder={tx('15m vagy 08:30')}
               className="w-28 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
             />
             <input
               type="text"
-              aria-label="Emlékeztető üzenet"
+              aria-label={tx('Emlékeztető üzenet')}
               value={remMsg}
               onChange={(e) => setRemMsg(e.target.value)}
-              placeholder="Mit ne felejts el?"
+              placeholder={tx('Mit ne felejts el?')}
               className="flex-1 min-w-[160px] px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent"
             />
             <button
               type="submit"
               className="px-3 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded hover:bg-slate-800 whitespace-nowrap"
             >
-              Időzítés
+              {tx('Időzítés')}
             </button>
           </form>
 
@@ -374,7 +378,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
 
           <div className="space-y-1.5 max-h-52 overflow-y-auto">
             {reminders.length === 0 ? (
-              <p className="text-xs text-slate-500">Még nincs aktív emlékeztető.</p>
+              <p className="text-xs text-slate-500">{tx('Még nincs aktív emlékeztető.')}</p>
             ) : (
               reminders.slice(0, 12).map((r) => (
                 <div
@@ -386,12 +390,12 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                       {r.message}
                     </div>
                     <div className="text-[11px] font-mono text-slate-500">
-                      {new Date(r.triggerAt).toLocaleString('hu-HU')} · {r.fired ? 'Teljesítve' : 'Várakozik'}
+                      {new Date(r.triggerAt).toLocaleString(intlLocale)} · {r.fired ? tx('Teljesítve') : tx('Várakozik')}
                     </div>
                   </div>
                   <button
                     type="button"
-                    aria-label={`Emlékeztető törlése: ${r.message}`}
+                    aria-label={tx('Emlékeztető törlése: {0}', r.message)}
                     onClick={async () => {
                       await fetch(`/api/v6/reminders/${r.id}`, { method: 'DELETE' });
                       await onRefreshState();
@@ -413,10 +417,10 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Workflow className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              Eseményvezérelt Autonóm Szabálymotor („Ha ez történik → Csináld ezt”)
+              {tx('Eseményvezérelt Autonóm Szabálymotor („Ha ez történik → Csináld ezt”)')}
             </h3>
             <p className="text-xs text-slate-500">
-              Cooldown védett szabályok: a rendszer 60 másodpercenként önállóan kiértékeli a feltételeket és végrehajtja a reakciót.
+              {tx('Cooldown védett szabályok: a rendszer 60 másodpercenként önállóan kiértékeli a feltételeket és végrehajtja a reakciót.')}
             </p>
           </div>
           <button
@@ -425,55 +429,55 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Szabályok Kiértékelése Most
+            {tx('Szabályok Kiértékelése Most')}
           </button>
         </div>
 
         <form onSubmit={handleCreateRule} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 text-xs">
           <input
             type="text"
-            aria-label="Szabály neve"
-            placeholder="Szabály neve (pl. Túlmelegedés védő)"
+            aria-label={tx('Szabály neve')}
+            placeholder={tx('Szabály neve (pl. Túlmelegedés védő)')}
             value={ruleName}
             onChange={(e) => setRuleName(e.target.value)}
             className="lg:col-span-3 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent"
           />
           <select
-            aria-label="Kiváltó feltétel"
+            aria-label={tx('Kiváltó feltétel')}
             value={triggerKind}
             onChange={(e) => setTriggerKind(e.target.value as AutonomyRuleTriggerKind)}
             className="lg:col-span-2 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800"
           >
-            {Object.entries(TRIGGER_LABELS).map(([k, v]) => (
+            {(Object.entries(TRIGGER_LABELS) as Array<[AutonomyRuleTriggerKind, PhraseKey]>).map(([k, v]) => (
               <option key={k} value={k}>
-                {v}
+                {tx(v)}
               </option>
             ))}
           </select>
           <input
             type="number"
-            aria-label="Küszöbérték"
+            aria-label={tx('Küszöbérték')}
             value={thresholdValue}
             onChange={(e) => setThresholdValue(Number(e.target.value))}
             className="lg:col-span-1 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
           />
           <select
-            aria-label="Végrehajtandó akció"
+            aria-label={tx('Végrehajtandó akció')}
             value={actionKind}
             onChange={(e) => setActionKind(e.target.value as AutonomyRuleActionKind)}
             className="lg:col-span-3 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800"
           >
-            {Object.entries(ACTION_LABELS).map(([k, v]) => (
+            {(Object.entries(ACTION_LABELS) as Array<[AutonomyRuleActionKind, PhraseKey]>).map(([k, v]) => (
               <option key={k} value={k}>
-                {v}
+                {tx(v)}
               </option>
             ))}
           </select>
           <div className="lg:col-span-3 flex gap-2">
             <input
               type="text"
-              aria-label="Akció célpont vagy paraméter"
-              placeholder="Cél / pin:1 / prompt"
+              aria-label={tx('Akció célpont vagy paraméter')}
+              placeholder={tx('Cél / pin:1 / prompt')}
               value={actionTarget}
               onChange={(e) => setActionTarget(e.target.value)}
               className="flex-1 min-w-0 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
@@ -482,7 +486,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               type="submit"
               className="px-3 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded hover:bg-slate-800 whitespace-nowrap"
             >
-              Hozzáadás
+              {tx('Hozzáadás')}
             </button>
           </div>
         </form>
@@ -502,7 +506,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">{r.name}</div>
                 <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
-                  HA {TRIGGER_LABELS[r.triggerKind]} ({r.thresholdValue}) → {ACTION_LABELS[r.actionKind]} [{r.actionTarget}] · Cooldown {r.cooldownMinutes}p · Futott: {r.triggerCount}x
+                  {tx('HA {0} ({1}) → {2} [{3}] · Cooldown {4}p · Futott: {5}x', tx(TRIGGER_LABELS[r.triggerKind]), r.thresholdValue, tx(ACTION_LABELS[r.actionKind]), r.actionTarget, r.cooldownMinutes, r.triggerCount)}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -522,11 +526,11 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
                       : 'bg-slate-100 text-slate-500 border-slate-200'
                   }`}
                 >
-                  {r.enabled ? 'Aktív' : 'Szünet'}
+                  {r.enabled ? tx('Aktív') : tx('Szünet')}
                 </button>
                 <button
                   type="button"
-                  aria-label={`Szabály törlése: ${r.name}`}
+                  aria-label={tx('Szabály törlése: {0}', r.name)}
                   onClick={async () => {
                     await fetch(`/api/v6/rules/${r.id}`, { method: 'DELETE' });
                     await onRefreshState();
@@ -547,10 +551,10 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Network className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            Swarm Mesh GPU / Node Feladat-Kiosztó (/mesh)
+            {tx('Swarm Mesh GPU / Node Feladat-Kiosztó (/mesh)')}
           </h3>
           <p className="text-xs text-slate-500">
-            Automatikusan kiválasztja a leggyorsabb online GPU/Workstation csomópontot (vagy helyi fallbacket használ). Online node-ok:{' '}
+            {tx('Automatikusan kiválasztja a leggyorsabb online GPU/Workstation csomópontot (vagy helyi fallbacket használ). Online node-ok:')}{' '}
             <span className="font-mono font-semibold">
               {(state?.clusterNodes || []).filter((n) => n.status === 'online').length}/{(state?.clusterNodes || []).length}
             </span>
@@ -558,7 +562,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <div className="flex gap-2 text-xs">
             <input
               type="text"
-              aria-label="Mesh feladat prompt"
+              aria-label={tx('Mesh feladat prompt')}
               value={meshPrompt}
               onChange={(e) => setMeshPrompt(e.target.value)}
               className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded bg-transparent"
@@ -569,7 +573,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               onClick={() => void handleMeshDispatch()}
               className="px-3 py-1.5 font-medium bg-slate-900 text-white rounded hover:bg-slate-800 whitespace-nowrap"
             >
-              {meshBusy ? 'Küldés...' : 'Kiosztás'}
+              {meshBusy ? tx('Küldés...') : tx('Kiosztás')}
             </button>
           </div>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -589,7 +593,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
           <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Wifi className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            LAN Őrszem, Sebességmérés & Docker Watchtower
+            {tx('LAN Őrszem, Sebességmérés & Docker Watchtower')}
           </h3>
           <div className="flex flex-wrap gap-2 text-xs">
             <button
@@ -599,7 +603,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               className="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium bg-slate-900 text-white rounded hover:bg-slate-800"
             >
               <Activity className="h-3.5 w-3.5" />
-              {netBusy ? 'Mérés...' : 'LAN & Sebességmérés'}
+              {netBusy ? tx('Mérés...') : tx('LAN & Sebességmérés')}
             </button>
             <button
               type="button"
@@ -607,7 +611,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               className="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               <ShieldAlert className="h-3.5 w-3.5" />
-              Docker Watchtower Javítás
+              {tx('Docker Watchtower Javítás')}
             </button>
           </div>
           {dockerMsg && (
@@ -618,8 +622,8 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <div className="flex gap-2 text-xs">
             <input
               type="text"
-              aria-label="Megbízható MAC cím"
-              placeholder="MAC elfogadása (pl. aa:bb:cc:dd:ee:ff)"
+              aria-label={tx('Megbízható MAC cím')}
+              placeholder={tx('MAC elfogadása (pl. aa:bb:cc:dd:ee:ff)')}
               value={trustMacInput}
               onChange={(e) => setTrustMacInput(e.target.value)}
               className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded bg-transparent"
@@ -638,14 +642,14 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
               }}
               className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50"
             >
-              MAC Elfogadás
+              {tx('MAC Elfogadás')}
             </button>
           </div>
           {networkSpeeds.length > 0 && (
             <div className="space-y-1 max-h-32 overflow-y-auto text-xs font-mono">
               {networkSpeeds.slice(0, 4).map((ns) => (
                 <div key={ns.id} className="p-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded">
-                  Ping: {ns.pingMs ?? 'n/a'} ms · DL: {ns.downloadMbps ?? 'n/a'} Mbps · LAN: {ns.lanDeviceCount} eszköz ({ns.unknownMacCount} ismeretlen)
+                  {tx('Ping: {0} ms · DL: {1} Mbps · LAN: {2} eszköz ({3} ismeretlen)', ns.pingMs ?? 'n/a', ns.downloadMbps ?? 'n/a', ns.lanDeviceCount, ns.unknownMacCount)}
                 </div>
               ))}
             </div>
@@ -659,10 +663,10 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Stethoscope className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              Forenzikus Rendszer Kórkép (/korkep)
+              {tx('Forenzikus Rendszer Kórkép (/korkep)')}
             </h3>
             <p className="text-xs text-slate-500">
-              Élő ps memória-toplistát, kernel OOM / feszültség naplókat, hibás systemd unitokat és inode-okat elemez.
+              {tx('Élő ps memória-toplistát, kernel OOM / feszültség naplókat, hibás systemd unitokat és inode-okat elemez.')}
             </p>
           </div>
           <button
@@ -672,7 +676,7 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 whitespace-nowrap"
           >
             <Cpu className="h-3.5 w-3.5" />
-            {forensicBusy ? 'Elemzés...' : 'Teljes Kórkép Futtatása'}
+            {forensicBusy ? tx('Elemzés...') : tx('Teljes Kórkép Futtatása')}
           </button>
         </div>
 
@@ -683,13 +687,13 @@ export const Batch6ApexLabPanel: React.FC<Props> = ({ state, onRefreshState }) =
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="p-3 border border-slate-200 dark:border-slate-700 rounded">
-                <div className="font-semibold mb-1">Top RAM Folyamatok (ps)</div>
+                <div className="font-semibold mb-1">{tx('Top RAM Folyamatok (ps)')}</div>
                 <pre className="text-[11px] font-mono whitespace-pre-wrap text-slate-700 dark:text-slate-300">
-                  {forensic.topMemoryProcesses.join('\n') || '(nincs adat)'}
+                  {forensic.topMemoryProcesses.join('\n') || tx('(nincs adat)')}
                 </pre>
               </div>
               <div className="p-3 border border-slate-200 dark:border-slate-700 rounded space-y-1">
-                <div className="font-semibold">Javaslatok & Inode</div>
+                <div className="font-semibold">{tx('Javaslatok & Inode')}</div>
                 {forensic.recommendations.map((rec, idx) => (
                   <div key={idx} className="text-slate-700 dark:text-slate-300">• {rec}</div>
                 ))}

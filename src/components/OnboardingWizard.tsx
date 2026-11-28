@@ -1,48 +1,51 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, KeyRound, ShieldAlert, ShieldCheck, Terminal } from 'lucide-react';
 import type { LanguageCode, ProviderId } from '../../shared/types';
 import { InfoHint } from './InfoHint';
-import { getLanguageDir, SUPPORTED_LANGUAGES, tr } from '../locales/translations';
+import {
+  getLanguageDir,
+  LocaleProvider,
+  saveLanguagePreference,
+  SUPPORTED_LANGUAGES,
+  tr,
+  tx,
+} from '../locales/translations';
 
-interface Archetype {
+interface ArchetypeDef {
   id: string;
-  name: string;
-  role: string;
-  systemPrompt: string;
+  nameKey: 'archGeneralRole' | 'archDevRole' | 'archOpsRole' | 'archResearchRole';
+  roleKey: 'archGeneralRole' | 'archDevRole' | 'archOpsRole' | 'archResearchRole';
+  promptKey: 'archGeneralPrompt' | 'archDevPrompt' | 'archOpsPrompt' | 'archResearchPrompt';
   keywords: RegExp;
 }
 
-const ARCHETYPES: Archetype[] = [
+const ARCHETYPES: ArchetypeDef[] = [
   {
     id: 'general',
-    name: 'Központi Asszisztens',
-    role: 'Általános Asszisztens',
-    systemPrompt:
-      'Sokoldalú személyi koordinátor vagy. Átlátod a napi teendőket, kutatsz, rendszerezel, és szükség esetén szakértő alágenseket hozol létre.',
+    nameKey: 'archGeneralRole',
+    roleKey: 'archGeneralRole',
+    promptKey: 'archGeneralPrompt',
     keywords: /\b(általános|szervezés|napi|asszisztens|general|assistant|schedule)\b/i,
   },
   {
     id: 'developer',
-    name: 'Dev Copilot',
-    role: 'Fejlesztő Copilot',
-    systemPrompt:
-      'Senior szoftvermérnök és kódoló copilot vagy. Tiszta TypeScript/Linux megoldásokat szállítasz, teszteket írsz és ellenőrzöd a buildet.',
+    nameKey: 'archDevRole',
+    roleKey: 'archDevRole',
+    promptKey: 'archDevPrompt',
     keywords: /\b(kód|fejleszt|program|typescript|react|node|git|software|developer|code|linux)\b/i,
   },
   {
     id: 'strategist',
-    name: 'Stratégiai Tanácsadó',
-    role: 'Üzleti és Stratégiai Tanácsadó',
-    systemPrompt:
-      'Analitikus üzleti, pénzügyi és stratégiai tanácsadó vagy. Döntési mátrixokat, kockázatelemzést és világos cselekvési terveket készítesz.',
+    nameKey: 'archOpsRole',
+    roleKey: 'archOpsRole',
+    promptKey: 'archOpsPrompt',
     keywords: /\b(üzlet|stratégia|pénz|projekt|terv|business|strategy|finance)\b/i,
   },
   {
     id: 'sysadmin',
-    name: 'Linux Őrszem',
-    role: 'Rendszerüzemeltető & Biztonsági Felelős',
-    systemPrompt:
-      'Linux rendszergazda és biztonsági mérnök vagy. Felügyeled a hardvert, a csomagokat, a folyamatokat, a mentéseket és a hálózati biztonságot.',
+    nameKey: 'archResearchRole',
+    roleKey: 'archResearchRole',
+    promptKey: 'archResearchPrompt',
     keywords: /\b(szerver|linux|biztonság|hálózat|hardver|ops|sysadmin|security|debian|ubuntu)\b/i,
   },
 ];
@@ -78,9 +81,10 @@ export const OnboardingWizard: React.FC<Props> = ({
 
   // Step 5: First Agent
   const [selectedArchetypeId, setSelectedArchetypeId] = useState<string>('general');
-  const [agentName, setAgentName] = useState(ARCHETYPES[0].name);
-  const [agentRole, setAgentRole] = useState(ARCHETYPES[0].role);
-  const [agentPrompt, setAgentPrompt] = useState(ARCHETYPES[0].systemPrompt);
+  const [agentCustomized, setAgentCustomized] = useState(false);
+  const [agentName, setAgentName] = useState(() => tr(initialLanguage, 'archGeneralRole'));
+  const [agentRole, setAgentRole] = useState(() => tr(initialLanguage, 'archGeneralRole'));
+  const [agentPrompt, setAgentPrompt] = useState(() => tr(initialLanguage, 'archGeneralPrompt'));
 
   // Step 6: Host Permissions & Operator Password
   const [hostPermissionsGranted, setHostPermissionsGranted] = useState(false);
@@ -89,6 +93,20 @@ export const OnboardingWizard: React.FC<Props> = ({
 
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    saveLanguagePreference(language);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = language;
+      document.documentElement.dir = getLanguageDir(language);
+    }
+    if (!agentCustomized) {
+      const arch = ARCHETYPES.find((a) => a.id === selectedArchetypeId) ?? ARCHETYPES[0];
+      setAgentName(tr(language, arch.nameKey));
+      setAgentRole(tr(language, arch.roleKey));
+      setAgentPrompt(tr(language, arch.promptKey));
+    }
+  }, [language, selectedArchetypeId, agentCustomized]);
 
   const recommendedArchetypeId = useMemo(() => {
     if (!userProfile.trim()) return 'general';
@@ -106,11 +124,12 @@ export const OnboardingWizard: React.FC<Props> = ({
       openrouterKey.trim()
   );
 
-  const handleSelectArchetype = (arch: Archetype) => {
+  const handleSelectArchetype = (arch: ArchetypeDef) => {
     setSelectedArchetypeId(arch.id);
-    setAgentName(arch.name);
-    setAgentRole(arch.role);
-    setAgentPrompt(arch.systemPrompt);
+    setAgentCustomized(false);
+    setAgentName(tr(language, arch.nameKey));
+    setAgentRole(tr(language, arch.roleKey));
+    setAgentPrompt(tr(language, arch.promptKey));
   };
 
   const handleNext = () => {
@@ -119,14 +138,12 @@ export const OnboardingWizard: React.FC<Props> = ({
       setError(tr(language, 'step2ValidationErr'));
       return;
     }
-    if (step === 4) {
+    if (step === 4 && !agentCustomized) {
       const rec = ARCHETYPES.find((a) => a.id === recommendedArchetypeId);
-      if (rec && agentName === ARCHETYPES[0].name) {
-        handleSelectArchetype(rec);
-      }
+      if (rec) handleSelectArchetype(rec);
     }
     if (step === 5 && !agentName.trim()) {
-      setError('Agent name is required.');
+      setError(tr(language, 'step5Name'));
       return;
     }
     setStep((prev) => Math.min(6, prev + 1));
@@ -167,7 +184,7 @@ export const OnboardingWizard: React.FC<Props> = ({
       });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        throw new Error(data.error || 'Setup failed');
+        throw new Error(data.error || tx(language, 'Beállítás sikertelen'));
       }
       await onComplete();
     } catch (err) {
@@ -178,75 +195,76 @@ export const OnboardingWizard: React.FC<Props> = ({
   };
 
   return (
-    <div
-      dir={getLanguageDir(language)}
-      className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-6 py-10"
-    >
-      <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl p-8">
-        <div className="flex items-center justify-between pb-6 border-b border-slate-200">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              {tr(language, 'wizardTitle')}
-            </h1>
-            <p className="text-xs text-slate-500 mt-1 tabular-nums">
-              {tr(language, 'wizardStep')} {step} / 6
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5" aria-label="Progress">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <div
-                key={n}
-                className={`h-2 w-8 rounded-sm transition-colors ${
-                  n <= step ? 'bg-slate-900' : 'bg-slate-200'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="py-6 min-h-[340px]">
-          {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step1Title')}</h2>
-              <p className="text-sm text-slate-600">{tr(language, 'step1Desc')}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => setLanguage(lang.code)}
-                    className={`flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg border transition-colors text-left ${
-                      language === lang.code
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{lang.nativeName}</span>
-                    <span className="text-xs opacity-70 font-mono uppercase">{lang.code}</span>
-                  </button>
-                ))}
-              </div>
+    <LocaleProvider lang={language} setLang={setLanguage}>
+      <div
+        dir={getLanguageDir(language)}
+        className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-6 py-10"
+      >
+        <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl p-8">
+          <div className="flex items-center justify-between pb-6 border-b border-slate-200">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                {tr(language, 'wizardTitle')}
+              </h1>
+              <p className="text-xs text-slate-500 mt-1 tabular-nums">
+                {tr(language, 'wizardStep')} {step} / 6
+              </p>
             </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step2Title')}</h2>
-                <InfoHint
-                  theme="light"
-                  label="AI Szolgáltatók"
-                  description="Az AI válaszokhoz kell egy felhős kulcs (pl. ingyenes Gemini API) vagy egy a gépeden futó helyi Ollama. Ezt bármikor módosíthatod."
+            <div className="flex items-center gap-1.5" aria-label={tr(language, 'wizardProgressAria')}>
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <div
+                  key={n}
+                  className={`h-2 w-8 rounded-sm transition-colors ${
+                    n <= step ? 'bg-slate-900' : 'bg-slate-200'
+                  }`}
                 />
-              </div>
-              <p className="text-sm text-slate-600">{tr(language, 'step2Desc')}</p>
-              <p className="text-xs text-slate-500">{tr(language, 'step2MultiKeyNote')}</p>
+              ))}
+            </div>
+          </div>
 
-              {hasServerEnvGemini && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900">
-                  Server GEMINI_API_KEY detected in environment — ready to route Gemini calls.
+          <div className="py-6 min-h-[340px]">
+            {step === 1 && (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step1Title')}</h2>
+                <p className="text-sm text-slate-600">{tr(language, 'step1Desc')}</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => setLanguage(lang.code)}
+                      className={`flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg border transition-colors text-start ${
+                        language === lang.code
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{lang.nativeName}</span>
+                      <span className="text-xs opacity-70 font-mono uppercase">{lang.code}</span>
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step2Title')}</h2>
+                  <InfoHint
+                    theme="light"
+                    label={tr(language, 'step2HintLabel')}
+                    description={tr(language, 'step2HintDesc')}
+                  />
+                </div>
+                <p className="text-sm text-slate-600">{tr(language, 'step2Desc')}</p>
+                <p className="text-xs text-slate-500">{tr(language, 'step2MultiKeyNote')}</p>
+
+                {hasServerEnvGemini && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900">
+                    {tr(language, 'step2EnvGemini')}
+                  </div>
+                )}
 
               <label className="flex items-center gap-3 p-3.5 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
                 <input
@@ -264,7 +282,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   <div>
                     <label htmlFor="wiz-gemini" className="block text-xs font-medium text-slate-700 mb-1">
-                      Google Gemini API Key
+                      {tr(language, 'step2GeminiKey')}
                     </label>
                     <input
                       id="wiz-gemini"
@@ -280,7 +298,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                   </div>
                   <div>
                     <label htmlFor="wiz-openrouter" className="block text-xs font-medium text-slate-700 mb-1">
-                      OpenRouter API Key
+                      {tr(language, 'step2OpenRouterKey')}
                     </label>
                     <input
                       id="wiz-openrouter"
@@ -293,7 +311,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                   </div>
                   <div>
                     <label htmlFor="wiz-openai" className="block text-xs font-medium text-slate-700 mb-1">
-                      OpenAI API Key
+                      {tr(language, 'step2OpenAiKey')}
                     </label>
                     <input
                       id="wiz-openai"
@@ -306,7 +324,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                   </div>
                   <div>
                     <label htmlFor="wiz-anthropic" className="block text-xs font-medium text-slate-700 mb-1">
-                      Anthropic API Key
+                      {tr(language, 'step2AnthropicKey')}
                     </label>
                     <input
                       id="wiz-anthropic"
@@ -328,15 +346,15 @@ export const OnboardingWizard: React.FC<Props> = ({
                 <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step3Title')}</h2>
                 <InfoHint
                   theme="light"
-                  label="Telegram összekötés"
-                  description="Ha megadod a Telegram bot tokened és a saját Chat ID-dat, telefonról is tudsz írni vagy hangüzenetet küldeni a rendszernek. Idegen Chat ID-k alapból tiltva vannak."
+                  label={tr(language, 'step3HintLabel')}
+                  description={tr(language, 'step3HintDesc')}
                 />
               </div>
               <p className="text-sm text-slate-600">{tr(language, 'step3Desc')}</p>
               <div className="space-y-3 pt-2">
                 <div>
                   <label htmlFor="wiz-tg-token" className="block text-xs font-medium text-slate-700 mb-1">
-                    Telegram Bot Token
+                    {tr(language, 'step3BotToken')}
                   </label>
                   <input
                     id="wiz-tg-token"
@@ -349,14 +367,14 @@ export const OnboardingWizard: React.FC<Props> = ({
                 </div>
                 <div>
                   <label htmlFor="wiz-tg-chat" className="block text-xs font-medium text-slate-700 mb-1">
-                    Telegram Chat / Group ID
+                    {tr(language, 'step3ChatId')}
                   </label>
                   <input
                     id="wiz-tg-chat"
                     type="text"
                     value={telegramChatId}
                     onChange={(e) => setTelegramChatId(e.target.value)}
-                    placeholder="e.g. 582910394"
+                    placeholder="582910394"
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                   />
                 </div>
@@ -396,21 +414,21 @@ export const OnboardingWizard: React.FC<Props> = ({
                       key={arch.id}
                       type="button"
                       onClick={() => handleSelectArchetype(arch)}
-                      className={`p-3.5 rounded-lg border text-left transition-colors ${
+                      className={`p-3.5 rounded-lg border text-start transition-colors ${
                         isSelected
                           ? 'border-slate-900 bg-slate-900 text-white'
                           : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold">{arch.role}</span>
+                        <span className="text-sm font-semibold">{tr(language, arch.roleKey)}</span>
                         {isRec && (
                           <span className="text-[11px] font-medium underline underline-offset-2">
                             {tr(language, 'step5Recommended')}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs mt-1 opacity-80 line-clamp-2">{arch.systemPrompt}</p>
+                      <p className="text-xs mt-1 opacity-80 line-clamp-2">{tr(language, arch.promptKey)}</p>
                     </button>
                   );
                 })}
@@ -425,7 +443,10 @@ export const OnboardingWizard: React.FC<Props> = ({
                     id="wiz-agent-name"
                     type="text"
                     value={agentName}
-                    onChange={(e) => setAgentName(e.target.value)}
+                    onChange={(e) => {
+                      setAgentCustomized(true);
+                      setAgentName(e.target.value);
+                    }}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                   />
                 </div>
@@ -437,7 +458,10 @@ export const OnboardingWizard: React.FC<Props> = ({
                     id="wiz-agent-role"
                     type="text"
                     value={agentRole}
-                    onChange={(e) => setAgentRole(e.target.value)}
+                    onChange={(e) => {
+                      setAgentCustomized(true);
+                      setAgentRole(e.target.value);
+                    }}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                   />
                 </div>
@@ -450,7 +474,10 @@ export const OnboardingWizard: React.FC<Props> = ({
                   id="wiz-agent-prompt"
                   rows={3}
                   value={agentPrompt}
-                  onChange={(e) => setAgentPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setAgentCustomized(true);
+                    setAgentPrompt(e.target.value);
+                  }}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                 />
               </div>
@@ -463,8 +490,8 @@ export const OnboardingWizard: React.FC<Props> = ({
                 <h2 className="text-lg font-semibold text-slate-900">{tr(language, 'step6Title')}</h2>
                 <InfoHint
                   theme="light"
-                  label="Biztonsági beállítások"
-                  description="Alapértelmezésben a géphez (fájlokhoz, parancssorhoz) való hozzáférés biztonságosan ki van kapcsolva. Csak akkor engedélyezd, ha tényleg rendszerfelügyeletre használod."
+                  label={tr(language, 'step6HintLabel')}
+                  description={tr(language, 'step6HintDesc')}
                 />
               </div>
               <p className="text-sm text-slate-600">{tr(language, 'step6Desc')}</p>
@@ -472,7 +499,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setHostPermissionsGranted(false)}
-                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
+                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-start transition-colors ${
                     !hostPermissionsGranted
                       ? 'border-slate-900 bg-slate-900 text-white'
                       : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
@@ -480,17 +507,17 @@ export const OnboardingWizard: React.FC<Props> = ({
                 >
                   <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
                   <div>
-                    <div className="text-sm font-semibold">{tr(language, 'step6Restrict')} (Ajánlott induláshoz)</div>
-                    <div className="text-xs opacity-80 mt-0.5">
-                      Biztonságos mód: az AI segít beszélgetni, tervezni és kutatni, de nem tud közvetlenül fájlokat törölni vagy terminálparancsokat futtatni a gépeden.
+                    <div className="text-sm font-semibold">
+                      {tr(language, 'step6Restrict')} {tr(language, 'step6RestrictRecommended')}
                     </div>
+                    <div className="text-xs opacity-80 mt-0.5">{tr(language, 'step6RestrictDesc')}</div>
                   </div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setHostPermissionsGranted(true)}
-                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
+                  className={`w-full flex items-start gap-3 p-4 rounded-lg border text-start transition-colors ${
                     hostPermissionsGranted
                       ? 'border-slate-900 bg-slate-900 text-white'
                       : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
@@ -499,9 +526,7 @@ export const OnboardingWizard: React.FC<Props> = ({
                   <ShieldCheck className="h-5 w-5 shrink-0 mt-0.5" />
                   <div>
                     <div className="text-sm font-semibold">{tr(language, 'step6Allow')}</div>
-                    <div className="text-xs opacity-80 mt-0.5">
-                      Engedélyezi a beépített terminált, fájlkezelést és hardver-diagnosztikát. Veszélyes parancsok előtt továbbra is jóváhagyást kér a rendszer.
-                    </div>
+                    <div className="text-xs opacity-80 mt-0.5">{tr(language, 'step6AllowDesc')}</div>
                   </div>
                 </button>
               </div>
@@ -509,27 +534,27 @@ export const OnboardingWizard: React.FC<Props> = ({
               <div className="pt-2 border-t border-slate-200 space-y-1.5">
                 <label htmlFor="wiz-op-pass" className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
                   <KeyRound className="h-3.5 w-3.5" />
-                  Operátori belépési jelszó (ajánlott hálózati védelemhez, min. 8 karakter)
+                  {tr(language, 'step6OpPwLabel')}
                 </label>
                 <input
                   id="wiz-op-pass"
                   type="password"
                   value={operatorPassword}
                   onChange={(e) => setOperatorPassword(e.target.value)}
-                  placeholder="Hagyd üresen, ha később állítod be a Beállításokban..."
+                  placeholder={tr(language, 'step6OpPwPlaceholder')}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
                 />
                 {operatorPassword.trim().length > 0 && (
                   <div className="pt-1.5 space-y-1">
                     <label htmlFor="wiz-setup-code" className="block text-xs font-medium text-amber-800">
-                      Egyszeri szerver Setup-Kód (a szerver konzolról vagy a .novaswarm-setup.log fájlból)
+                      {tr(language, 'step6SetupCodeLabel')}
                     </label>
                     <input
                       id="wiz-setup-code"
                       type="text"
                       value={setupCode}
                       onChange={(e) => setSetupCode(e.target.value)}
-                      placeholder="pl. A1B2-C3D4-E5F6"
+                      placeholder={tr(language, 'lockSetupCodePlaceholder')}
                       className="w-full px-3 py-2 text-sm font-mono uppercase border border-amber-300 bg-amber-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
                     />
                   </div>
@@ -537,8 +562,8 @@ export const OnboardingWizard: React.FC<Props> = ({
               </div>
 
               <div className="flex items-center gap-2 text-xs text-slate-500 pt-1">
-                <Terminal className="h-4 w-4" />
-                <span>Biztonságos alapértelmezések: jóváhagyásos végrehajtás · védett hálózat · 1 aktív segítő ágens + 1 Felügyelő.</span>
+                <Terminal className="h-4 w-4 shrink-0" />
+                <span>{tr(language, 'step6DefaultsFooter')}</span>
               </div>
             </div>
           )}
@@ -599,5 +624,6 @@ export const OnboardingWizard: React.FC<Props> = ({
         </div>
       </div>
     </div>
+    </LocaleProvider>
   );
 };

@@ -27,6 +27,8 @@ import type {
   NovaSwarmState,
   OperatingModeId,
 } from '../../shared/types';
+import type { PhraseKey } from '../locales/phraseKeys';
+import { useLocale } from '../locales/translations';
 
 interface Props {
   state?: NovaSwarmState;
@@ -35,7 +37,7 @@ interface Props {
 
 type SubPanelId = 'modes_timers' | 'knowledge_lab' | 'homelab_net' | 'finance_life';
 
-const OPERATING_MODES: Array<{ id: OperatingModeId; label: string; hint: string }> = [
+const OPERATING_MODES: Array<{ id: OperatingModeId; label: PhraseKey; hint: PhraseKey }> = [
   { id: 'normal', label: 'Normál', hint: '15p heartbeat · alapértelmezett' },
   { id: 'focus', label: 'Mély Fókusz', hint: '45p heartbeat · csendes éjszaka' },
   { id: 'travel', label: 'Utazás / Távoli', hint: '30p heartbeat · aktív Telegram' },
@@ -44,12 +46,13 @@ const OPERATING_MODES: Array<{ id: OperatingModeId; label: string; hint: string 
 ];
 
 export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx, intlLocale } = useLocale();
   const [tab, setTab] = useState<SubPanelId>('modes_timers');
 
   // Tab 1: Modes, Natural Automation, Timers, Top 3, Scratchpad
-  const [naturalCmd, setNaturalCmd] = useState('ha a ram 85% felett akkor tisztítás');
+  const [naturalCmd, setNaturalCmd] = useState(() => tx('ha a ram 85% felett akkor tisztítás'));
   const [naturalOut, setNaturalOut] = useState<string | null>(null);
-  const [timerExpr, setTimerExpr] = useState('10p tészta');
+  const [timerExpr, setTimerExpr] = useState(() => tx('10p tészta'));
   const [timerErr, setTimerErr] = useState<string | null>(null);
   const [top3Draft, setTop3Draft] = useState('');
   const [scratchDraft, setScratchDraft] = useState(state?.sharedScratchpad || '');
@@ -78,10 +81,10 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
   const [regexPattern, setRegexPattern] = useState('*/15 8-18 * * 1-5');
   const [regexText, setRegexText] = useState('IP: 192.168.1.50');
   const [regexOut, setRegexOut] = useState<string | null>(null);
-  const [csvRaw, setCsvRaw] = useState('nap,fogyasztas_kwh,koltseg_huf\nHetfo,8.4,590\nKedd,9.1,637\nSzerda,7.8,546');
+  const [csvRaw, setCsvRaw] = useState(() => tx('nap,fogyasztas_kwh,koltseg_huf\nHetfo,8.4,590\nKedd,9.1,637\nSzerda,7.8,546'));
   const [csvStats, setCsvStats] = useState<Array<{ column: string; min: number; max: number; avg: number; sum: number }> | null>(null);
-  const [slideTitle, setSlideTitle] = useState('NovaSwarm Rendszerbemutató');
-  const [slideBody, setSlideBody] = useState('## 1. Architektúra\n- Teljes helyi kontroll\n- Telegram + Web UI\n---\n## 2. Hardver Adaptáció\n- Pi 2GB optimalizálás\n- SSH 1-lépéses költöztető');
+  const [slideTitle, setSlideTitle] = useState(() => tx('NovaSwarm Rendszerbemutató'));
+  const [slideBody, setSlideBody] = useState(() => tx('## 1. Architektúra\n- Teljes helyi kontroll\n- Telegram + Web UI\n---\n## 2. Hardver Adaptáció\n- Pi 2GB optimalizálás\n- SSH 1-lépéses költöztető'));
   const [slideMsg, setSlideMsg] = useState<string | null>(null);
   const [decTitle, setDecTitle] = useState('');
   const [decChoice, setDecChoice] = useState('');
@@ -111,10 +114,10 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
   const [fuelCost, setFuelCost] = useState('21500');
   const [medName, setMedName] = useState('');
   const [medDose, setMedDose] = useState('1000 IU');
-  const [medTime, setMedTime] = useState('08:00');
+  const [medTime] = useState('08:00');
   const [tripDest, setTripDest] = useState('');
-  const [tripStart, setTripStart] = useState(new Date().toISOString().slice(0, 10));
-  const [tripEnd, setTripEnd] = useState(new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10));
+  const [tripStart] = useState(new Date().toISOString().slice(0, 10));
+  const [tripEnd] = useState(new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10));
   const [lentItemName, setLentItemName] = useState('');
   const [lentPerson, setLentPerson] = useState('');
   const [mediaTitle, setMediaTitle] = useState('');
@@ -156,7 +159,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
       body: JSON.stringify({ text: naturalCmd }),
     });
     const data = (await res.json()) as { ok?: boolean; summary?: string; error?: string };
-    setNaturalOut(data.ok ? data.summary || 'Kész.' : `Hiba: ${data.error}`);
+    setNaturalOut(data.ok ? data.summary || tx('Kész.') : tx('Hiba: {0}', data.error || ''));
     await onRefreshState();
   };
 
@@ -170,7 +173,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
     });
     const data = (await res.json()) as { ok?: boolean; error?: string };
     if (!data.ok) {
-      setTimerErr(data.error || 'Hiba az időzítő indításakor.');
+      setTimerErr(data.error || tx('Hiba az időzítő indításakor.'));
       return;
     }
     setTimerExpr('');
@@ -185,7 +188,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
       body: JSON.stringify({ text: scratchDraft }),
     });
     if (res.ok) {
-      setScratchSaved('Szinkronizálva');
+      setScratchSaved(tx('Szinkronizálva'));
       await onRefreshState();
     }
   };
@@ -212,17 +215,18 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
     }
   };
 
+  const activeModeLabel = tx(OPERATING_MODES.find((m) => m.id === activeMode)?.label || 'Normál');
+
   return (
     <div className="space-y-6">
       {/* Sub-tabs */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-            Univerzális OS, Tudás Labor & Személyes Élet-központ
+            {tx('Univerzális OS, Tudás Labor & Személyes Élet-központ')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Üzemmód: {activeMode} · Aktív időzítők: {timers.filter((t) => !t.completed).length} · Árfolyam:{' '}
-            {rates?.rates?.HUF ? `${rates.rates.HUF.toFixed(1)} HUF/EUR` : 'nincs lekérve'}
+            {tx('Üzemmód: {0} · Aktív időzítők: {1} · Árfolyam: {2}', activeModeLabel, timers.filter((t) => !t.completed).length, rates?.rates?.HUF ? `${rates.rates.HUF.toFixed(1)} HUF/EUR` : tx('nincs lekérve'))}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800 rounded-lg">
@@ -232,7 +236,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               { id: 'knowledge_lab', label: 'Tudás & AI Labor' },
               { id: 'homelab_net', label: 'Homelab, IoT & Hálózat' },
               { id: 'finance_life', label: 'Pénzügy & Élet-OS' },
-            ] as const
+            ] as Array<{ id: SubPanelId; label: PhraseKey }>
           ).map((item) => (
             <button
               key={item.id}
@@ -244,7 +248,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              {item.label}
+              {tx(item.label)}
             </button>
           ))}
         </div>
@@ -260,10 +264,10 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Activity className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Intelligens Üzemmód Profilok
+                {tx('Intelligens Üzemmód Profilok')}
               </h3>
               <span className="text-xs font-mono text-slate-500 tabular-nums">
-                Aktív: {activeMode}
+                {tx('Aktív: {0}', activeModeLabel)}
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
@@ -272,19 +276,19 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   key={m.id}
                   type="button"
                   onClick={() => void handleSetMode(m.id)}
-                  className={`p-3 rounded-lg border text-left transition-colors ${
+                  className={`p-3 rounded-lg border text-start transition-colors ${
                     activeMode === m.id
                       ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900'
                       : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <div className="text-xs font-semibold whitespace-nowrap">{m.label}</div>
+                  <div className="text-xs font-semibold whitespace-nowrap">{tx(m.label)}</div>
                   <div
                     className={`text-[11px] mt-0.5 ${
                       activeMode === m.id ? 'text-slate-300 dark:text-slate-600' : 'text-slate-500'
                     }`}
                   >
-                    {m.hint}
+                    {tx(m.hint)}
                   </div>
                 </button>
               ))}
@@ -296,25 +300,25 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Magyar Természetes Szabály & Időzítő (/ha)
+                {tx('Magyar Természetes Szabály & Időzítő (/ha)')}
               </h3>
               <form onSubmit={handleNaturalParse} className="flex gap-2">
                 <label htmlFor="b7-nat-cmd" className="sr-only">
-                  Magyar automatizálási utasítás
+                  {tx('Magyar automatizálási utasítás')}
                 </label>
                 <input
                   id="b7-nat-cmd"
                   type="text"
                   value={naturalCmd}
                   onChange={(e) => setNaturalCmd(e.target.value)}
-                  placeholder='pl. "ha a hőmérséklet 75 fok felett akkor telegram riasztás"'
+                  placeholder={tx('pl. "ha a hőmérséklet 75 fok felett akkor telegram riasztás"')}
                   className="flex-1 min-w-0 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg"
                 />
                 <button
                   type="submit"
                   className="px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                 >
-                  Értelmezés
+                  {tx('Értelmezés')}
                 </button>
               </form>
               {naturalOut && (
@@ -327,19 +331,19 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Timer className="h-3.5 w-3.5" />
-                    Párhuzamos Visszaszámlálók ({timers.length})
+                    {tx('Párhuzamos Visszaszámlálók ({0})', timers.length)}
                   </span>
                 </div>
                 <form onSubmit={handleCreateTimer} className="flex gap-2">
                   <label htmlFor="b7-timer-expr" className="sr-only">
-                    Időzítő kifejezés
+                    {tx('Időzítő kifejezés')}
                   </label>
                   <input
                     id="b7-timer-expr"
                     type="text"
                     value={timerExpr}
                     onChange={(e) => setTimerExpr(e.target.value)}
-                    placeholder="pl. 10p tészta vagy 45mp tea"
+                    placeholder={tx('pl. 10p tészta vagy 45mp tea')}
                     className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg"
                   />
                   <button
@@ -347,12 +351,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Indítás
+                    {tx('Indítás')}
                   </button>
                 </form>
                 {timerErr && <div className="text-xs text-red-700">{timerErr}</div>}
                 {timers.length === 0 ? (
-                  <p className="text-xs text-slate-500">Nincs aktív visszaszámláló. Indíts egyet a fenti mezőből.</p>
+                  <p className="text-xs text-slate-500">{tx('Nincs aktív visszaszámláló. Indíts egyet a fenti mezőből.')}</p>
                 ) : (
                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                     {timers.map((tm) => (
@@ -362,13 +366,13 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       >
                         <div className="min-w-0 truncate">
                           <span className="font-medium text-slate-900 dark:text-slate-100">{tm.label}</span>
-                          <span className="text-slate-500 ml-2 font-mono tabular-nums">
-                            · {tm.durationSec}s · {tm.completed ? 'Lejárt' : new Date(tm.endsAt).toLocaleTimeString('hu-HU')}
+                          <span className="text-slate-500 ms-2 font-mono tabular-nums">
+                            · {tm.durationSec}s · {tm.completed ? tx('Lejárt') : new Date(tm.endsAt).toLocaleTimeString(intlLocale)}
                           </span>
                         </div>
                         <button
                           type="button"
-                          aria-label={`Törlés: ${tm.label}`}
+                          aria-label={tx('Törlés: {0}', tm.label)}
                           onClick={async () => {
                             await fetch(`/api/v7/timers/${tm.id}`, { method: 'DELETE' });
                             await onRefreshState();
@@ -389,18 +393,18 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2.5">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Check className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Napi Top 3 Fókusz Feladat
+                  {tx('Napi Top 3 Fókusz Feladat')}
                 </h3>
                 <div className="flex gap-2">
                   <label htmlFor="b7-top3-input" className="sr-only">
-                    Napi Top 3 feladat vesszővel elválasztva
+                    {tx('Napi Top 3 feladat vesszővel elválasztva')}
                   </label>
                   <input
                     id="b7-top3-input"
                     type="text"
                     value={top3Draft}
                     onChange={(e) => setTop3Draft(e.target.value)}
-                    placeholder="3 fő cél vesszővel elválasztva..."
+                    placeholder={tx('3 fő cél vesszővel elválasztva...')}
                     className="flex-1 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded-lg"
                   />
                   <button
@@ -418,7 +422,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg whitespace-nowrap shrink-0"
                   >
-                    Mentés
+                    {tx('Mentés')}
                   </button>
                 </div>
                 {top3 && top3.items.length > 0 ? (
@@ -443,14 +447,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500">Még nincs beállítva a mai Top 3 fókusz lista.</p>
+                  <p className="text-xs text-slate-500">{tx('Még nincs beállítva a mai Top 3 fókusz lista.')}</p>
                 )}
               </div>
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label htmlFor="b7-shared-scratch" className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                    LAN Eszközközi Szinkron Jegyzet (Shared Scratchpad)
+                    {tx('LAN Eszközközi Szinkron Jegyzet (Shared Scratchpad)')}
                   </label>
                   <div className="flex items-center gap-2">
                     {scratchSaved && <span className="text-[11px] text-emerald-700 font-mono">{scratchSaved}</span>}
@@ -460,7 +464,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                     >
                       <Save className="h-3 w-3" />
-                      Szinkron
+                      {tx('Szinkron')}
                     </button>
                   </div>
                 </div>
@@ -469,7 +473,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   rows={4}
                   value={scratchDraft}
                   onChange={(e) => setScratchDraft(e.target.value)}
-                  placeholder="Másold ide bármelyik LAN eszközről a megosztani kívánt vázlatot vagy parancsot..."
+                  placeholder={tx('Másold ide bármelyik LAN eszközről a megosztani kívánt vázlatot vagy parancsot...')}
                   className="w-full p-2.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded-lg"
                 />
               </div>
@@ -488,12 +492,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <QrCode className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Offline Wi-Fi & URL QR Kód Generátor
+                {tx('Offline Wi-Fi & URL QR Kód Generátor')}
               </h3>
               <form onSubmit={handleGenerateQr} className="space-y-2 text-xs">
                 <div>
                   <label htmlFor="b7-qr-url" className="block text-[11px] text-slate-500 mb-0.5">
-                    Szöveg vagy URL
+                    {tx('Szöveg vagy URL')}
                   </label>
                   <input
                     id="b7-qr-url"
@@ -506,20 +510,20 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label htmlFor="b7-wifi-ssid" className="block text-[11px] text-slate-500 mb-0.5">
-                      Wi-Fi SSID (opc.)
+                      {tx('Wi-Fi SSID (opc.)')}
                     </label>
                     <input
                       id="b7-wifi-ssid"
                       type="text"
                       value={wifiSsid}
                       onChange={(e) => setWifiSsid(e.target.value)}
-                      placeholder="OtthonWiFi"
+                      placeholder={tx('OtthonWiFi')}
                       className="w-full px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
                     />
                   </div>
                   <div>
                     <label htmlFor="b7-wifi-pass" className="block text-[11px] text-slate-500 mb-0.5">
-                      Wi-Fi Jelszó (opc.)
+                      {tx('Wi-Fi Jelszó (opc.)')}
                     </label>
                     <input
                       id="b7-wifi-pass"
@@ -534,19 +538,19 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="submit"
                   className="px-3.5 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg font-medium whitespace-nowrap"
                 >
-                  QR Generálása
+                  {tx('QR Generálása')}
                 </button>
               </form>
               {qrResult && (
                 <div className="flex items-center gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
                   <img
                     src={`data:image/svg+xml;utf8,${encodeURIComponent(qrResult.svg)}`}
-                    alt={`QR kód: ${qrResult.payload}`}
+                    alt={tx('QR kód: {0}', qrResult.payload)}
                     className="w-28 h-28 border border-slate-200 rounded bg-white p-1 shrink-0"
                   />
                   <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400 min-w-0 break-all space-y-1">
-                    <div>Verzió: v{qrResult.version} ({qrResult.modules}x{qrResult.modules})</div>
-                    <div>Tartalom: {qrResult.payload}</div>
+                    <div>{tx('Verzió: v{0} ({1}x{2})', qrResult.version, qrResult.modules, qrResult.modules)}</div>
+                    <div>{tx('Tartalom: {0}', qrResult.payload)}</div>
                   </div>
                 </div>
               )}
@@ -558,7 +562,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                     <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                    Dokumentum Diff Összehasonlító
+                    {tx('Dokumentum Diff Összehasonlító')}
                   </h3>
                   <button
                     type="button"
@@ -573,20 +577,20 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap shrink-0"
                   >
-                    Összevetés
+                    {tx('Összevetés')}
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <textarea
                     rows={3}
-                    aria-label="Szöveg A"
+                    aria-label={tx('Szöveg A')}
                     value={diffA}
                     onChange={(e) => setDiffA(e.target.value)}
                     className="p-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <textarea
                     rows={3}
-                    aria-label="Szöveg B"
+                    aria-label={tx('Szöveg B')}
                     value={diffB}
                     onChange={(e) => setDiffB(e.target.value)}
                     className="p-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -595,7 +599,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 {diffResult && (
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono space-y-0.5 max-h-32 overflow-y-auto">
                     <div className="text-slate-500 mb-1 tabular-nums">
-                      +{diffResult.added} hozzáadva · -{diffResult.removed} törölve · {diffResult.unchanged} változatlan
+                      {tx('+{0} hozzáadva · -{1} törölve · {2} változatlan', diffResult.added, diffResult.removed, diffResult.unchanged)}
                     </div>
                     {diffResult.lines.map((l, idx) => (
                       <div
@@ -619,17 +623,17 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
-                    aria-label="Elemző típus"
+                    aria-label={tx('Elemző típus')}
                     value={regexKind}
                     onChange={(e) => setRegexKind(e.target.value as 'regex' | 'cron')}
                     className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded"
                   >
-                    <option value="cron">Cron magyarázó</option>
-                    <option value="regex">Regex tesztelő</option>
+                    <option value="cron">{tx('Cron magyarázó')}</option>
+                    <option value="regex">{tx('Regex tesztelő')}</option>
                   </select>
                   <input
                     type="text"
-                    aria-label="Minta vagy cron kifejezés"
+                    aria-label={tx('Minta vagy cron kifejezés')}
                     value={regexPattern}
                     onChange={(e) => setRegexPattern(e.target.value)}
                     className="flex-1 min-w-[140px] px-2.5 py-1 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -637,7 +641,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   {regexKind === 'regex' && (
                     <input
                       type="text"
-                      aria-label="Teszt szöveg"
+                      aria-label={tx('Teszt szöveg')}
                       value={regexText}
                       onChange={(e) => setRegexText(e.target.value)}
                       className="flex-1 min-w-[120px] px-2.5 py-1 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -654,13 +658,13 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       const d = await r.json();
                       setRegexOut(
                         d.ok
-                          ? `${d.explanation}${d.matches?.length ? ` · Találatok: ${d.matches.join(', ')}` : ''}`
+                          ? `${d.explanation}${d.matches?.length ? ` · ${tx('Találatok:')} ${d.matches.join(', ')}` : ''}`
                           : d.error
                       );
                     }}
                     className="px-3 py-1 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
                   >
-                    Elemzés
+                    {tx('Elemzés')}
                   </button>
                 </div>
                 {regexOut && <div className="text-xs font-mono text-slate-700 dark:text-slate-300">{regexOut}</div>}
@@ -673,7 +677,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  CSV / JSON Adat Játszótér & Statisztika
+                  {tx('CSV / JSON Adat Játszótér & Statisztika')}
                 </h3>
                 <button
                   type="button"
@@ -688,12 +692,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap shrink-0"
                 >
-                  Elemzés
+                  {tx('Elemzés')}
                 </button>
               </div>
               <textarea
                 rows={4}
-                aria-label="CSV vagy JSON adat"
+                aria-label={tx('CSV vagy JSON adat')}
                 value={csvRaw}
                 onChange={(e) => setCsvRaw(e.target.value)}
                 className="w-full p-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -702,22 +706,22 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse tabular-nums font-mono">
                     <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 text-left">
-                        <th className="py-1">Oszlop</th>
-                        <th className="py-1 text-right">Min</th>
-                        <th className="py-1 text-right">Átlag</th>
-                        <th className="py-1 text-right">Max</th>
-                        <th className="py-1 text-right">Össz</th>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 text-start">
+                        <th className="py-1">{tx('Oszlop')}</th>
+                        <th className="py-1 text-end">{tx('Min')}</th>
+                        <th className="py-1 text-end">{tx('Átlag')}</th>
+                        <th className="py-1 text-end">{tx('Max')}</th>
+                        <th className="py-1 text-end">{tx('Össz')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {csvStats.map((st) => (
                         <tr key={st.column} className="border-b border-slate-100 dark:border-slate-800">
                           <td className="py-1 font-semibold">{st.column}</td>
-                          <td className="py-1 text-right">{st.min}</td>
-                          <td className="py-1 text-right">{st.avg}</td>
-                          <td className="py-1 text-right">{st.max}</td>
-                          <td className="py-1 text-right">{st.sum}</td>
+                          <td className="py-1 text-end">{st.min}</td>
+                          <td className="py-1 text-end">{st.avg}</td>
+                          <td className="py-1 text-end">{st.max}</td>
+                          <td className="py-1 text-end">{st.sum}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -729,7 +733,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Diavetítés (Slide Deck) & Mini-App Publikálás
+                  {tx('Diavetítés (Slide Deck) & Mini-App Publikálás')}
                 </h3>
                 <button
                   type="button"
@@ -741,25 +745,25 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     });
                     const d = await r.json();
                     if (d.ok && d.miniApp) {
-                      setSlideMsg(`Publikálva (${d.slideCount} dia): /apps/${d.miniApp.slug}`);
+                      setSlideMsg(tx('Publikálva ({0} dia): /apps/{1}', d.slideCount, d.miniApp.slug));
                       await onRefreshState();
                     }
                   }}
                   className="px-3 py-1 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap shrink-0"
                 >
-                  Dia Publikálása
+                  {tx('Dia Publikálása')}
                 </button>
               </div>
               <input
                 type="text"
-                aria-label="Prezentáció címe"
+                aria-label={tx('Prezentáció címe')}
                 value={slideTitle}
                 onChange={(e) => setSlideTitle(e.target.value)}
                 className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded"
               />
               <textarea
                 rows={4}
-                aria-label="Prezentáció diák"
+                aria-label={tx('Prezentáció diák')}
                 value={slideBody}
                 onChange={(e) => setSlideBody(e.target.value)}
                 className="w-full p-2 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -772,21 +776,21 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Döntési Napló & Idézetgyűjtő ({(state?.decisionLogs || []).length} / {(state?.quoteDeck || []).length})
+                {tx('Döntési Napló & Idézetgyűjtő ({0} / {1})', (state?.decisionLogs || []).length, (state?.quoteDeck || []).length)}
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                 <input
                   type="text"
                   value={decTitle}
                   onChange={(e) => setDecTitle(e.target.value)}
-                  placeholder="Döntés tárgya..."
+                  placeholder={tx('Döntés tárgya...')}
                   className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <input
                   type="text"
                   value={decChoice}
                   onChange={(e) => setDecChoice(e.target.value)}
-                  placeholder="Választott megoldás..."
+                  placeholder={tx('Választott megoldás...')}
                   className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <button
@@ -804,7 +808,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded font-medium whitespace-nowrap"
                 >
-                  + Döntés
+                  {tx('+ Döntés')}
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
@@ -812,14 +816,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="text"
                   value={quoteText}
                   onChange={(e) => setQuoteText(e.target.value)}
-                  placeholder="Idézet / gondolat..."
+                  placeholder={tx('Idézet / gondolat...')}
                   className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <input
                   type="text"
                   value={quoteAuthor}
                   onChange={(e) => setQuoteAuthor(e.target.value)}
-                  placeholder="Szerző..."
+                  placeholder={tx('Szerző...')}
                   className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <button
@@ -829,7 +833,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     await fetch('/api/v7/quotes', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ quote: quoteText, author: quoteAuthor || 'Saját' }),
+                      body: JSON.stringify({ quote: quoteText, author: quoteAuthor || tx('Saját') }),
                     });
                     setQuoteText('');
                     setQuoteAuthor('');
@@ -837,7 +841,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded font-medium whitespace-nowrap"
                 >
-                  + Idézet
+                  {tx('+ Idézet')}
                 </button>
               </div>
               <div className="space-y-1.5 max-h-36 overflow-y-auto text-xs">
@@ -851,7 +855,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 ))}
                 {(state?.quoteDeck || []).slice(0, 4).map((q) => (
                   <div key={q.id} className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded italic text-slate-700 dark:text-slate-300">
-                    „{q.quote}” — {q.author}
+                    “{q.quote}” — {q.author}
                   </div>
                 ))}
               </div>
@@ -861,7 +865,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                   <Code2 className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Árnyék-Minta Bányász, Retrospektív & Projekt Váz
+                  {tx('Árnyék-Minta Bányász, Retrospektív & Projekt Váz')}
                 </h3>
                 <div className="flex flex-wrap gap-1.5">
                   <button
@@ -873,12 +877,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       setAutonomyInsight(
                         sug.length > 0
                           ? sug.map((s) => `(${s.count}x) "${s.pattern}" → ${s.recommendedAction}`).join('\n')
-                          : `Átvizsgálva ${d.scannedEvents} esemény: még nincs ismétlődő rutin.`
+                          : tx('Átvizsgálva {0} esemény: még nincs ismétlődő rutin.', d.scannedEvents)
                       );
                     }}
                     className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Minták keresése
+                    {tx('Minták keresése')}
                   </button>
                   <button
                     type="button"
@@ -889,7 +893,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Heti Retro
+                    {tx('Heti Retro')}
                   </button>
                   <button
                     type="button"
@@ -906,7 +910,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               </div>
               <div className="flex gap-2 text-xs">
                 <select
-                  aria-label="Projekt sablon típus"
+                  aria-label={tx('Projekt sablon típus')}
                   value={scaffoldKind}
                   onChange={(e) => setScaffoldKind(e.target.value as typeof scaffoldKind)}
                   className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
@@ -918,7 +922,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 </select>
                 <input
                   type="text"
-                  aria-label="Új projekt neve"
+                  aria-label={tx('Új projekt neve')}
                   value={scaffoldName}
                   onChange={(e) => setScaffoldName(e.target.value)}
                   className="flex-1 px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
@@ -936,7 +940,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   }}
                   className="px-3 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded font-medium whitespace-nowrap"
                 >
-                  Sablon
+                  {tx('Sablon')}
                 </button>
               </div>
               {autonomyInsight && (
@@ -970,7 +974,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Globe className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  LAN Port-Térképező & UDP Peer Discovery
+                  {tx('LAN Port-Térképező & UDP Peer Discovery')}
                 </h3>
                 <button
                   type="button"
@@ -978,7 +982,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     const r = await fetch('/api/v7/net/udp-ping', { method: 'POST' });
                     const d = await r.json();
                     setSysDiagOut(
-                      `${d.note}\nHelyi IP-k: ${(d.localInterfaces || []).join(', ') || 'localhost'}\nIsmert csomópontok: ${(d.knownPeers || []).length} db`
+                      `${d.note}\n${tx('Helyi IP-k:')} ${(d.localInterfaces || []).join(', ') || 'localhost'}\n${tx('Ismert csomópontok: {0} db', (d.knownPeers || []).length)}`
                     );
                   }}
                   className="px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
@@ -1004,7 +1008,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 className="flex gap-2"
               >
                 <label htmlFor="b7-scan-host" className="sr-only">
-                  Cél IP-cím portvizsgálathoz
+                  {tx('Cél IP-cím portvizsgálathoz')}
                 </label>
                 <input
                   id="b7-scan-host"
@@ -1019,23 +1023,23 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap disabled:opacity-50"
                 >
                   <Search className="h-3.5 w-3.5" />
-                  {scanBusy ? 'Vizsgálat...' : 'Port Scan'}
+                  {scanBusy ? tx('Vizsgálat...') : tx('Port Scan')}
                 </button>
               </form>
               {portScans.length === 0 ? (
-                <p className="text-xs text-slate-500">Még nem futott portvizsgálat. Teszteld a 127.0.0.1 vagy router IP-címet.</p>
+                <p className="text-xs text-slate-500">{tx('Még nem futott portvizsgálat. Teszteld a 127.0.0.1 vagy router IP-címet.')}</p>
               ) : (
                 <div className="space-y-2 max-h-44 overflow-y-auto">
                   {portScans.slice(0, 5).map((ps) => (
                     <div key={ps.id} className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs">
                       <div className="flex justify-between font-mono text-[11px] text-slate-500 mb-1">
                         <span className="font-semibold text-slate-800 dark:text-slate-200">{ps.host}</span>
-                        <span className="tabular-nums">{new Date(ps.scannedAt).toLocaleTimeString('hu-HU')}</span>
+                        <span className="tabular-nums">{new Date(ps.scannedAt).toLocaleTimeString(intlLocale)}</span>
                       </div>
                       <div className="font-mono text-slate-700 dark:text-slate-300">
                         {ps.openPorts.length > 0
                           ? ps.openPorts.map((p) => `${p.port} (${p.service} · ${p.latencyMs}ms)`).join(' · ')
-                          : 'Nincs nyitott alap port.'}
+                          : tx('Nincs nyitott alap port.')}
                       </div>
                     </div>
                   ))}
@@ -1047,7 +1051,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Mélységi Gazdagép & Költöztetés Diagnosztika
+                {tx('Mélységi Gazdagép & Költöztetés Diagnosztika')}
               </h3>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1056,12 +1060,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     const r = await fetch('/api/v7/system/journal-anomalies');
                     const d = await r.json();
                     setSysDiagOut(
-                      `Forrás: ${d.source} (${d.linesInspected} sor)\nOOM: ${d.counts?.oom} · Error: ${d.counts?.error} · Failed: ${d.counts?.failed}\n${(d.samples || []).slice(0, 5).join('\n')}`
+                      `${tx('Forrás:')} ${d.source} (${d.linesInspected} ${tx('sor')})\nOOM: ${d.counts?.oom} · Error: ${d.counts?.error} · Failed: ${d.counts?.failed}\n${(d.samples || []).slice(0, 5).join('\n')}`
                     );
                   }}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                 >
-                  Journalctl Anomália
+                  {tx('Journalctl Anomália')}
                 </button>
                 <button
                   type="button"
@@ -1081,7 +1085,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   onClick={async () => {
                     const r = await fetch('/api/v7/system/sqlite-check', { method: 'POST' });
                     const d = await r.json();
-                    setSysDiagOut(`SQLite PRAGMA quick_check: ${d.quickCheck} (${d.ok ? 'ÉP' : 'FIGYELEM'})`);
+                    setSysDiagOut(`SQLite PRAGMA quick_check: ${d.quickCheck} (${d.ok ? tx('ÉP') : tx('FIGYELEM')})`);
                   }}
                   className="px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                 >
@@ -1104,16 +1108,16 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     const r = await fetch('/api/v7/migrate/dry-run', { method: 'POST' });
                     const d = await r.json();
                     setSysDiagOut(
-                      `Költöztető Szimuláció (Dry-Run): ${d.fileCount} fájl · becsült átviteli méret: ${d.totalMb} MB`
+                      tx('Költöztető Szimuláció (Dry-Run): {0} fájl · becsült átviteli méret: {1} MB', d.fileCount, d.totalMb)
                     );
                   }}
                   className="px-2.5 py-1.5 text-xs bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded font-medium whitespace-nowrap"
                 >
-                  Költöztető Dry-Run
+                  {tx('Költöztető Dry-Run')}
                 </button>
               </div>
               <pre className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] font-mono whitespace-pre-wrap min-h-[100px] max-h-48 overflow-y-auto">
-                {sysDiagOut || 'Válassz egy diagnosztikai ellenőrzést a fenti gombok közül.'}
+                {sysDiagOut || tx('Válassz egy diagnosztikai ellenőrzést a fenti gombok közül.')}
               </pre>
             </div>
           </div>
@@ -1124,26 +1128,26 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Repeat className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Webhook Replay Napló ({webhookHistory.length})
+                  {tx('Webhook Replay Napló ({0})', webhookHistory.length)}
                 </h3>
                 {replayMsg && <span className="text-xs font-mono text-emerald-700">{replayMsg}</span>}
               </div>
               {webhookHistory.length === 0 ? (
-                <p className="text-xs text-slate-500">Még nem érkezett webhook kérés (/hooks/:slug). Minden bejövő payload visszajátszható lesz itt.</p>
+                <p className="text-xs text-slate-500">{tx('Még nem érkezett webhook kérés (/hooks/:slug). Minden bejövő payload visszajátszható lesz itt.')}</p>
               ) : (
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
                   {webhookHistory.slice(0, 10).map((wh) => (
                     <div key={wh.id} className="p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0 truncate font-mono">
                         <span className="font-semibold">/hooks/{wh.slug}</span>
-                        <span className="text-slate-500 ml-2">· {wh.replayCount}x replay</span>
+                        <span className="text-slate-500 ms-2">· {wh.replayCount}x {tx('újrajátszás')}</span>
                       </div>
                       <button
                         type="button"
                         onClick={async () => {
                           const r = await fetch(`/api/v7/webhooks/${wh.id}/replay`, { method: 'POST' });
                           const d = await r.json();
-                          setReplayMsg(d.ok ? 'Újrajátszva' : d.error);
+                          setReplayMsg(d.ok ? tx('Újrajátszva') : d.error);
                           await onRefreshState();
                         }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-300 dark:border-slate-700 rounded hover:bg-white dark:hover:bg-slate-800 whitespace-nowrap shrink-0"
@@ -1159,18 +1163,18 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
 
             <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Lejáró LAN Drop Letöltési Token (/drop/:token)
+                {tx('Lejáró LAN Drop Letöltési Token (/drop/:token)')}
               </h3>
               <div className="flex gap-2">
                 <label htmlFor="b7-drop-file" className="sr-only">
-                  LAN Drop fájlnév
+                  {tx('LAN Drop fájlnév')}
                 </label>
                 <input
                   id="b7-drop-file"
                   type="text"
                   value={dropFileName}
                   onChange={(e) => setDropFileName(e.target.value)}
-                  placeholder="Fájlnév a lan-drop/ mappából..."
+                  placeholder={tx('Fájlnév a lan-drop/ mappából...')}
                   className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <button
@@ -1182,12 +1186,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       body: JSON.stringify({ fileName: dropFileName, ttlMinutes: 60, maxDownloads: 5 }),
                     });
                     const d = await r.json();
-                    setDropLinkOut(d.ok ? `Megosztási link: ${d.downloadPath}` : `Hiba: ${d.error}`);
+                    setDropLinkOut(d.ok ? tx('Megosztási link: {0}', d.downloadPath) : `${tx('Hiba:')} ${d.error}`);
                     await onRefreshState();
                   }}
                   className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap shrink-0"
                 >
-                  Link generálása
+                  {tx('Link generálása')}
                 </button>
               </div>
               {dropLinkOut && <div className="text-xs font-mono text-slate-700 dark:text-slate-300">{dropLinkOut}</div>}
@@ -1217,20 +1221,20 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Coins className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Élő Deviza Árfolyamok
+                  {tx('Élő Deviza Árfolyamok')}
                 </h3>
                 <button
                   type="button"
                   onClick={async () => {
                     const r = await fetch('/api/v7/finance/rates/refresh', { method: 'POST' });
                     const d = await r.json();
-                    setRateMsg(d.ok ? `1 EUR = ${d.eurToHuf} HUF · 1 USD = ${d.usdToHuf} HUF` : 'Frissítve');
+                    setRateMsg(d.ok ? `1 EUR = ${d.eurToHuf} HUF · 1 USD = ${d.usdToHuf} HUF` : tx('Frissítve'));
                     await onRefreshState();
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                 >
                   <RefreshCw className="h-3 w-3" />
-                  Frissítés
+                  {tx('Frissítés')}
                 </button>
               </div>
               {rates ? (
@@ -1247,19 +1251,19 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">Kattints a Frissítésre az élő EKB árfolyamok lekéréséhez.</p>
+                <p className="text-xs text-slate-500">{tx('Kattints a Frissítésre az élő EKB árfolyamok lekéréséhez.')}</p>
               )}
               {rateMsg && <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400">{rateMsg}</div>}
             </div>
 
             <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Havi Fix Kiadások & Hátralévő
+                {tx('Havi Fix Kiadások & Hátralévő')}
               </h3>
               <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
-                Össz: {fixedTotal.toLocaleString('hu-HU')} · Fizetve: {fixedPaid.toLocaleString('hu-HU')} · Hátralék:{' '}
+                {tx('Össz:')} {fixedTotal.toLocaleString(intlLocale)} · {tx('Fizetve:')} {fixedPaid.toLocaleString(intlLocale)} · {tx('Hátralék:')}{' '}
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
-                  {fixedRemaining.toLocaleString('hu-HU')}
+                  {fixedRemaining.toLocaleString(intlLocale)}
                 </span>
               </div>
               <div className="flex gap-2 text-xs">
@@ -1267,14 +1271,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                   type="text"
                   value={fixName}
                   onChange={(e) => setFixName(e.target.value)}
-                  placeholder="Tétel (pl. Rezsi)"
+                  placeholder={tx('Tétel (pl. Rezsi)')}
                   className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <input
                   type="number"
                   value={fixAmount}
                   onChange={(e) => setFixAmount(e.target.value)}
-                  placeholder="Összeg"
+                  placeholder={tx('Összeg')}
                   className="w-24 px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <button
@@ -1313,7 +1317,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                       <span className={f.paidThisMonth ? 'line-through text-slate-400' : ''}>{f.name}</span>
                     </span>
                     <span className="font-mono tabular-nums shrink-0">
-                      {f.amount.toLocaleString('hu-HU')} {f.currency}
+                      {f.amount.toLocaleString(intlLocale)} {f.currency}
                     </span>
                   </label>
                 ))}
@@ -1323,12 +1327,12 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
             <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Car className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                Üzemanyag Fogyasztás (l/100km)
+                {tx('Üzemanyag Fogyasztás (l/100km)')}
               </h3>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <input
                   type="number"
-                  aria-label="Megtett km"
+                  aria-label={tx('Megtett km')}
                   value={fuelKm}
                   onChange={(e) => setFuelKm(e.target.value)}
                   placeholder="km"
@@ -1337,18 +1341,18 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 <input
                   type="number"
                   step="0.1"
-                  aria-label="Tankolt liter"
+                  aria-label={tx('Tankolt liter')}
                   value={fuelLiters}
                   onChange={(e) => setFuelLiters(e.target.value)}
-                  placeholder="liter"
+                  placeholder={tx('liter')}
                   className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
                 />
                 <input
                   type="number"
-                  aria-label="Összeg HUF"
+                  aria-label={tx('Összeg HUF')}
                   value={fuelCost}
                   onChange={(e) => setFuelCost(e.target.value)}
-                  placeholder="Ft"
+                  placeholder="HUF"
                   className="px-2 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
                 />
               </div>
@@ -1368,13 +1372,13 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                 }}
                 className="w-full py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded"
               >
-                Tankolás Naplózása
+                {tx('Tankolás Naplózása')}
               </button>
               <div className="space-y-1 max-h-28 overflow-y-auto text-xs font-mono tabular-nums">
                 {(state?.fuelLogs || []).slice(0, 4).map((fl) => (
                   <div key={fl.id} className="p-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded flex justify-between">
                     <span>{fl.consumptionPer100Km} l/100km</span>
-                    <span>{fl.costPerKm} Ft/km</span>
+                    <span>{fl.costPerKm} HUF/km</span>
                   </div>
                 ))}
               </div>
@@ -1387,14 +1391,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Pill className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Napi Vitamin / Gyógyszer Check-in
+                  {tx('Napi Vitamin / Gyógyszer Check-in')}
                 </h3>
                 <div className="flex gap-2 text-xs">
                   <input
                     type="text"
                     value={medName}
                     onChange={(e) => setMedName(e.target.value)}
-                    placeholder="pl. D3-vitamin"
+                    placeholder={tx('pl. D3-vitamin')}
                     className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <input
@@ -1445,21 +1449,21 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Kölcsönadott Tárgyak & Megtakarítási Célok
+                  {tx('Kölcsönadott Tárgyak & Megtakarítási Célok')}
                 </h3>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <input
                     type="text"
                     value={lentItemName}
                     onChange={(e) => setLentItemName(e.target.value)}
-                    placeholder="Kölcsön tárgy..."
+                    placeholder={tx('Kölcsön tárgy...')}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <input
                     type="text"
                     value={lentPerson}
                     onChange={(e) => setLentPerson(e.target.value)}
-                    placeholder="Kinek?"
+                    placeholder={tx('Kinek?')}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <button
@@ -1477,7 +1481,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   >
-                    + Kölcsön
+                    {tx('+ Kölcsön')}
                   </button>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs">
@@ -1485,14 +1489,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={savTitle}
                     onChange={(e) => setSavTitle(e.target.value)}
-                    placeholder="Megtakarítás cél..."
+                    placeholder={tx('Megtakarítás cél...')}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <input
                     type="number"
                     value={savTarget}
                     onChange={(e) => setSavTarget(e.target.value)}
-                    placeholder="Célösszeg"
+                    placeholder={tx('Célösszeg')}
                     className="px-2.5 py-1.5 font-mono border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <button
@@ -1510,7 +1514,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   >
-                    + Cél
+                    {tx('+ Cél')}
                   </button>
                 </div>
                 <div className="space-y-1 text-xs">
@@ -1527,13 +1531,13 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                         }}
                         className="text-[11px] underline text-slate-600"
                       >
-                        {li.returned ? 'Visszavéve' : 'Visszakaptam'}
+                        {li.returned ? tx('Visszavéve') : tx('Visszakaptam')}
                       </button>
                     </div>
                   ))}
                   {(state?.savingsGoals || []).map((sg) => (
                     <div key={sg.id} className="flex items-center justify-between p-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded font-mono tabular-nums">
-                      <span>{sg.title}: {sg.currentAmount.toLocaleString('hu-HU')} / {sg.targetAmount.toLocaleString('hu-HU')} {sg.currency}</span>
+                      <span>{sg.title}: {sg.currentAmount.toLocaleString(intlLocale)} / {sg.targetAmount.toLocaleString(intlLocale)} {sg.currency}</span>
                       <button
                         type="button"
                         onClick={async () => {
@@ -1546,7 +1550,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                         }}
                         className="px-2 py-0.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded text-[11px]"
                       >
-                        +10e
+                        +10k
                       </button>
                     </div>
                   ))}
@@ -1559,14 +1563,14 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Luggage className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Utazás Tervező & Könyv/Film Backlog
+                  {tx('Utazás Tervező & Könyv/Film Backlog')}
                 </h3>
                 <div className="flex gap-2 text-xs">
                   <input
                     type="text"
                     value={tripDest}
                     onChange={(e) => setTripDest(e.target.value)}
-                    placeholder="Úticél (pl. Bécs)..."
+                    placeholder={tx('Úticél (pl. Bécs)...')}
                     className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <button
@@ -1583,26 +1587,26 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap"
                   >
-                    + Utazás
+                    {tx('+ Utazás')}
                   </button>
                 </div>
                 <div className="flex gap-2 text-xs">
                   <select
-                    aria-label="Média típus"
+                    aria-label={tx('Média típus')}
                     value={mediaKind}
                     onChange={(e) => setMediaKind(e.target.value as MediaBacklogItem['kind'])}
                     className="px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   >
-                    <option value="book">Könyv</option>
-                    <option value="movie">Film</option>
-                    <option value="series">Sorozat</option>
-                    <option value="course">Kurzus</option>
+                    <option value="book">{tx('Könyv')}</option>
+                    <option value="movie">{tx('Film')}</option>
+                    <option value="series">{tx('Sorozat')}</option>
+                    <option value="course">{tx('Kurzus')}</option>
                   </select>
                   <input
                     type="text"
                     value={mediaTitle}
                     onChange={(e) => setMediaTitle(e.target.value)}
-                    placeholder="Könyv / film címe..."
+                    placeholder={tx('Könyv / film címe...')}
                     className="flex-1 px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <button
@@ -1619,7 +1623,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded whitespace-nowrap"
                   >
-                    + Lista
+                    {tx('+ Lista')}
                   </button>
                 </div>
                 {(state?.tripPlans || []).slice(0, 2).map((trp) => (
@@ -1647,32 +1651,32 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <Briefcase className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                  Magyar Hivatalos Levél / Kérelem Generátor
+                  {tx('Magyar Hivatalos Levél / Kérelem Generátor')}
                 </h3>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <select
-                    aria-label="Levél típusa"
+                    aria-label={tx('Levél típusa')}
                     value={letterKind}
                     onChange={(e) => setLetterKind(e.target.value as typeof letterKind)}
                     className="px-2 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   >
-                    <option value="reklamacio">Reklamáció</option>
-                    <option value="felmondas">Felmondás</option>
-                    <option value="kerelem">Kérelem</option>
-                    <option value="meghatalmazas">Meghatalmazás</option>
+                    <option value="reklamacio">{tx('Reklamáció')}</option>
+                    <option value="felmondas">{tx('Felmondás')}</option>
+                    <option value="kerelem">{tx('Kérelem')}</option>
+                    <option value="meghatalmazas">{tx('Meghatalmazás')}</option>
                   </select>
                   <input
                     type="text"
                     value={letterRecipient}
                     onChange={(e) => setLetterRecipient(e.target.value)}
-                    placeholder="Címzett..."
+                    placeholder={tx('Címzett...')}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <input
                     type="text"
                     value={letterSubject}
                     onChange={(e) => setLetterSubject(e.target.value)}
-                    placeholder="Tárgy..."
+                    placeholder={tx('Tárgy...')}
                     className="px-2.5 py-1.5 border border-slate-300 dark:border-slate-700 rounded"
                   />
                 </div>
@@ -1681,7 +1685,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     type="text"
                     value={letterPoints}
                     onChange={(e) => setLetterPoints(e.target.value)}
-                    placeholder="Fő indokok / szerződésszám..."
+                    placeholder={tx('Fő indokok / szerződésszám...')}
                     className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-700 rounded"
                   />
                   <button
@@ -1695,7 +1699,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                           recipientName: letterRecipient,
                           subject: letterSubject,
                           keyPoints: letterPoints,
-                          senderName: state?.settings.instanceName || 'Feladó',
+                          senderName: state?.settings.instanceName || tx('Feladó'),
                         }),
                       });
                       const d = await r.json();
@@ -1703,7 +1707,7 @@ export const Batch7UniverseLabPanel: React.FC<Props> = ({ state, onRefreshState 
                     }}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded whitespace-nowrap"
                   >
-                    Generálás
+                    {tx('Generálás')}
                   </button>
                 </div>
                 {letterResult && (

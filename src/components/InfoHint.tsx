@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import { useLocale } from '../locales/translations';
 
 interface InfoHintProps {
   label: string;
@@ -20,6 +21,7 @@ export const InfoHint: React.FC<InfoHintProps> = ({
   size = 'sm',
   className = '',
 }) => {
+  const { t } = useLocale();
   const hintText = description ?? text ?? '';
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,7 +59,7 @@ export const InfoHint: React.FC<InfoHintProps> = ({
     >
       <button
         type="button"
-        aria-label={`Mi ez? ${label}`}
+        aria-label={`${t('infoHintPrefix')} ${label}`}
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
         title={`${label}: ${hintText}`}
@@ -84,8 +86,8 @@ export const InfoHint: React.FC<InfoHintProps> = ({
           id={popoverId}
           role="dialog"
           aria-label={label}
-          className={`absolute top-full mt-2 z-50 w-64 sm:w-72 p-3 rounded-xl border shadow-2xl text-left ${
-            align === 'right' ? 'right-0' : 'left-0'
+          className={`absolute top-full mt-2 z-50 w-64 sm:w-72 p-3 rounded-xl border shadow-2xl text-start ${
+            align === 'right' ? 'end-0' : 'start-0'
           } ${
             isLight
               ? 'bg-white border-slate-200 text-slate-800 shadow-slate-900/10'
@@ -102,7 +104,7 @@ export const InfoHint: React.FC<InfoHintProps> = ({
             </span>
             <button
               type="button"
-              aria-label="Bezárás"
+              aria-label={t('closeBtn')}
               onClick={() => setOpen(false)}
               className={`p-0.5 rounded transition-colors shrink-0 ${
                 isLight ? 'text-slate-400 hover:text-slate-700' : 'text-slate-500 hover:text-white'

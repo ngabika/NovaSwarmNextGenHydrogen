@@ -26,6 +26,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import type { NovaSwarmState, WorkflowStep } from '../../shared/types';
+import { useLocale } from '../locales/translations';
 import { InfoHint } from './InfoHint';
 
 const Batch3LifePortalPanel = lazy(() =>
@@ -58,6 +59,7 @@ type EcoTab =
   | 'bundle';
 
 export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
+  const { tx, intlLocale } = useLocale();
   const [tab, setTab] = useState<EcoTab>('workflows');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
@@ -77,7 +79,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
   const [whSlug, setWhSlug] = useState('');
   const [whName, setWhName] = useState('');
   const [whSecret, setWhSecret] = useState('');
-  const [whTpl, setWhTpl] = useState('Bejövő webhook ({{slug}}): {{payload}}');
+  const [whTpl, setWhTpl] = useState(() => tx('Bejövő webhook ({{slug}}): {{payload}}'));
 
   // RSS (Ú6)
   const [rssName, setRssName] = useState('');
@@ -119,7 +121,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
   // Habits & Focus (Ú24)
   const [habName, setHabName] = useState('');
   const [habTarget, setHabTarget] = useState(5);
-  const [focusLabel, setFocusLabel] = useState('Mély fókusz blokk');
+  const [focusLabel, setFocusLabel] = useState(() => tx('Mély fókusz blokk'));
   const [focusMins, setFocusMins] = useState(25);
 
   // Expenses (Ú25)
@@ -131,7 +133,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
   // Watchdog & Media (Ú36, Ú43, Ú44)
   const [wpName, setWpName] = useState('');
   const [wpUrl, setWpUrl] = useState('');
-  const [audioTitle, setAudioTitle] = useState('Hangjegyzet');
+  const [audioTitle, setAudioTitle] = useState(() => tx('Hangjegyzet'));
   const [audioSaveVault, setAudioSaveVault] = useState(true);
   const [audioResult, setAudioResult] = useState<{ transcript: string; engine: string; summaryMarkdown: string; obsidianPath?: string } | null>(null);
   const [audioBusy, setAudioBusy] = useState(false);
@@ -149,10 +151,10 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
   const [jrNotes, setJrNotes] = useState('');
 
   // Shared Lists & Subscriptions (Ú51, Ú52)
-  const [listName, setListName] = useState('Bevásárlólista');
+  const [listName, setListName] = useState(() => tx('Bevásárlólista'));
   const [listItemText, setListItemText] = useState('');
   const [subName, setSubName] = useState('');
-  const [subCategory, setSubCategory] = useState('Szoftver');
+  const [subCategory, setSubCategory] = useState(() => tx('Szoftver'));
   const [subAmount, setSubAmount] = useState('');
   const [subCurrency, setSubCurrency] = useState('HUF');
   const [subCycle, setSubCycle] = useState<'monthly' | 'yearly' | 'once'>('monthly');
@@ -179,45 +181,45 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
   };
 
   const tabs: Array<{ id: EcoTab; label: string; icon: React.ReactNode; hint: string }> = [
-    { id: 'workflows', label: 'Automatizmusok', icon: <Workflow className="h-3.5 w-3.5" />, hint: '„Ha ez történik, akkor csináld azt” szabályok: időzítőre vagy eseményre automatikus feladatok indítása.' },
-    { id: 'webhooks', label: 'Külső Értesítők', icon: <Webhook className="h-3.5 w-3.5" />, hint: 'Egyedi webcímek (webhookok), amelyeken külső appok értesíteni tudják a rendszeredet.' },
-    { id: 'rss', label: 'Hírek & Briefing', icon: <Rss className="h-3.5 w-3.5" />, hint: 'Kedvenc híroldalaid követése és napi összefoglaló készítése a friss cikkekből.' },
-    { id: 'email', label: 'Email Postafiók', icon: <Mail className="h-3.5 w-3.5" />, hint: 'Bejövő levelek olvasása és válaszok küldése a saját IMAP/SMTP postafiókodon keresztül.' },
-    { id: 'calendar', label: 'Naptár', icon: <Calendar className="h-3.5 w-3.5" />, hint: 'Események, határidők és emlékeztetők kezelése vagy .ics naptárfájl beolvasása.' },
-    { id: 'smarthome', label: 'Okosotthon', icon: <Home className="h-3.5 w-3.5" />, hint: 'Home Assistant és MQTT eszközök (lámpák, szenzorok, kapcsolók) állapotának lekérdezése és vezérlése.' },
-    { id: 'repos', label: 'Kódfigyelő', icon: <GitBranch className="h-3.5 w-3.5" />, hint: 'GitHub projektek követése, hogy azonnal lásd az új változtatásokat.' },
-    { id: 'watchdog_media', label: 'Weboldal-figyelő & Hang/YouTube', icon: <Eye className="h-3.5 w-3.5" />, hint: 'Weboldalak változásainak figyelése, hangjegyzetek szöveggé alakítása és YouTube videók összegzése.' },
-    { id: 'journal', label: 'Napi Napló', icon: <BookOpen className="h-3.5 w-3.5" />, hint: 'Hangulat, energiaszint és napi gondolatok feljegyzése.' },
-    { id: 'lists_subs', label: 'Bevásárlólista & Előfizetések', icon: <ListChecks className="h-3.5 w-3.5" />, hint: 'Közös listák (pl. bevásárlás) és havi előfizetések, lejárati határidők nyomon követése.' },
-    { id: 'habits', label: 'Szokások & Fókusz', icon: <Timer className="h-3.5 w-3.5" />, hint: 'Napi jó szokások pipálása és fókuszidőzítő (Pomodoro) elindítása.' },
-    { id: 'expenses', label: 'Kiadások & CSV', icon: <Wallet className="h-3.5 w-3.5" />, hint: 'Napi költések rögzítése vagy banki CSV kivonat gyors összesítése.' },
-    { id: 'life_portal', label: 'Ismerősök, Csomagok & Valuta', icon: <Package className="h-3.5 w-3.5" />, hint: 'Személyes névjegyek, csomagkövetés, heti étrend, devizaváltó és nyilvános megosztási linkek.' },
-    { id: 'life_os_b4', label: 'Okmányszéf, Árfigyelő & Receptek', icon: <CheckCircle2 className="h-3.5 w-3.5" />, hint: 'Garanciák és iratok lejárati figyelője, webshop árfigyelés, otthoni hozzávalókból receptötletek és céltervező.' },
-    { id: 'bundle', label: 'Adatmentés Export/Import', icon: <Download className="h-3.5 w-3.5" />, hint: 'Beállítások és adatok biztonságos (jelszavak és kulcsok nélküli) mentése vagy áttöltése fájlba.' },
+    { id: 'workflows', label: tx('Automatizmusok'), icon: <Workflow className="h-3.5 w-3.5" />, hint: tx('„Ha ez történik, akkor csináld azt” szabályok: időzítőre vagy eseményre automatikus feladatok indítása.') },
+    { id: 'webhooks', label: tx('Külső Értesítők'), icon: <Webhook className="h-3.5 w-3.5" />, hint: tx('Egyedi webcímek (webhookok), amelyeken külső appok értesíteni tudják a rendszeredet.') },
+    { id: 'rss', label: tx('Hírek & Briefing'), icon: <Rss className="h-3.5 w-3.5" />, hint: tx('Kedvenc híroldalaid követése és napi összefoglaló készítése a friss cikkekből.') },
+    { id: 'email', label: tx('Email Postafiók'), icon: <Mail className="h-3.5 w-3.5" />, hint: tx('Bejövő levelek olvasása és válaszok küldése a saját IMAP/SMTP postafiókodon keresztül.') },
+    { id: 'calendar', label: tx('Naptár'), icon: <Calendar className="h-3.5 w-3.5" />, hint: tx('Események, határidők és emlékeztetők kezelése vagy .ics naptárfájl beolvasása.') },
+    { id: 'smarthome', label: tx('Okosotthon'), icon: <Home className="h-3.5 w-3.5" />, hint: tx('Home Assistant és MQTT eszközök (lámpák, szenzorok, kapcsolók) állapotának lekérdezése és vezérlése.') },
+    { id: 'repos', label: tx('Kódfigyelő'), icon: <GitBranch className="h-3.5 w-3.5" />, hint: tx('GitHub projektek követése, hogy azonnal lásd az új változtatásokat.') },
+    { id: 'watchdog_media', label: tx('Weboldal-figyelő & Hang/YouTube'), icon: <Eye className="h-3.5 w-3.5" />, hint: tx('Weboldalak változásainak figyelése, hangjegyzetek szöveggé alakítása és YouTube videók összegzése.') },
+    { id: 'journal', label: tx('Napi Napló'), icon: <BookOpen className="h-3.5 w-3.5" />, hint: tx('Hangulat, energiaszint és napi gondolatok feljegyzése.') },
+    { id: 'lists_subs', label: tx('Bevásárlólista & Előfizetések'), icon: <ListChecks className="h-3.5 w-3.5" />, hint: tx('Közös listák (pl. bevásárlás) és havi előfizetések, lejárati határidők nyomon követése.') },
+    { id: 'habits', label: tx('Szokások & Fókusz'), icon: <Timer className="h-3.5 w-3.5" />, hint: tx('Napi jó szokások pipálása és fókuszidőzítő (Pomodoro) elindítása.') },
+    { id: 'expenses', label: tx('Kiadások & CSV'), icon: <Wallet className="h-3.5 w-3.5" />, hint: tx('Napi költések rögzítése vagy banki CSV kivonat gyors összesítése.') },
+    { id: 'life_portal', label: tx('Ismerősök, Csomagok & Valuta'), icon: <Package className="h-3.5 w-3.5" />, hint: tx('Személyes névjegyek, csomagkövetés, heti étrend, devizaváltó és nyilvános megosztási linkek.') },
+    { id: 'life_os_b4', label: tx('Okmányszéf, Árfigyelő & Receptek'), icon: <CheckCircle2 className="h-3.5 w-3.5" />, hint: tx('Garanciák és iratok lejárati figyelője, webshop árfigyelés, otthoni hozzávalókból receptötletek és céltervező.') },
+    { id: 'bundle', label: tx('Adatmentés Export/Import'), icon: <Download className="h-3.5 w-3.5" />, hint: tx('Beállítások és adatok biztonságos (jelszavak és kulcsok nélküli) mentése vagy áttöltése fájlba.') },
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-1.5 bg-white border border-slate-200 rounded-xl p-2">
-        {tabs.map((t) => (
-          <div key={t.id} className="inline-flex items-center gap-0.5">
+        {tabs.map((tabItem) => (
+          <div key={tabItem.id} className="inline-flex items-center gap-0.5">
             <button
               type="button"
               onClick={() => {
-                setTab(t.id);
+                setTab(tabItem.id);
                 setStatusMsg(null);
-                if (t.id === 'lists_subs') {
+                if (tabItem.id === 'lists_subs') {
                   void loadSubSummary();
                 }
               }}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-                tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                tab === tabItem.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              {t.icon}
-              {t.label}
+              {tabItem.icon}
+              {tabItem.label}
             </button>
-            <InfoHint theme="light" label={t.label} description={t.hint} />
+            <InfoHint theme="light" label={tabItem.label} description={tabItem.hint} />
           </div>
         ))}
       </div>
@@ -229,18 +231,18 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'workflows' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-slate-900">Automatizált Munkafolyamatok (Trigger → Feltétel → Többlépcsős Művelet)</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('Automatizált Munkafolyamatok (Trigger → Feltétel → Többlépcsős Művelet)')}</h2>
             <button
               type="button"
               onClick={async () => {
                 const r = await fetch('/api/smarthome/ha/evaluate', { method: 'POST' });
                 const d = (await r.json()) as { triggered?: number };
-                setStatusMsg(`Home Assistant trigger kiértékelés kész: ${d.triggered ?? 0} folyamat indult.`);
+                setStatusMsg(tx('Home Assistant trigger kiértékelés kész: {0} folyamat indult.', d.triggered ?? 0));
                 await onRefreshState();
               }}
               className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
-              HA Trigger Kiértékelés
+              {tx('HA Trigger Kiértékelés')}
             </button>
           </div>
           <form
@@ -271,7 +273,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               type="text"
               value={wfName}
               onChange={(e) => setWfName(e.target.value)}
-              placeholder="Munkafolyamat neve"
+              placeholder={tx('Munkafolyamat neve')}
               className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <select
@@ -279,18 +281,18 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               onChange={(e) => setWfTrigger(e.target.value as typeof wfTrigger)}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
             >
-              <option value="manual">Manuális</option>
-              <option value="cron">Időzített (perc)</option>
-              <option value="webhook">Webhook</option>
-              <option value="uptime_down">Uptime hiba</option>
-              <option value="feed_item">Új RSS hír</option>
-              <option value="ha_state">Home Assistant állapot</option>
+              <option value="manual">{tx('Manuális')}</option>
+              <option value="cron">{tx('Időzített (perc)')}</option>
+              <option value="webhook">{tx('Webhook')}</option>
+              <option value="uptime_down">{tx('Uptime hiba')}</option>
+              <option value="feed_item">{tx('Új RSS hír')}</option>
+              <option value="ha_state">{tx('Home Assistant állapot')}</option>
             </select>
             <input
               type="text"
               value={wfTrigCfg}
               onChange={(e) => setWfTrigCfg(e.target.value)}
-              placeholder={wfTrigger === 'ha_state' ? 'pl. sensor.temp>28' : 'Intervallum (perc)'}
+              placeholder={wfTrigger === 'ha_state' ? tx('pl. sensor.temp>28') : tx('Intervallum (perc)')}
               className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
             />
             <select
@@ -298,25 +300,25 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               onChange={(e) => setWfAction(e.target.value as typeof wfAction)}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
             >
-              <option value="agent_prompt">Ágens futtatás</option>
-              <option value="kanban_create">Kanban kártya</option>
-              <option value="notify">Telegram értesítés</option>
+              <option value="agent_prompt">{tx('Ágens futtatás')}</option>
+              <option value="kanban_create">{tx('Kanban kártya')}</option>
+              <option value="notify">{tx('Telegram értesítés')}</option>
             </select>
             <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">
-              + Létrehozás
+              {tx('+ Létrehozás')}
             </button>
             <input
               type="text"
               value={wfCond}
               onChange={(e) => setWfCond(e.target.value)}
-              placeholder="Feltétel kulcsszó (opcionális)"
+              placeholder={tx('Feltétel kulcsszó (opcionális)')}
               className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-slate-200 rounded"
             />
             <input
               type="text"
               value={wfPayload}
               onChange={(e) => setWfPayload(e.target.value)}
-              placeholder="Prompt / Üzenet ({{payload}} behelyettesítéssel)..."
+              placeholder={tx('Prompt / Üzenet ({{payload}} behelyettesítéssel)...')}
               className="sm:col-span-4 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
           </form>
@@ -324,7 +326,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
           {/* M51 Multi-step sequential workflow pipeline builder */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
             <div className="text-xs font-semibold text-slate-800">
-              Többlépcsős Munkafolyamat Lánc ({wfSteps.length} lépés · opcionális, {'{{prev}}'} továbbadással)
+              {tx('Többlépcsős Munkafolyamat Lánc ({0} lépés · opcionális, {{prev}} továbbadással)', wfSteps.length)}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
               <select
@@ -332,24 +334,24 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 onChange={(e) => setStepType(e.target.value as WorkflowStep['type'])}
                 className="px-2 py-1.5 text-xs border border-slate-300 rounded bg-white"
               >
-                <option value="web_search">Web Keresés</option>
-                <option value="http_call">HTTP Hívás</option>
-                <option value="agent_prompt">Ágens Prompt</option>
-                <option value="kanban_create">Kanban Létrehozás</option>
-                <option value="notify">Telegram Értesítés</option>
+                <option value="web_search">{tx('Web Keresés')}</option>
+                <option value="http_call">{tx('HTTP Hívás')}</option>
+                <option value="agent_prompt">{tx('Ágens Prompt')}</option>
+                <option value="kanban_create">{tx('Kanban Létrehozás')}</option>
+                <option value="notify">{tx('Telegram Értesítés')}</option>
               </select>
               <input
                 type="text"
                 value={stepTarget}
                 onChange={(e) => setStepTarget(e.target.value)}
-                placeholder="Cél (ágens ID / URL / opc.)"
+                placeholder={tx('Cél (ágens ID / URL / opc.)')}
                 className="px-2 py-1.5 text-xs font-mono border border-slate-300 rounded"
               />
               <input
                 type="text"
                 value={stepPayload}
                 onChange={(e) => setStepPayload(e.target.value)}
-                placeholder="Lépés tartalma ({{prev}} / {{payload}})..."
+                placeholder={tx('Lépés tartalma ({{prev}} / {{payload}})...')}
                 className="sm:col-span-3 px-2 py-1.5 text-xs border border-slate-300 rounded"
               />
               <button
@@ -362,7 +364,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 }}
                 className="px-3 py-1.5 text-xs font-medium border border-slate-300 bg-white rounded hover:bg-slate-100 whitespace-nowrap shrink-0"
               >
-                + Lépés
+                {tx('+ Lépés')}
               </button>
             </div>
             {wfSteps.length > 0 && (
@@ -387,16 +389,16 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
 
           <div className="space-y-2">
             {state.workflows.length === 0 ? (
-              <p className="text-xs text-slate-500">Nincs még felvett munkafolyamat.</p>
+              <p className="text-xs text-slate-500">{tx('Nincs még felvett munkafolyamat.')}</p>
             ) : (
               state.workflows.map((wf) => (
                 <div key={wf.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div>
                     <div className="font-semibold text-slate-900">
-                      {wf.name} · <span className="font-mono text-slate-600">{wf.triggerType}{wf.triggerConfig ? `(${wf.triggerConfig})` : ''} → {wf.steps?.length ? `${wf.steps.length} lépéses lánc` : wf.actionType}</span>
+                      {wf.name} · <span className="font-mono text-slate-600">{wf.triggerType}{wf.triggerConfig ? `(${wf.triggerConfig})` : ''} → {wf.steps?.length ? tx('{0} lépéses lánc', wf.steps.length) : wf.actionType}</span>
                     </div>
                     <div className="text-[11px] font-mono tabular-nums text-slate-500">
-                      Futások: {wf.runCount} · Utolsó: {wf.lastStatus || 'még nem futott'}
+                      {tx('Futások:')} {wf.runCount} · {tx('Utolsó:')} {wf.lastStatus || tx('még nem futott')}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -406,16 +408,16 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                         const r = await fetch(`/api/workflows/${wf.id}/run`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ payload: 'Manuális tesztindítás' }),
+                          body: JSON.stringify({ payload: tx('Manuális tesztindítás') }),
                         });
                         const d = (await r.json()) as { status?: string; output?: string };
-                        setStatusMsg(`Workflow eredmény: ${d.status} — ${d.output || ''}`);
+                        setStatusMsg(tx('Workflow eredmény: {0} — {1}', d.status || '', d.output || ''));
                         await onRefreshState();
                       }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
                     >
                       <Play className="h-3 w-3" />
-                      Futtatás
+                      {tx('Futtatás')}
                     </button>
                     <button
                       type="button"
@@ -437,7 +439,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
 
       {tab === 'webhooks' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">Egyéni Bejövő Webhookok (/hooks/:slug)</h2>
+          <h2 className="text-base font-semibold text-slate-900">{tx('Egyéni Bejövő Webhookok (/hooks/:slug)')}</h2>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -458,14 +460,14 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               type="text"
               value={whSlug}
               onChange={(e) => setWhSlug(e.target.value)}
-              placeholder="slug (pl. github-push)"
+              placeholder={tx('slug (pl. github-push)')}
               className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded"
             />
             <input
               type="text"
               value={whName}
               onChange={(e) => setWhName(e.target.value)}
-              placeholder="Webhook neve"
+              placeholder={tx('Webhook neve')}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <input
@@ -476,7 +478,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">
-              + Webhook felvétel
+              {tx('+ Webhook felvétel')}
             </button>
             <input
               type="text"
@@ -491,7 +493,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               <div key={h.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
                 <div>
                   <div className="font-semibold">{h.name} · <span className="font-mono">{window.location.origin}/hooks/{h.slug}</span></div>
-                  <div className="font-mono text-[11px] text-slate-500">Hívások: {h.hitCount} · Titkos kulcs: {h.hasSecret ? 'Beállítva' : 'Nincs'}</div>
+                  <div className="font-mono text-[11px] text-slate-500">{tx('Hívások:')} {h.hitCount} · {tx('Titkos kulcs:')} {h.hasSecret ? tx('Beállítva') : tx('Nincs')}</div>
                 </div>
                 <button
                   type="button"
@@ -512,7 +514,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'rss' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-slate-900">RSS / Atom Hírfigyelő & Napi Briefing</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('RSS / Atom Hírfigyelő & Napi Briefing')}</h2>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -523,7 +525,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Frissítés
+                {tx('Frissítés')}
               </button>
               <button
                 type="button"
@@ -534,7 +536,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 }}
                 className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg"
               >
-                AI Briefing Generálása
+                {tx('AI Briefing Generálása')}
               </button>
             </div>
           </div>
@@ -558,7 +560,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               type="text"
               value={rssName}
               onChange={(e) => setRssName(e.target.value)}
-              placeholder="Feed neve"
+              placeholder={tx('Feed neve')}
               className="w-44 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <input
@@ -569,7 +571,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
             />
             <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">
-              + Feed
+              {tx('+ Feed')}
             </button>
           </form>
 
@@ -594,14 +596,14 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'email' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">IMAP Beállítás & Beérkező E-mailek</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('IMAP Beállítás & Beérkező E-mailek')}</h2>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <input type="text" value={emImapHost} onChange={(e) => setEmImapHost(e.target.value)} placeholder="IMAP host (pl. imap.gmail.com)" className="px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={emImapHost} onChange={(e) => setEmImapHost(e.target.value)} placeholder={tx('IMAP host (pl. imap.gmail.com)')} className="px-2.5 py-1.5 border border-slate-300 rounded" />
               <input type="number" value={emImapPort} onChange={(e) => setEmImapPort(Number(e.target.value))} placeholder="993" className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-              <input type="text" value={emSmtpHost} onChange={(e) => setEmSmtpHost(e.target.value)} placeholder="SMTP host (pl. smtp.gmail.com)" className="px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={emSmtpHost} onChange={(e) => setEmSmtpHost(e.target.value)} placeholder={tx('SMTP host (pl. smtp.gmail.com)')} className="px-2.5 py-1.5 border border-slate-300 rounded" />
               <input type="number" value={emSmtpPort} onChange={(e) => setEmSmtpPort(Number(e.target.value))} placeholder="465" className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-              <input type="text" value={emUser} onChange={(e) => setEmUser(e.target.value)} placeholder="E-mail / felhasználónév" className="px-2.5 py-1.5 border border-slate-300 rounded" />
-              <input type="password" value={emPass} onChange={(e) => setEmPass(e.target.value)} placeholder={state.emailConfig.hasPassword ? 'App jelszó (tárolva)' : 'App jelszó'} className="px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={emUser} onChange={(e) => setEmUser(e.target.value)} placeholder={tx('E-mail / felhasználónév')} className="px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="password" value={emPass} onChange={(e) => setEmPass(e.target.value)} placeholder={state.emailConfig.hasPassword ? tx('App jelszó (tárolva)') : tx('App jelszó')} className="px-2.5 py-1.5 border border-slate-300 rounded" />
             </div>
             <div className="flex gap-2">
               <button
@@ -622,24 +624,24 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                     }),
                   });
                   setEmPass('');
-                  setStatusMsg('Email beállítások mentve a titkosított tárolóba.');
+                  setStatusMsg(tx('Email beállítások mentve a titkosított tárolóba.'));
                   await onRefreshState();
                 }}
                 className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded"
               >
-                Konfig Mentése
+                {tx('Konfig Mentése')}
               </button>
               <button
                 type="button"
                 onClick={async () => {
                   const r = await fetch('/api/email/sync', { method: 'POST' });
                   const d = (await r.json()) as { ok: boolean; error?: string; emails: unknown[] };
-                  setStatusMsg(d.ok ? `IMAP szinkron kész: ${d.emails.length} levél.` : `IMAP hiba: ${d.error}`);
+                  setStatusMsg(d.ok ? tx('IMAP szinkron kész: {0} levél.', d.emails.length) : tx('IMAP hiba: {0}', d.error ?? ''));
                   await onRefreshState();
                 }}
                 className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded"
               >
-                IMAP Szinkron
+                {tx('IMAP Szinkron')}
               </button>
             </div>
             <div className="space-y-1.5 max-h-56 overflow-y-auto pt-2">
@@ -657,17 +659,17 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                         subject: em.subject,
                         from: em.from,
                         date: em.date,
-                        body: d.ok ? d.body || '(üres levéltörzs)' : d.error || 'Nem sikerült betölteni a levelet.',
+                        body: d.ok ? d.body || tx('(üres levéltörzs)') : d.error || tx('Nem sikerült betölteni a levelet.'),
                       });
                     } finally {
                       setLoadingEmailUid(null);
                     }
                   }}
-                  className="w-full text-left p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded text-xs transition-colors"
+                  className="w-full text-start p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded text-xs transition-colors"
                 >
                   <div className="font-semibold truncate flex items-center justify-between gap-2">
                     <span className="truncate">{em.subject}</span>
-                    {loadingEmailUid === em.uid && <span className="font-mono text-[10px] text-slate-500">Betöltés...</span>}
+                    {loadingEmailUid === em.uid && <span className="font-mono text-[10px] text-slate-500">{tx('Betöltés...')}</span>}
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">{em.from} · {em.date}</div>
                 </button>
@@ -691,7 +693,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0"
                   >
                     <Reply className="h-3 w-3" />
-                    Válasz
+                    {tx('Válasz')}
                   </button>
                 </div>
                 <pre className="whitespace-pre-wrap font-sans text-slate-700 max-h-40 overflow-y-auto">{selectedEmail.body}</pre>
@@ -700,16 +702,16 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">E-mail Küldés (SMTP · Jóváhagyással)</h2>
-            <input type="email" value={emTo} onChange={(e) => setEmTo(e.target.value)} placeholder="Címzett e-mail..." className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
-            <input type="text" value={emSubject} onChange={(e) => setEmSubject(e.target.value)} placeholder="Tárgy..." className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
+            <h2 className="text-base font-semibold text-slate-900">{tx('E-mail Küldés (SMTP · Jóváhagyással)')}</h2>
+            <input type="email" value={emTo} onChange={(e) => setEmTo(e.target.value)} placeholder={tx('Címzett e-mail...')} className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
+            <input type="text" value={emSubject} onChange={(e) => setEmSubject(e.target.value)} placeholder={tx('Tárgy...')} className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
             {emInReplyTo && (
               <div className="text-[11px] font-mono text-slate-500 flex items-center justify-between">
-                <span>Válasz hivatkozás: {emInReplyTo}</span>
-                <button type="button" onClick={() => setEmInReplyTo('')} className="underline">Törlés</button>
+                <span>{tx('Válasz hivatkozás: {0}', emInReplyTo)}</span>
+                <button type="button" onClick={() => setEmInReplyTo('')} className="underline">{tx('Törlés')}</button>
               </div>
             )}
-            <textarea rows={5} value={emBody} onChange={(e) => setEmBody(e.target.value)} placeholder="Üzenet..." className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
+            <textarea rows={5} value={emBody} onChange={(e) => setEmBody(e.target.value)} placeholder={tx('Üzenet...')} className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded" />
             <button
               type="button"
               onClick={async () => {
@@ -725,12 +727,12 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   }),
                 });
                 const d = (await r.json()) as { message?: string; error?: string };
-                setStatusMsg(d.message || d.error || 'Küldve');
+                setStatusMsg(d.message || d.error || tx('Küldve'));
                 setEmInReplyTo('');
               }}
               className="px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg"
             >
-              Küldés SMTP-vel
+              {tx('Küldés SMTP-vel')}
             </button>
           </div>
         </div>
@@ -738,7 +740,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
 
       {tab === 'calendar' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">Naptár Események, Emlékeztetők & ICS Import</h2>
+          <h2 className="text-base font-semibold text-slate-900">{tx('Naptár Események, Emlékeztetők & ICS Import')}</h2>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -753,14 +755,14 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             }}
             className="grid grid-cols-1 sm:grid-cols-4 gap-2"
           >
-            <input type="text" value={calTitle} onChange={(e) => setCalTitle(e.target.value)} placeholder="Esemény címe" className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+            <input type="text" value={calTitle} onChange={(e) => setCalTitle(e.target.value)} placeholder={tx('Esemény címe')} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
             <input type="datetime-local" value={calStart} onChange={(e) => setCalStart(e.target.value)} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-            <input type="number" min="0" value={calRem} onChange={(e) => setCalRem(Number(e.target.value))} placeholder="Értesítés előtte (perc)" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-            <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">+ Esemény</button>
+            <input type="number" min="0" value={calRem} onChange={(e) => setCalRem(Number(e.target.value))} placeholder={tx('Értesítés előtte (perc)')} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded">{tx('+ Esemény')}</button>
           </form>
 
           <div className="flex gap-2">
-            <textarea rows={2} value={icsText} onChange={(e) => setIcsText(e.target.value)} placeholder="VEVENT / .ics tartalom beillesztése importáláshoz..." className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <textarea rows={2} value={icsText} onChange={(e) => setIcsText(e.target.value)} placeholder={tx('VEVENT / .ics tartalom beillesztése importáláshoz...')} className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <button
               type="button"
               onClick={async () => {
@@ -771,13 +773,13 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   body: JSON.stringify({ icsText }),
                 });
                 const d = (await r.json()) as { imported: number };
-                setStatusMsg(`${d.imported} ICS esemény importálva.`);
+                setStatusMsg(tx('{0} ICS esemény importálva.', d.imported));
                 setIcsText('');
                 await onRefreshState();
               }}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded"
             >
-              ICS Import
+              {tx('ICS Import')}
             </button>
           </div>
 
@@ -785,7 +787,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             {state.calendarEvents.map((ev) => (
               <div key={ev.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded flex justify-between items-center text-xs">
                 <div>
-                  <span className="font-semibold">{ev.title}</span> · <span className="font-mono">{new Date(ev.startAt).toLocaleString()}</span> · {ev.reminderMinutes}p előtt
+                  <span className="font-semibold">{ev.title}</span> · <span className="font-mono">{new Date(ev.startAt).toLocaleString(intlLocale)}</span> · {tx('{0} p előtt', ev.reminderMinutes)}
                 </div>
                 <button
                   type="button"
@@ -806,24 +808,24 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'smarthome' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-900">Okosotthon (Home Assistant REST & MQTT)</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('Okosotthon (Home Assistant REST & MQTT)')}</h2>
             <button
               type="button"
               onClick={async () => {
                 const r = await fetch('/api/smarthome/ha/states');
                 const d = (await r.json()) as { ok: boolean; entities: Array<{ entity_id: string; state: string }>; error?: string };
                 if (d.ok) setHaStates(d.entities);
-                else setStatusMsg(d.error || 'HA nem érhető el');
+                else setStatusMsg(d.error || tx('HA nem érhető el'));
               }}
               className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded"
             >
-              HA Entitások Lekérése
+              {tx('HA Entitások Lekérése')}
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <input type="text" value={mqttTopic} onChange={(e) => setMqttTopic(e.target.value)} placeholder="MQTT Topic" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-            <input type="text" value={mqttMsg} onChange={(e) => setMqttMsg(e.target.value)} placeholder="MQTT Üzenet" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <input type="text" value={mqttMsg} onChange={(e) => setMqttMsg(e.target.value)} placeholder={tx('MQTT Üzenet')} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <button
               type="button"
               onClick={async () => {
@@ -833,11 +835,11 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   body: JSON.stringify({ topic: mqttTopic, message: mqttMsg }),
                 });
                 const d = (await r.json()) as { message?: string };
-                setStatusMsg(d.message || 'MQTT küldve');
+                setStatusMsg(d.message || tx('MQTT küldve'));
               }}
               className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded"
             >
-              MQTT Publikálás
+              {tx('MQTT Publikálás')}
             </button>
           </div>
 
@@ -856,13 +858,13 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             }}
             className="grid grid-cols-1 sm:grid-cols-4 gap-2"
           >
-            <input type="text" value={shName} onChange={(e) => setShName(e.target.value)} placeholder="Eszköz neve" className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+            <input type="text" value={shName} onChange={(e) => setShName(e.target.value)} placeholder={tx('Eszköz neve')} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
             <select value={shKind} onChange={(e) => setShKind(e.target.value as typeof shKind)} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white">
               <option value="home_assistant">Home Assistant</option>
               <option value="mqtt">MQTT Topic</option>
             </select>
-            <input type="text" value={shEntity} onChange={(e) => setShEntity(e.target.value)} placeholder="light.nappali vagy topic" className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-            <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">+ Mentés</button>
+            <input type="text" value={shEntity} onChange={(e) => setShEntity(e.target.value)} placeholder={tx('light.nappali vagy topic')} className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">{tx('+ Mentés')}</button>
           </form>
 
           {haStates.length > 0 && (
@@ -882,7 +884,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                     }}
                     className="px-2 py-0.5 bg-white border border-slate-300 rounded"
                   >
-                    Toggle
+                    {tx('Átkapcsolás')}
                   </button>
                 </div>
               ))}
@@ -893,7 +895,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
 
       {tab === 'repos' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">Figyelt GitHub Repository-k</h2>
+          <h2 className="text-base font-semibold text-slate-900">{tx('Figyelt GitHub Repository-k')}</h2>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -908,9 +910,9 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             }}
             className="flex gap-2"
           >
-            <input type="text" value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="owner/repo (pl. ngabika/NovaSwarmNextGenHydrogen)" className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <input type="text" value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder={tx('owner/repo (pl. ngabika/NovaSwarmNextGenHydrogen)')} className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <input type="text" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} placeholder="main" className="w-28 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-            <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">+ Figyelés</button>
+            <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">{tx('+ Figyelés')}</button>
           </form>
           <div className="space-y-2">
             {state.watchedRepos.map((r) => (
@@ -918,8 +920,8 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 <div>
                   <div className="font-mono font-semibold">{r.slug} ({r.branch})</div>
                   <div className="text-slate-600">
-                    {r.lastCommitSha ? `${r.lastCommitSha} · ${r.lastCommitMsg}` : r.lastError || 'Szinkronra vár'}
-                    {typeof r.openIssuesCount === 'number' ? ` · Nyitott issue: ${r.openIssuesCount}` : ''}
+                    {r.lastCommitSha ? `${r.lastCommitSha} · ${r.lastCommitMsg}` : r.lastError || tx('Szinkronra vár')}
+                    {typeof r.openIssuesCount === 'number' ? ` · ${tx('Nyitott issue: {0}', r.openIssuesCount)}` : ''}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -931,7 +933,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                     }}
                     className="px-2.5 py-1 border border-slate-300 bg-white rounded"
                   >
-                    Szinkron
+                    {tx('Szinkron')}
                   </button>
                   <button
                     type="button"
@@ -953,7 +955,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
       {tab === 'habits' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">Napi Szokások Követése</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('Napi Szokások Követése')}</h2>
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -968,9 +970,9 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               }}
               className="flex gap-2"
             >
-              <input type="text" value={habName} onChange={(e) => setHabName(e.target.value)} placeholder="Szokás neve (pl. Olvasás)" className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+              <input type="text" value={habName} onChange={(e) => setHabName(e.target.value)} placeholder={tx('Szokás neve (pl. Olvasás)')} className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
               <input type="number" min="1" max="7" value={habTarget} onChange={(e) => setHabTarget(Number(e.target.value))} className="w-16 px-2 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-              <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">+ Felvétel</button>
+              <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded">{tx('+ Felvétel')}</button>
             </form>
             <div className="space-y-2">
               {state.habits.map((h) => {
@@ -987,11 +989,11 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                         });
                         await onRefreshState();
                       }}
-                      className="flex items-center gap-2 text-left"
+                      className="flex items-center gap-2 text-start"
                     >
                       <CheckCircle2 className={`h-4 w-4 ${done ? 'text-emerald-700' : 'text-slate-300'}`} />
                       <span className={done ? 'line-through text-slate-500' : 'font-medium text-slate-900'}>{h.name}</span>
-                      <span className="font-mono text-[11px] text-slate-500">({h.completedDates.length} nap · {h.totalMinutes} perc)</span>
+                      <span className="font-mono text-[11px] text-slate-500">({tx('{0} nap · {1} perc', h.completedDates.length, h.totalMinutes)})</span>
                     </button>
                     <button
                       type="button"
@@ -1010,7 +1012,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">Pomodoro & Fókusz Napló</h2>
+            <h2 className="text-base font-semibold text-slate-900">{tx('Pomodoro & Fókusz Napló')}</h2>
             <div className="flex gap-2">
               <input type="text" value={focusLabel} onChange={(e) => setFocusLabel(e.target.value)} className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
               <input type="number" min="5" max="180" value={focusMins} onChange={(e) => setFocusMins(Number(e.target.value))} className="w-20 px-2 py-1.5 text-xs font-mono border border-slate-300 rounded" />
@@ -1026,14 +1028,14 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 }}
                 className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded"
               >
-                Rögzítés
+                {tx('Rögzítés')}
               </button>
             </div>
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {state.focusSessions.map((f) => (
                 <div key={f.id} className="p-2 bg-slate-50 border border-slate-200 rounded text-xs flex justify-between font-mono">
                   <span>{f.label}</span>
-                  <span>{f.minutes} perc · {new Date(f.completedAt).toLocaleTimeString()}</span>
+                  <span>{tx('{0} perc', f.minutes)} · {new Date(f.completedAt).toLocaleTimeString(intlLocale)}</span>
                 </div>
               ))}
             </div>
@@ -1043,7 +1045,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
 
       {tab === 'expenses' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">Személyes Kiadáskövető & CSV Banki Import</h2>
+          <h2 className="text-base font-semibold text-slate-900">{tx('Személyes Kiadáskövető & CSV Banki Import')}</h2>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -1063,17 +1065,17 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             }}
             className="flex flex-wrap gap-2"
           >
-            <input type="text" value={expMerchant} onChange={(e) => setExpMerchant(e.target.value)} placeholder="Partner / Bolt (pl. SPAR)" className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
-            <input type="number" step="0.01" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} placeholder="Összeg" className="w-28 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <input type="text" value={expMerchant} onChange={(e) => setExpMerchant(e.target.value)} placeholder={tx('Partner / Bolt (pl. SPAR)')} className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+            <input type="number" step="0.01" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} placeholder={tx('Összeg')} className="w-28 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <input type="text" value={expCurrency} onChange={(e) => setExpCurrency(e.target.value)} className="w-20 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <button type="submit" className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded inline-flex items-center gap-1">
               <Plus className="h-3.5 w-3.5" />
-              Rögzítés
+              {tx('Rögzítés')}
             </button>
           </form>
 
           <div className="flex gap-2">
-            <textarea rows={2} value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder="CSV sorok (dátum;partner;összeg)..." className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
+            <textarea rows={2} value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={tx('CSV sorok (dátum;partner;összeg)...')} className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
             <button
               type="button"
               onClick={async () => {
@@ -1084,25 +1086,25 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   body: JSON.stringify({ csvText, defaultCurrency: expCurrency }),
                 });
                 const d = (await r.json()) as { imported: number };
-                setStatusMsg(`${d.imported} kiadási tétel importálva és kategorizálva.`);
+                setStatusMsg(tx('{0} kiadási tétel importálva és kategorizálva.', d.imported));
                 setCsvText('');
                 await onRefreshState();
               }}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded"
             >
-              CSV Import
+              {tx('CSV Import')}
             </button>
           </div>
 
           <div className="overflow-x-auto max-h-64">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full text-start text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="py-1.5">Dátum</th>
-                  <th className="py-1.5">Partner</th>
-                  <th className="py-1.5">Kategória</th>
-                  <th className="py-1.5 text-right">Összeg</th>
-                  <th className="py-1.5 text-right"></th>
+                  <th className="py-1.5">{tx('Dátum')}</th>
+                  <th className="py-1.5">{tx('Partner')}</th>
+                  <th className="py-1.5">{tx('Kategória')}</th>
+                  <th className="py-1.5 text-end">{tx('Összeg')}</th>
+                  <th className="py-1.5 text-end"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1111,10 +1113,10 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                     <td className="py-1.5 font-mono text-slate-600">{ex.date}</td>
                     <td className="py-1.5 font-medium">{ex.merchant}</td>
                     <td className="py-1.5 text-slate-600">{ex.category}</td>
-                    <td className="py-1.5 text-right font-mono tabular-nums">
-                      {ex.amount.toLocaleString()} {ex.currency}
+                    <td className="py-1.5 text-end font-mono tabular-nums">
+                      {ex.amount.toLocaleString(intlLocale)} {ex.currency}
                     </td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-end">
                       <button
                         type="button"
                         onClick={async () => {
@@ -1141,20 +1143,20 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Eye className="h-4 w-4 text-slate-700" />
-                Weboldal Változás-figyelő (Watchdog)
+                {tx('Weboldal Változás-figyelő (Watchdog)')}
               </h2>
               <button
                 type="button"
                 onClick={async () => {
                   const r = await fetch('/api/watchdog/check', { method: 'POST' });
                   const d = (await r.json()) as { pages?: unknown[] };
-                  setStatusMsg(`Oldalellenőrzés lefutott (${d.pages?.length ?? 0} figyelt URL).`);
+                  setStatusMsg(tx('Oldalellenőrzés lefutott ({0} figyelt URL).', d.pages?.length ?? 0));
                   await onRefreshState();
                 }}
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg whitespace-nowrap shrink-0"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Mind Ellenőrzése
+                {tx('Mind Ellenőrzése')}
               </button>
             </div>
             <form
@@ -1172,21 +1174,21 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               }}
               className="flex flex-wrap gap-2"
             >
-              <input type="text" value={wpName} onChange={(e) => setWpName(e.target.value)} placeholder="Oldal neve (pl. Árlista)" className="w-48 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+              <input type="text" value={wpName} onChange={(e) => setWpName(e.target.value)} placeholder={tx('Oldal neve (pl. Árlista)')} className="w-48 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
               <input type="url" value={wpUrl} onChange={(e) => setWpUrl(e.target.value)} placeholder="https://example.com/status" className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded" />
-              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">+ Figyelés</button>
+              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">{tx('+ Figyelés')}</button>
             </form>
             <div className="space-y-2">
               {state.watchedPages.length === 0 ? (
-                <p className="text-xs text-slate-500">Nincs még figyelt weboldal.</p>
+                <p className="text-xs text-slate-500">{tx('Nincs még figyelt weboldal.')}</p>
               ) : (
                 state.watchedPages.map((p) => (
                   <div key={p.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900">{p.name} · <span className="font-mono text-slate-500">{p.url}</span></div>
                       <div className="font-mono tabular-nums text-[11px] text-slate-600">
-                        Változások: {p.changeCount} · Utolsó ellenőrzés: {p.lastCheckedAt ? new Date(p.lastCheckedAt).toLocaleString() : '-'}
-                        {p.lastError ? ` · Hiba: ${p.lastError}` : ''}
+                        {tx('Változások: {0}', p.changeCount)} · {tx('Utolsó ellenőrzés:')} {p.lastCheckedAt ? new Date(p.lastCheckedAt).toLocaleString(intlLocale) : '-'}
+                        {p.lastError ? ` · ${tx('Hiba: {0}', p.lastError)}` : ''}
                       </div>
                       {p.lastExcerpt && <div className="text-slate-600 mt-1 truncate max-w-2xl">{p.lastExcerpt}</div>}
                     </div>
@@ -1211,18 +1213,18 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Mic className="h-4 w-4 text-slate-700" />
-                Podcast & Hanganyag Fejezet-elemző
+                {tx('Podcast & Hanganyag Fejezet-elemző')}
               </h3>
               <input
                 type="text"
                 value={audioTitle}
                 onChange={(e) => setAudioTitle(e.target.value)}
-                placeholder="Hanganyag címe"
+                placeholder={tx('Hanganyag címe')}
                 className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded"
               />
               <label className="flex items-center gap-2 text-xs text-slate-700">
                 <input type="checkbox" checked={audioSaveVault} onChange={(e) => setAudioSaveVault(e.target.checked)} />
-                Mentés a napi Obsidian jegyzetbe is
+                {tx('Mentés a napi Obsidian jegyzetbe is')}
               </label>
               <input
                 type="file"
@@ -1252,7 +1254,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                         setAudioResult(d);
                         await onRefreshState();
                       } else {
-                        setStatusMsg(d.error || 'Hangfeldolgozási hiba.');
+                        setStatusMsg(d.error || tx('Hangfeldolgozási hiba.'));
                       }
                     } finally {
                       setAudioBusy(false);
@@ -1260,12 +1262,12 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   };
                   reader.readAsDataURL(file);
                 }}
-                className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-slate-300 file:text-xs file:bg-slate-50"
+                className="block w-full text-xs text-slate-600 file:me-3 file:py-1.5 file:px-3 file:rounded file:border file:border-slate-300 file:text-xs file:bg-slate-50"
               />
-              {audioBusy && <div className="text-xs font-mono text-slate-500">Hanganyag átírása és fejezetezése...</div>}
+              {audioBusy && <div className="text-xs font-mono text-slate-500">{tx('Hanganyag átírása és fejezetezése...')}</div>}
               {audioResult && (
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
-                  <div className="font-mono text-slate-600">Motor: {audioResult.engine}{audioResult.obsidianPath ? ` · Vault: ${audioResult.obsidianPath}` : ''}</div>
+                  <div className="font-mono text-slate-600">{tx('Motor: {0}', audioResult.engine)}{audioResult.obsidianPath ? ` · Vault: ${audioResult.obsidianPath}` : ''}</div>
                   <pre className="whitespace-pre-wrap font-sans text-slate-800 max-h-44 overflow-y-auto">{audioResult.summaryMarkdown}</pre>
                 </div>
               )}
@@ -1275,7 +1277,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Youtube className="h-4 w-4 text-slate-700" />
-                YouTube Videó Elemző & SM-2 Kártya Készítő
+                {tx('YouTube Videó Elemző & SM-2 Kártya Készítő')}
               </h3>
               <form
                 onSubmit={async (e) => {
@@ -1297,7 +1299,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                       });
                       await onRefreshState();
                     } else {
-                      setStatusMsg(d.error || 'YouTube elemzési hiba.');
+                      setStatusMsg(d.error || tx('YouTube elemzési hiba.'));
                     }
                   } finally {
                     setYtBusy(false);
@@ -1315,21 +1317,21 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 <div className="flex items-center justify-between gap-2">
                   <label className="flex items-center gap-2 text-xs text-slate-700">
                     <input type="checkbox" checked={ytCreateCards} onChange={(e) => setYtCreateCards(e.target.checked)} />
-                    SM-2 tanulókártyák automatikus létrehozása
+                    {tx('SM-2 tanulókártyák automatikus létrehozása')}
                   </label>
                   <button
                     type="submit"
                     disabled={ytBusy}
                     className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0 disabled:opacity-50"
                   >
-                    {ytBusy ? 'Elemzés...' : 'Videó Elemzése'}
+                    {ytBusy ? tx('Elemzés...') : tx('Videó Elemzése')}
                   </button>
                 </div>
               </form>
               {ytResult && (
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5 text-xs">
                   <div className="font-semibold text-slate-900">{ytResult.title}</div>
-                  <div className="font-mono text-[11px] text-slate-600">Létrehozott tanulókártyák: {ytResult.createdCardsCount}</div>
+                  <div className="font-mono text-[11px] text-slate-600">{tx('Létrehozott tanulókártyák: {0}', ytResult.createdCardsCount)}</div>
                   <pre className="whitespace-pre-wrap font-sans text-slate-800 max-h-44 overflow-y-auto">{ytResult.summaryMarkdown}</pre>
                 </div>
               )}
@@ -1343,7 +1345,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
           <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
             <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-slate-700" />
-              Második Agy — Napi Napló (Obsidian Szinkronnal)
+              {tx('Második Agy — Napi Napló (Obsidian Szinkronnal)')}
             </h2>
             <form
               onSubmit={async (e) => {
@@ -1367,7 +1369,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 if (r.ok) {
                   setJrCompleted('');
                   setJrNotes('');
-                  setStatusMsg('Napi napló mentve az Obsidian Vaultba.');
+                  setStatusMsg(tx('Napi napló mentve az Obsidian Vaultba.'));
                   await onRefreshState();
                 }
               }}
@@ -1375,40 +1377,40 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             >
               <div className="grid grid-cols-3 gap-2">
                 <label className="space-y-1">
-                  <span className="text-slate-600">Dátum</span>
+                  <span className="text-slate-600">{tx('Dátum')}</span>
                   <input type="date" value={jrDate} onChange={(e) => setJrDate(e.target.value)} className="w-full px-2 py-1.5 font-mono border border-slate-300 rounded" />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-slate-600">Hangulat (1–5)</span>
+                  <span className="text-slate-600">{tx('Hangulat (1–5)')}</span>
                   <input type="number" min="1" max="5" value={jrMood} onChange={(e) => setJrMood(Number(e.target.value))} className="w-full px-2 py-1.5 font-mono border border-slate-300 rounded" />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-slate-600">Energia (1–5)</span>
+                  <span className="text-slate-600">{tx('Energia (1–5)')}</span>
                   <input type="number" min="1" max="5" value={jrEnergy} onChange={(e) => setJrEnergy(Number(e.target.value))} className="w-full px-2 py-1.5 font-mono border border-slate-300 rounded" />
                 </label>
               </div>
-              <input type="text" value={jrGoals} onChange={(e) => setJrGoals(e.target.value)} placeholder="Mai fő célok (vesszővel elválasztva)..." className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
-              <textarea rows={2} value={jrCompleted} onChange={(e) => setJrCompleted(e.target.value)} placeholder="Elvégzett feladatok és sikerek..." className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
-              <textarea rows={2} value={jrNotes} onChange={(e) => setJrNotes(e.target.value)} placeholder="Gondolatok, tanulságok, hála..." className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={jrGoals} onChange={(e) => setJrGoals(e.target.value)} placeholder={tx('Mai fő célok (vesszővel elválasztva)...')} className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
+              <textarea rows={2} value={jrCompleted} onChange={(e) => setJrCompleted(e.target.value)} placeholder={tx('Elvégzett feladatok és sikerek...')} className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
+              <textarea rows={2} value={jrNotes} onChange={(e) => setJrNotes(e.target.value)} placeholder={tx('Gondolatok, tanulságok, hála...')} className="w-full px-2.5 py-1.5 border border-slate-300 rounded" />
               <button type="submit" className="px-4 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg">
-                Naplóbejegyzés Mentése
+                {tx('Naplóbejegyzés Mentése')}
               </button>
             </form>
           </div>
 
           <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h3 className="text-base font-semibold text-slate-900">Korábbi Naplóbejegyzések ({state.dailyJournals.length})</h3>
+            <h3 className="text-base font-semibold text-slate-900">{tx('Korábbi Naplóbejegyzések ({0})', state.dailyJournals.length)}</h3>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {state.dailyJournals.length === 0 ? (
-                <p className="text-xs text-slate-500">Még nincs rögzített naplóbejegyzés.</p>
+                <p className="text-xs text-slate-500">{tx('Még nincs rögzített naplóbejegyzés.')}</p>
               ) : (
                 state.dailyJournals.map((j) => (
                   <div key={j.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
                     <div className="flex flex-wrap justify-between gap-2 font-mono">
                       <span className="font-semibold text-slate-900">{j.date}</span>
-                      <span className="tabular-nums text-slate-600">Hangulat: {j.mood}/5 · Energia: {j.energy}/5</span>
+                      <span className="tabular-nums text-slate-600">{tx('Hangulat: {0}/5 · Energia: {1}/5', j.mood, j.energy)}</span>
                     </div>
-                    {j.topGoals.length > 0 && <div className="text-slate-800">Célok: {j.topGoals.join(' · ')}</div>}
+                    {j.topGoals.length > 0 && <div className="text-slate-800">{tx('Célok:')} {j.topGoals.join(' · ')}</div>}
                     {j.completedNotes && <div className="text-slate-700">{j.completedNotes}</div>}
                     {j.gratitudeOrNotes && <div className="text-slate-600">{j.gratitudeOrNotes}</div>}
                     {j.obsidianPath && <div className="font-mono text-[11px] text-slate-500">Obsidian: {j.obsidianPath}</div>}
@@ -1427,7 +1429,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <ListChecks className="h-4 w-4 text-slate-700" />
-                Megosztott Listák (Telegram /lista szinkron)
+                {tx('Megosztott Listák (Telegram /lista szinkron)')}
               </h2>
               <button
                 type="button"
@@ -1437,7 +1439,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 }}
                 className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
-                Alaplista
+                {tx('Alaplista')}
               </button>
             </div>
             <form
@@ -1447,20 +1449,20 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                 await fetch('/api/lists/items', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ listIdOrName: listName.trim() || 'Bevásárlólista', text: listItemText.trim(), addedBy: 'Web' }),
+                  body: JSON.stringify({ listIdOrName: listName.trim() || tx('Bevásárlólista'), text: listItemText.trim(), addedBy: 'Web' }),
                 });
                 setListItemText('');
                 await onRefreshState();
               }}
               className="flex flex-wrap gap-2"
             >
-              <input type="text" value={listName} onChange={(e) => setListName(e.target.value)} placeholder="Lista neve" className="w-36 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
-              <input type="text" value={listItemText} onChange={(e) => setListItemText(e.target.value)} placeholder="Új tétel (pl. Tej 2L)..." className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
-              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">+ Tétel</button>
+              <input type="text" value={listName} onChange={(e) => setListName(e.target.value)} placeholder={tx('Lista neve')} className="w-36 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+              <input type="text" value={listItemText} onChange={(e) => setListItemText(e.target.value)} placeholder={tx('Új tétel (pl. Tej 2L)...')} className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded" />
+              <button type="submit" className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">{tx('+ Tétel')}</button>
             </form>
             <div className="space-y-3 max-h-80 overflow-y-auto">
               {state.sharedLists.length === 0 ? (
-                <p className="text-xs text-slate-500">Adj hozzá egy tételt a megosztott lista létrehozásához.</p>
+                <p className="text-xs text-slate-500">{tx('Adj hozzá egy tételt a megosztott lista létrehozásához.')}</p>
               ) : (
                 state.sharedLists.map((lst) => (
                   <div key={lst.id} className="space-y-1.5">
@@ -1473,7 +1475,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                             await fetch(`/api/lists/${lst.id}/items/${it.id}/toggle`, { method: 'POST' });
                             await onRefreshState();
                           }}
-                          className="flex items-center gap-2 text-left min-w-0"
+                          className="flex items-center gap-2 text-start min-w-0"
                         >
                           <CheckCircle2 className={`h-4 w-4 shrink-0 ${it.done ? 'text-emerald-700' : 'text-slate-300'}`} />
                           <span className={it.done ? 'line-through text-slate-500 truncate' : 'text-slate-900 truncate'}>{it.text}</span>
@@ -1502,25 +1504,25 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <CreditCard className="h-4 w-4 text-slate-700" />
-                Előfizetések & Garanciák
+                {tx('Előfizetések & Garanciák')}
               </h2>
               <button
                 type="button"
                 onClick={() => void loadSubSummary()}
                 className="px-2.5 py-1 text-xs border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap shrink-0"
               >
-                Összesítő Frissítése
+                {tx('Összesítő Frissítése')}
               </button>
             </div>
             {subSummary && (
               <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs font-mono tabular-nums flex flex-wrap justify-between gap-2">
                 <span>
-                  Havi átlag:{' '}
+                  {tx('Havi átlag:')}{' '}
                   {Object.entries(subSummary.monthlyByCurrency)
                     .map(([cur, val]) => `${val} ${cur}`)
                     .join(' · ') || '0'}
                 </span>
-                <span>Közelgő lejáratok: {subSummary.upcomingRenewals.length}</span>
+                <span>{tx('Közelgő lejáratok: {0}', subSummary.upcomingRenewals.length)}</span>
               </div>
             )}
             <form
@@ -1549,22 +1551,22 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               }}
               className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs"
             >
-              <input type="text" value={subName} onChange={(e) => setSubName(e.target.value)} placeholder="Név (pl. Hetzner / Garancia)" className="col-span-2 px-2.5 py-1.5 border border-slate-300 rounded" />
-              <input type="text" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} placeholder="Kategória" className="px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={subName} onChange={(e) => setSubName(e.target.value)} placeholder={tx('Név (pl. Hetzner / Garancia)')} className="col-span-2 px-2.5 py-1.5 border border-slate-300 rounded" />
+              <input type="text" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} placeholder={tx('Kategória')} className="px-2.5 py-1.5 border border-slate-300 rounded" />
               <select value={subCycle} onChange={(e) => setSubCycle(e.target.value as typeof subCycle)} className="px-2.5 py-1.5 border border-slate-300 rounded bg-white">
-                <option value="monthly">Havi</option>
-                <option value="yearly">Éves</option>
-                <option value="once">Egyszeri / Garancia</option>
+                <option value="monthly">{tx('Havi')}</option>
+                <option value="yearly">{tx('Éves')}</option>
+                <option value="once">{tx('Egyszeri / Garancia')}</option>
               </select>
-              <input type="number" step="0.01" value={subAmount} onChange={(e) => setSubAmount(e.target.value)} placeholder="Összeg" className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+              <input type="number" step="0.01" value={subAmount} onChange={(e) => setSubAmount(e.target.value)} placeholder={tx('Összeg')} className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
               <input type="text" value={subCurrency} onChange={(e) => setSubCurrency(e.target.value)} placeholder="HUF" className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
-              <input type="date" aria-label="Következő esedékesség" value={subDueDate} onChange={(e) => setSubDueDate(e.target.value)} className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
+              <input type="date" aria-label={tx('Következő esedékesség')} value={subDueDate} onChange={(e) => setSubDueDate(e.target.value)} className="px-2.5 py-1.5 font-mono border border-slate-300 rounded" />
               <div className="flex items-center gap-1 px-2 py-1.5 border border-slate-300 rounded bg-white">
-                <input type="number" min="0" aria-label="Értesítés ennyi nappal előtte" title="Értesítés ennyi nappal lejárat előtt" value={subReminderDays} onChange={(e) => setSubReminderDays(Number(e.target.value))} className="w-10 font-mono outline-none" />
-                <span className="text-[11px] text-slate-500 whitespace-nowrap">nap előtte</span>
+                <input type="number" min="0" aria-label={tx('Értesítés ennyi nappal előtte')} title={tx('Értesítés ennyi nappal lejárat előtt')} value={subReminderDays} onChange={(e) => setSubReminderDays(Number(e.target.value))} className="w-10 font-mono outline-none" />
+                <span className="text-[11px] text-slate-500 whitespace-nowrap">{tx('nap előtte')}</span>
               </div>
-              <input type="text" value={subNotes} onChange={(e) => setSubNotes(e.target.value)} placeholder="Megjegyzés (opcionális)" className="col-span-2 sm:col-span-3 px-2.5 py-1.5 border border-slate-300 rounded" />
-              <button type="submit" className="px-3 py-1.5 font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">+ Mentés</button>
+              <input type="text" value={subNotes} onChange={(e) => setSubNotes(e.target.value)} placeholder={tx('Megjegyzés (opcionális)')} className="col-span-2 sm:col-span-3 px-2.5 py-1.5 border border-slate-300 rounded" />
+              <button type="submit" className="px-3 py-1.5 font-medium bg-slate-900 text-white rounded whitespace-nowrap shrink-0">{tx('+ Mentés')}</button>
             </form>
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {state.subscriptions.map((sub) => (
@@ -1572,7 +1574,7 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   <div>
                     <div className="font-semibold text-slate-900">{sub.name} · <span className="text-slate-600">{sub.category}</span></div>
                     <div className="font-mono tabular-nums text-[11px] text-slate-500">
-                      {sub.amount} {sub.currency} ({sub.billingCycle}) · Következő: {sub.nextDueDate}
+                      {sub.amount} {sub.currency} ({sub.billingCycle}) · {tx('Következő: {0}', sub.nextDueDate)}
                     </div>
                   </div>
                   <button
@@ -1597,8 +1599,8 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Ágens, Skill & Workflow Csomag Export / Import</h2>
-              <p className="text-xs text-slate-500">Titkoktól és API kulcsoktól teljesen megtisztított hordozható JSON csomag.</p>
+              <h2 className="text-base font-semibold text-slate-900">{tx('Ágens, Skill & Workflow Csomag Export / Import')}</h2>
+              <p className="text-xs text-slate-500">{tx('Titkoktól és API kulcsoktól teljesen megtisztított hordozható JSON csomag.')}</p>
             </div>
             <a
               href="/api/bundle/export"
@@ -1606,14 +1608,14 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg"
             >
               <Download className="h-3.5 w-3.5" />
-              Csomag Letöltése (.json)
+              {tx('Csomag Letöltése (.json)')}
             </a>
           </div>
           <textarea
             rows={6}
             value={bundleJson}
             onChange={(e) => setBundleJson(e.target.value)}
-            placeholder='Illeszd be egy korábban exportált NovaSwarm csomag JSON tartalmát az importáláshoz...'
+            placeholder={tx('Illeszd be egy korábban exportált NovaSwarm csomag JSON tartalmát az importáláshoz...')}
             className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
           />
           <button
@@ -1632,29 +1634,29 @@ export const EcosystemView: React.FC<Props> = ({ state, onRefreshState }) => {
                   importedTemplates: number;
                 };
                 setStatusMsg(
-                  `Import kész: ${d.importedAgents} ágens, ${d.importedWorkflows} workflow, ${d.importedTemplates} sablon.`
+                  tx('Import kész: {0} ágens, {1} workflow, {2} sablon.', d.importedAgents, d.importedWorkflows, d.importedTemplates)
                 );
                 await onRefreshState();
               } catch (err) {
-                setStatusMsg(err instanceof Error ? err.message : 'Érvénytelen JSON');
+                setStatusMsg(err instanceof Error ? err.message : tx('Érvénytelen JSON'));
               }
             }}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
           >
             <Upload className="h-3.5 w-3.5" />
-            Csomag Importálása
+            {tx('Csomag Importálása')}
           </button>
         </div>
       )}
 
       {tab === 'life_portal' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Életvitel & CRM modul betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Életvitel & CRM modul betöltése...')}</div>}>
           <Batch3LifePortalPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}
 
       {tab === 'life_os_b4' && (
-        <Suspense fallback={<div className="p-6 text-xs text-slate-500">Okmányszéf &amp; Életmód betöltése...</div>}>
+        <Suspense fallback={<div className="p-6 text-xs text-slate-500">{tx('Okmányszéf & Életmód betöltése...')}</div>}>
           <Batch4LifeAndAutopilotPanel state={state} onRefreshState={onRefreshState} />
         </Suspense>
       )}

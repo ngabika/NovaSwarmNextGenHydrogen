@@ -9,10 +9,10 @@ import type {
   SudoCheckStatus,
 } from '../../shared/types';
 import { InfoHint } from './InfoHint';
-import { SUPPORTED_LANGUAGES, tr } from '../locales/translations';
+import { SUPPORTED_LANGUAGES, useLocale } from '../locales/translations';
 
 interface Props {
-  language: LanguageCode;
+  language?: LanguageCode;
   settings: Settings;
   sandboxCapabilities?: SandboxCapabilities | null;
   sudoStatus?: SudoCheckStatus | null;
@@ -21,13 +21,13 @@ interface Props {
 }
 
 export const SettingsView: React.FC<Props> = ({
-  language,
   settings,
   sandboxCapabilities,
   sudoStatus,
   phoenixAutonomy,
   onRefreshState,
 }) => {
+  const { t, tx, setLang } = useLocale();
   const [form, setForm] = useState<Settings>(settings);
   const [telegramToken, setTelegramToken] = useState('');
   const [braveSearchKey, setBraveSearchKey] = useState('');
@@ -88,11 +88,12 @@ export const SettingsView: React.FC<Props> = ({
         setTelegramToken('');
         setBraveSearchKey('');
         setHomeAssistantToken('');
-        setSavedMsg('Beállítások mentve és azonnal érvényesítve.');
+        setLang(restForm.language);
+        setSavedMsg(tx('Beállítások mentve és azonnal érvényesítve.'));
         await onRefreshState();
       } else {
         const errBody = (await res.json().catch(() => ({}))) as { error?: string };
-        setSaveError(errBody.error || `Mentési hiba (HTTP ${res.status})`);
+        setSaveError(errBody.error || tx('Mentési hiba (HTTP {0})', res.status));
       }
     } finally {
       setSaving(false);
@@ -114,19 +115,19 @@ export const SettingsView: React.FC<Props> = ({
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok) {
-        setAutonomyErr(body.error || `Hiba a profil váltásakor (HTTP ${res.status}).`);
+        setAutonomyErr(body.error || tx('Hiba a profil váltásakor (HTTP {0}).', res.status));
         return;
       }
       setAutonomyPassword('');
       setAutonomyModalOpen(false);
       setAutonomyMsg(
         enableTarget
-          ? 'Teljes autonómia profil BEKAPCSOLVA (Host + Autonóm + Veszélyes Zóna aktív).'
-          : 'Teljes autonómia profil KIKAPCSOLVA, az előző jogosultságok visszaállítva.'
+          ? tx('Teljes autonómia profil BEKAPCSOLVA (Host + Autonóm + Veszélyes Zóna aktív).')
+          : tx('Teljes autonómia profil KIKAPCSOLVA, az előző jogosultságok visszaállítva.')
       );
       await onRefreshState();
     } catch (err) {
-      setAutonomyErr(err instanceof Error ? err.message : 'Hálózati hiba');
+      setAutonomyErr(err instanceof Error ? err.message : tx('Hálózati hiba'));
     } finally {
       setAutonomyBusy(false);
     }
@@ -147,19 +148,19 @@ export const SettingsView: React.FC<Props> = ({
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok) {
-        setTotalErr(body.error || `Hiba a Totális autonómia váltásakor (HTTP ${res.status}).`);
+        setTotalErr(body.error || tx('Hiba a Totális autonómia váltásakor (HTTP {0}).', res.status));
         return;
       }
       setTotalPassword('');
       setTotalModalOpen(false);
       setTotalMsg(
         enableTarget
-          ? 'Totális autonómia BEKAPCSOLVA. A 3 sérthetetlen garancia (append-only audit + napi anchor, LOCKDOWN, visszaállítási pontok) aktív.'
-          : 'Totális autonómia KIKAPCSOLVA.'
+          ? tx('Totális autonómia BEKAPCSOLVA. A 3 sérthetetlen garancia (append-only audit + napi anchor, LOCKDOWN, visszaállítási pontok) aktív.')
+          : tx('Totális autonómia KIKAPCSOLVA.')
       );
       await onRefreshState();
     } catch (err) {
-      setTotalErr(err instanceof Error ? err.message : 'Hálózati hiba');
+      setTotalErr(err instanceof Error ? err.message : tx('Hálózati hiba'));
     } finally {
       setTotalBusy(false);
     }
@@ -192,7 +193,7 @@ export const SettingsView: React.FC<Props> = ({
       webAuthHasPassword?: boolean;
     };
     if (!res.ok) {
-      setAuthMsg(data.error || 'Hiba a LAN zár beállításakor');
+      setAuthMsg(data.error || tx('Hiba a LAN zár beállításakor'));
       return;
     }
     setOperatorPassword('');
@@ -204,8 +205,8 @@ export const SettingsView: React.FC<Props> = ({
     }));
     setAuthMsg(
       data.webAuthEnabled
-        ? 'Operátori jelszó mentve és LAN jelszózár BEKAPCSOLVA.'
-        : 'Operátori jelszó mentve (LAN jelszózár jelenleg KIKAPCSOLVA).'
+        ? tx('Operátori jelszó mentve és LAN jelszózár BEKAPCSOLVA.')
+        : tx('Operátori jelszó mentve (LAN jelszózár jelenleg KIKAPCSOLVA).')
     );
     await onRefreshState();
   };
@@ -214,14 +215,14 @@ export const SettingsView: React.FC<Props> = ({
     <div className="max-w-4xl space-y-8">
       <form onSubmit={handleSave} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr(language, 'navSettings')}</h2>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t('navSettings')}</h2>
           <button
             type="submit"
             disabled={saving}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-200 whitespace-nowrap shrink-0"
           >
             <Save className="h-4 w-4" />
-            {tr(language, 'saveSettings')}
+            {t('saveSettings')}
           </button>
         </div>
 
@@ -239,8 +240,8 @@ export const SettingsView: React.FC<Props> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <label htmlFor="set-lang" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              <span>Felület és Hangkimenet Nyelve</span>
-              <InfoHint theme="light" label="Nyelv" description="A felület gombjai, értesítései és a felolvasó hang is ezen a nyelven szólal meg." />
+              <span>{tx('Felület és Hangkimenet Nyelve')}</span>
+              <InfoHint theme="light" label={tx('Nyelv')} description={tx('A felület gombjai, értesítései és a felolvasó hang is ezen a nyelven szólal meg.')} />
             </label>
             <select
               id="set-lang"
@@ -258,7 +259,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-backup" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Biztonsági Mentés Ütemezése
+              {tx('Biztonsági Mentés Ütemezése')}
             </label>
             <select
               id="set-backup"
@@ -268,16 +269,16 @@ export const SettingsView: React.FC<Props> = ({
               }
               className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
-              <option value="manual">Manuális</option>
-              <option value="daily">Napi</option>
-              <option value="weekly">Heti</option>
-              <option value="monthly">Havi</option>
+              <option value="manual">{tx('Manuális')}</option>
+              <option value="daily">{tx('Napi')}</option>
+              <option value="weekly">{tx('Heti')}</option>
+              <option value="monthly">{tx('Havi')}</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="set-preset" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Alapértelmezett Végrehajtási Mód (Preset)
+              {tx('Alapértelmezett Végrehajtási Mód (Preset)')}
             </label>
             <select
               id="set-preset"
@@ -285,15 +286,15 @@ export const SettingsView: React.FC<Props> = ({
               onChange={(e) => setForm({ ...form, defaultPreset: e.target.value as ExecutionPreset })}
               className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
-              <option value="fast">Gyors (Fast)</option>
-              <option value="deep">Mély kutatás (Deep)</option>
-              <option value="precise">Precíziós (Precise)</option>
+              <option value="fast">{tx('Gyors (Fast)')}</option>
+              <option value="deep">{tx('Mély kutatás (Deep)')}</option>
+              <option value="precise">{tx('Precíziós (Precise)')}</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="set-tool-steps" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Maximális Eszközlánc Mélység (ReAct lépések)
+              {tx('Maximális Eszközlánc Mélység (ReAct lépések)')}
             </label>
             <input
               id="set-tool-steps"
@@ -308,8 +309,8 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-budget" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              <span>Globális Napi Költséglimit (USD)</span>
-              <InfoHint theme="light" label="Napi költséglimit" description="Maximális napi dollárkeret fizetős AI modellekre. Ha eléri, automatikusan átvált ingyenes vagy helyi modellre." />
+              <span>{tx('Globális Napi Költséglimit (USD)')}</span>
+              <InfoHint theme="light" label={tx('Napi költséglimit')} description={tx('Maximális napi dollárkeret fizetős AI modellekre. Ha eléri, automatikusan átvált ingyenes vagy helyi modellre.')} />
             </label>
             <input
               id="set-budget"
@@ -324,7 +325,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-monthly-alert" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Havi Várható Költség Riasztás (USD)
+              {tx('Havi Várható Költség Riasztás (USD)')}
             </label>
             <input
               id="set-monthly-alert"
@@ -339,7 +340,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-dream-idle" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Álmodás Indulási Inaktivitás (perc)
+              {tx('Álmodás Indulási Inaktivitás (perc)')}
             </label>
             <input
               id="set-dream-idle"
@@ -353,7 +354,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-temp" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Termikus Lassítási Küszöb (°C)
+              {tx('Termikus Lassítási Küszöb (°C)')}
             </label>
             <input
               id="set-temp"
@@ -366,7 +367,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-bat" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Akkumulátor Kímélő Küszöb (%)
+              {tx('Akkumulátor Kímélő Küszöb (%)')}
             </label>
             <input
               id="set-bat"
@@ -379,7 +380,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ollama-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Lokális Ollama URL
+              {tx('Lokális Ollama URL')}
             </label>
             <input
               id="set-ollama-url"
@@ -392,7 +393,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ollama-model" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Lokális Ollama Modell
+              {tx('Lokális Ollama Modell')}
             </label>
             <input
               id="set-ollama-model"
@@ -405,7 +406,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ollama-ctx" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Ollama Kontextus Méret (num_ctx)
+              {tx('Ollama Kontextus Méret (num_ctx)')}
             </label>
             <input
               id="set-ollama-ctx"
@@ -420,7 +421,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ollama-ka" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Ollama Keep Alive (pl. 10m, 0)
+              {tx('Ollama Keep Alive (pl. 10m, 0)')}
             </label>
             <input
               id="set-ollama-ka"
@@ -433,7 +434,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ollama-unload" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Ollama Automatikus RAM Kiürítés (perc, 0 = ki)
+              {tx('Ollama Automatikus RAM Kiürítés (perc, 0 = ki)')}
             </label>
             <input
               id="set-ollama-unload"
@@ -448,7 +449,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-weather-loc" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Időjárás Település (Open-Meteo, kulcs nélküli)
+              {tx('Időjárás Település (Open-Meteo, kulcs nélküli)')}
             </label>
             <input
               id="set-weather-loc"
@@ -461,7 +462,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-piper-bin" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Piper Neurális TTS Parancs / Útvonal (opcionális)
+              {tx('Piper Neurális TTS Parancs / Útvonal (opcionális)')}
             </label>
             <input
               id="set-piper-bin"
@@ -474,8 +475,8 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-wake-phrase" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              <span>Ébresztőszó (Hangvezérléshez)</span>
-              <InfoHint theme="light" label="Ébresztőszó" description="Ha bekapcsolod a folyamatos figyelést, erre a szóra indul el a hangfelismerés." />
+              <span>{tx('Ébresztőszó (Hangvezérléshez)')}</span>
+              <InfoHint theme="light" label={tx('Ébresztőszó')} description={tx('Ha bekapcsolod a folyamatos figyelést, erre a szóra indul el a hangfelismerés.')} />
             </label>
             <input
               id="set-wake-phrase"
@@ -488,23 +489,23 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-tg-chat" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              <span>Fő Telegram Chat ID</span>
-              <InfoHint theme="light" label="Telegram Chat ID" description="A saját Telegram fiókod vagy csoportod azonosítója. Biztonsági okból csak az itt megadott azonosítók vezérelhetik a botot." />
+              <span>{tx('Fő Telegram Chat ID')}</span>
+              <InfoHint theme="light" label="Telegram Chat ID" description={tx('A saját Telegram fiókod vagy csoportod azonosítója. Biztonsági okból csak az itt megadott azonosítók vezérelhetik a botot.')} />
             </label>
             <input
               id="set-tg-chat"
               type="text"
               value={form.telegramChatId}
               onChange={(e) => setForm({ ...form, telegramChatId: e.target.value })}
-              placeholder="pl. 582910394"
+              placeholder={tx('pl. 582910394')}
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
 
           <div>
             <label htmlFor="set-tg-allowed" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              <span>Engedélyezett Telegram Chat ID-k (vesszővel)</span>
-              <InfoHint theme="light" label="Telegram Engedélylista" description="Ha több embernek vagy csoportnak is engedélyeznéd a bot használatát, írd be ide az azonosítóikat vesszővel elválasztva. Üres listánál a bot minden idegent elutasít." />
+              <span>{tx('Engedélyezett Telegram Chat ID-k (vesszővel)')}</span>
+              <InfoHint theme="light" label={tx('Telegram Engedélylista')} description={tx('Ha több embernek vagy csoportnak is engedélyeznéd a bot használatát, írd be ide az azonosítóikat vesszővel elválasztva. Üres listánál a bot minden idegent elutasít.')} />
             </label>
             <input
               id="set-tg-allowed"
@@ -519,28 +520,28 @@ export const SettingsView: React.FC<Props> = ({
                     .filter(Boolean),
                 })
               }
-              placeholder="pl. 582910394, -1001234567"
+              placeholder={tx('pl. 582910394, -1001234567')}
               className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
           </div>
 
           <div>
             <label htmlFor="set-tg-token" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Telegram Bot Token {settings.telegramHasToken ? '(konfigurálva)' : ''}
+              Telegram Bot Token {settings.telegramHasToken ? tx('(konfigurálva)') : ''}
             </label>
             <input
               id="set-tg-token"
               type="password"
               value={telegramToken}
               onChange={(e) => setTelegramToken(e.target.value)}
-              placeholder="Új token megadása..."
+              placeholder={tx('Új token megadása...')}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
 
           <div>
             <label htmlFor="set-search-prov" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Web Keresőmotor
+              {tx('Web Keresőmotor')}
             </label>
             <select
               id="set-search-prov"
@@ -550,15 +551,15 @@ export const SettingsView: React.FC<Props> = ({
               }
               className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
-              <option value="duckduckgo">DuckDuckGo (Kulcs nélküli)</option>
-              <option value="searxng">Lokális SearXNG</option>
+              <option value="duckduckgo">{tx('DuckDuckGo (Kulcs nélküli)')}</option>
+              <option value="searxng">{tx('Lokális SearXNG')}</option>
               <option value="brave">Brave Search API</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="set-searx" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              SearXNG URL / Brave Search Kulcs {settings.braveHasKey ? '(Brave mentve)' : ''}
+              {tx('SearXNG URL / Brave Search Kulcs')} {settings.braveHasKey ? tx('(Brave mentve)') : ''}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <input
@@ -581,7 +582,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ha-url" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Home Assistant URL & Token {settings.homeAssistantHasToken ? '(mentve)' : ''}
+              Home Assistant URL &amp; Token {settings.homeAssistantHasToken ? tx('(mentve)') : ''}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <input
@@ -604,7 +605,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-mqtt" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              MQTT Broker Host & Port
+              MQTT Broker Host &amp; Port
             </label>
             <div className="grid grid-cols-3 gap-2">
               <input
@@ -626,7 +627,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-rsync" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Külső Rsync / NAS Mentési Célmappa
+              {tx('Külső Rsync / NAS Mentési Célmappa')}
             </label>
             <input
               id="set-rsync"
@@ -640,7 +641,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-caldav" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              CalDAV Naptár URL (opcionális)
+              {tx('CalDAV Naptár URL (opcionális)')}
             </label>
             <input
               id="set-caldav"
@@ -654,7 +655,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-instance-name" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Föderációs Csomópont Neve
+              {tx('Föderációs Csomópont Neve')}
             </label>
             <input
               id="set-instance-name"
@@ -667,7 +668,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-heartbeat-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Autonóm Heartbeat Intervallum (perc)
+              {tx('Autonóm Heartbeat Intervallum (perc)')}
             </label>
             <input
               id="set-heartbeat-int"
@@ -681,7 +682,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-kanban-wip" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Kanban Folyamatban WIP Limit
+              {tx('Kanban Folyamatban WIP Limit')}
             </label>
             <input
               id="set-kanban-wip"
@@ -695,7 +696,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-kanban-aging" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Kanban Elakadás (Aging) Küszöb (óra)
+              {tx('Kanban Elakadás (Aging) Küszöb (óra)')}
             </label>
             <input
               id="set-kanban-aging"
@@ -722,7 +723,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-ota-hours" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              OTA Automatikus Ellenőrzés (óra)
+              {tx('OTA Automatikus Ellenőrzés (óra)')}
             </label>
             <input
               id="set-ota-hours"
@@ -737,7 +738,7 @@ export const SettingsView: React.FC<Props> = ({
 
           <div>
             <label htmlFor="set-emb-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Memória Embedding Mód
+              {tx('Memória Embedding Mód')}
             </label>
             <select
               id="set-emb-mode"
@@ -747,14 +748,14 @@ export const SettingsView: React.FC<Props> = ({
               }
               className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
-              <option value="local_ngram">Helyi n-gram + BM25 (Offline gyors)</option>
-              <option value="ollama">Ollama Neurális Embedding</option>
+              <option value="local_ngram">{tx('Helyi n-gram + BM25 (Offline gyors)')}</option>
+              <option value="ollama">{tx('Ollama Neurális Embedding')}</option>
             </select>
           </div>
 
           <div>
             <label htmlFor="set-emb-model" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Ollama Embedding Modell
+              {tx('Ollama Embedding Modell')}
             </label>
             <input
               id="set-emb-model"
@@ -774,11 +775,11 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.hostPermissionsGranted}
                 onChange={(e) => setForm({ ...form, hostPermissionsGranted: e.target.checked })}
               />
-              <span>Géphez való hozzáférés engedélyezése (fájlok, parancsok, terminál)</span>
+              <span>{tx('Géphez való hozzáférés engedélyezése (fájlok, parancsok, terminál)')}</span>
             </label>
             <InfoHint
-              label="Géphez való hozzáférés"
-              text="Ha bekapcsolod, az asszisztens képes fájlokat olvasni/írni és parancsokat futtatni ezen a gépen. Alapból biztonsági okból ki van kapcsolva."
+              label={tx('Géphez való hozzáférés')}
+              text={tx('Ha bekapcsolod, az asszisztens képes fájlokat olvasni/írni és parancsokat futtatni ezen a gépen. Alapból biztonsági okból ki van kapcsolva.')}
             />
           </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -787,7 +788,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={form.dailyCostLimitEnabled}
               onChange={(e) => setForm({ ...form, dailyCostLimitEnabled: e.target.checked })}
             />
-            <span>Globális napi költséglimit aktív</span>
+            <span>{tx('Globális napi költséglimit aktív')}</span>
           </label>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -796,11 +797,11 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.telegramEnabled}
                 onChange={(e) => setForm({ ...form, telegramEnabled: e.target.checked })}
               />
-              <span>Kétirányú Telegram gateway aktív</span>
+              <span>{tx('Kétirányú Telegram gateway aktív')}</span>
             </label>
             <InfoHint
               label="Telegram gateway"
-              text="Telefonról is tudsz parancsokat küldeni és értesítéseket kapni. Csak a fent megadott Telegram Chat ID-kről fogad el üzenetet."
+              text={tx('Telefonról is tudsz parancsokat küldeni és értesítéseket kapni. Csak a fent megadott Telegram Chat ID-kről fogad el üzenetet.')}
             />
           </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -809,7 +810,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={form.heartbeatEnabled}
               onChange={(e) => setForm({ ...form, heartbeatEnabled: e.target.checked })}
             />
-            <span>Automatikus állapotfigyelés (elakadt feladatok és szerver elérhetőség figyelése)</span>
+            <span>{tx('Automatikus állapotfigyelés (elakadt feladatok és szerver elérhetőség figyelése)')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -817,7 +818,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={Boolean(form.autonomousKanbanWorkerEnabled)}
               onChange={(e) => setForm({ ...form, autonomousKanbanWorkerEnabled: e.target.checked })}
             />
-            <span>Önálló feladat-végrehajtó (üresjáratban automatikusan dolgozik a várólistás kártyákon)</span>
+            <span>{tx('Önálló feladat-végrehajtó (üresjáratban automatikusan dolgozik a várólistás kártyákon)')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -825,7 +826,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={Boolean(form.autoUpdateEnabled)}
               onChange={(e) => setForm({ ...form, autoUpdateEnabled: e.target.checked })}
             />
-            <span>GitHub Automatikus Frissítés engedélyezve (biztonsági mentéssel és visszaállítással)</span>
+            <span>{tx('GitHub Automatikus Frissítés engedélyezve (biztonsági mentéssel és visszaállítással)')}</span>
           </label>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -834,11 +835,11 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.channelPairingRequired}
                 onChange={(e) => setForm({ ...form, channelPairingRequired: e.target.checked })}
               />
-              <span>Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)</span>
+              <span>{tx('Csatorna Párosítási Kapu (6 jegyű kód ismeretlen feladóknak)')}</span>
             </label>
             <InfoHint
-              label="Csatorna párosítási kapu"
-              text="Idegen feladó nem tudja használni a botot, amíg a hatjegyű párosító kódot jóvá nem hagyod."
+              label={tx('Csatorna párosítási kapu')}
+              text={tx('Idegen feladó nem tudja használni a botot, amíg a hatjegyű párosító kódot jóvá nem hagyod.')}
             />
           </div>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -847,7 +848,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={form.federationEnabled}
               onChange={(e) => setForm({ ...form, federationEnabled: e.target.checked })}
             />
-            <span>Több gépes összekapcsolás (P2P Föderáció) engedélyezve</span>
+            <span>{tx('Több gépes összekapcsolás (P2P Föderáció) engedélyezve')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -855,7 +856,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={form.ttsEnabled}
               onChange={(e) => setForm({ ...form, ttsEnabled: e.target.checked })}
             />
-            <span>Böngészőoldali szövegfelolvasás (WebSpeech TTS)</span>
+            <span>{tx('Böngészőoldali szövegfelolvasás (WebSpeech TTS)')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -863,7 +864,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={Boolean(form.continuousVoiceMode)}
               onChange={(e) => setForm({ ...form, continuousVoiceMode: e.target.checked })}
             />
-            <span>Folyamatos kézmentes hangmód alapértelmezett (felolvasás után automatikus hallgatás)</span>
+            <span>{tx('Folyamatos kézmentes hangmód alapértelmezett (felolvasás után automatikus hallgatás)')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -871,7 +872,7 @@ export const SettingsView: React.FC<Props> = ({
               checked={form.ttsHostSpeakerEnabled}
               onChange={(e) => setForm({ ...form, ttsHostSpeakerEnabled: e.target.checked })}
             />
-            <span>Gazdagép hangszóró felolvasás (Piper / espeak-ng)</span>
+            <span>{tx('Gazdagép hangszóró felolvasás (Piper / espeak-ng)')}</span>
           </label>
           <label className="flex items-center gap-2.5 text-sm cursor-pointer">
             <input
@@ -879,25 +880,25 @@ export const SettingsView: React.FC<Props> = ({
               checked={Boolean(form.wakeWordEnabled)}
               onChange={(e) => setForm({ ...form, wakeWordEnabled: e.target.checked })}
             />
-            <span>Kézmentes ébresztőszó figyelés aktív a chatben</span>
+            <span>{tx('Kézmentes ébresztőszó figyelés aktív a chatben')}</span>
           </label>
         </div>
 
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Önállóság, Megjelenés &amp; Adatvédelem
+              {tx('Önállóság, Megjelenés & Adatvédelem')}
             </h3>
             <InfoHint
-              label="Önállóság és megjelenés"
-              text="Itt állíthatod be a felület kinézetét, az adatvédelmi maszkot, valamint azt, hogy az asszisztens mennyire önállóan cselekedjen jóváhagyás nélkül."
+              label={tx('Önállóság és megjelenés')}
+              text={tx('Itt állíthatod be a felület kinézetét, az adatvédelmi maszkot, valamint azt, hogy az asszisztens mennyire önállóan cselekedjen jóváhagyás nélkül.')}
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label htmlFor="set-theme-mode" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                <span>Megjelenési Téma</span>
-                <InfoHint label="Megjelenési téma" text="Világos, sötét vagy nagy kontrasztú megjelenés választása." />
+                <span>{tx('Megjelenési Téma')}</span>
+                <InfoHint label={tx('Megjelenési téma')} text={tx('Világos, sötét vagy nagy kontrasztú megjelenés választása.')} />
               </label>
               <select
                 id="set-theme-mode"
@@ -905,15 +906,15 @@ export const SettingsView: React.FC<Props> = ({
                 onChange={(e) => setForm({ ...form, themeMode: e.target.value as Settings['themeMode'] })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               >
-                <option value="light">Világos (Light)</option>
-                <option value="dark">Sötét Mód (Dark)</option>
-                <option value="high_contrast">Magas Kontraszt</option>
+                <option value="light">{tx('Világos (Light)')}</option>
+                <option value="dark">{tx('Sötét Mód (Dark)')}</option>
+                <option value="high_contrast">{tx('Magas Kontraszt')}</option>
               </select>
             </div>
             <div>
               <label htmlFor="set-sup-strict" className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                <span>Felügyelő Szigorúság</span>
-                <InfoHint label="Felügyelő szigorúság" text="Mennyire szigorúan ellenőrizze a rendszer a kockázatos műveleteket." />
+                <span>{tx('Felügyelő Szigorúság')}</span>
+                <InfoHint label={tx('Felügyelő szigorúság')} text={tx('Mennyire szigorúan ellenőrizze a rendszer a kockázatos műveleteket.')} />
               </label>
               <select
                 id="set-sup-strict"
@@ -923,14 +924,14 @@ export const SettingsView: React.FC<Props> = ({
                 }
                 className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               >
-                <option value="permissive">Megengedő</option>
-                <option value="balanced">Kiegyensúlyozott (Ajánlott)</option>
-                <option value="paranoid">Szigorú</option>
+                <option value="permissive">{tx('Megengedő')}</option>
+                <option value="balanced">{tx('Kiegyensúlyozott (Ajánlott)')}</option>
+                <option value="paranoid">{tx('Szigorú')}</option>
               </select>
             </div>
             <div>
               <label htmlFor="set-currency" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Alapértelmezett Pénznem
+                {tx('Alapértelmezett Pénznem')}
               </label>
               <select
                 id="set-currency"
@@ -945,7 +946,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-ns-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Éjszakai Műszak Gyakorisága (perc)
+                {tx('Éjszakai Műszak Gyakorisága (perc)')}
               </label>
               <input
                 id="set-ns-int"
@@ -958,7 +959,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-retention" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Napló &amp; Vágólap Megőrzés (nap)
+                {tx('Napló & Vágólap Megőrzés (nap)')}
               </label>
               <input
                 id="set-retention"
@@ -978,7 +979,7 @@ export const SettingsView: React.FC<Props> = ({
                 <div className="flex items-center gap-2">
                   <OctagonAlert className="h-4 w-4 text-red-700 dark:text-red-400" />
                   <h4 className="text-sm font-bold text-red-950 dark:text-red-100">
-                    Totális autonómia
+                    {tx('Totális autonómia')}
                   </h4>
                   <span
                     className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
@@ -987,13 +988,13 @@ export const SettingsView: React.FC<Props> = ({
                         : 'bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300'
                     }`}
                   >
-                    {settings.totalAutonomyEnabled ? 'AKTÍV' : 'Kikapcsolva'}
+                    {settings.totalAutonomyEnabled ? tx('AKTÍV') : tx('Inaktív')}
                   </span>
                 </div>
                 <p className="text-xs text-red-950/90 dark:text-red-200 max-w-2xl">
-                  Önálló célvégrehajtás, beállítás-adminisztráció, helyi hálózati felderítés/eszközvezérlés és öngyógyító Security Watchdog.{' '}
-                  <strong>3 sérthetetlen garancia:</strong> (1) hamisításbiztos append-only audit + napi Telegram anchor, (2) többcsatornás{' '}
-                  <span className="font-mono">/stop</span> LOCKDOWN csak tulajdonosi jelszóval oldható fel, (3) automatikus biztonsági visszaállítási pontok.
+                  {tx('Önálló célvégrehajtás, beállítás-adminisztráció, helyi hálózati felderítés/eszközvezérlés és öngyógyító Security Watchdog.')}{' '}
+                  <strong>{tx('3 sérthetetlen garancia:')}</strong> {tx('(1) hamisításbiztos append-only audit + napi Telegram anchor, (2) többcsatornás')}{' '}
+                  <span className="font-mono">/stop</span> {tx('LOCKDOWN csak tulajdonosi jelszóval oldható fel, (3) automatikus biztonsági visszaállítási pontok.')}
                 </p>
               </div>
               {settings.totalAutonomyEnabled ? (
@@ -1003,7 +1004,7 @@ export const SettingsView: React.FC<Props> = ({
                   onClick={() => void handleToggleTotalAutonomy(false)}
                   className="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
-                  Totális autonómia Kikapcsolása
+                  {tx('Totális autonómia Kikapcsolása')}
                 </button>
               ) : (
                 <button
@@ -1015,7 +1016,7 @@ export const SettingsView: React.FC<Props> = ({
                   }}
                   className="px-3.5 py-2 text-xs font-semibold bg-red-700 text-white rounded-lg hover:bg-red-800 whitespace-nowrap shrink-0"
                 >
-                  Totális autonómia Bekapcsolása...
+                  {tx('Totális autonómia Bekapcsolása...')}
                 </button>
               )}
             </div>
@@ -1027,7 +1028,7 @@ export const SettingsView: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1 items-end">
               <div>
                 <label htmlFor="set-wd-timeout" className="block text-xs font-medium text-red-950 dark:text-red-200 mb-1">
-                  Watchdog Próba Időablak (mp)
+                  {tx('Watchdog Próba Időablak (mp)')}
                 </label>
                 <input
                   id="set-wd-timeout"
@@ -1041,7 +1042,7 @@ export const SettingsView: React.FC<Props> = ({
               </div>
               <div>
                 <label htmlFor="set-cb-max" className="block text-xs font-medium text-red-950 dark:text-red-200 mb-1">
-                  Circuit Breaker Limit (hiba)
+                  {tx('Circuit Breaker Limit (hiba)')}
                 </label>
                 <input
                   id="set-cb-max"
@@ -1059,7 +1060,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.autoWatchdogRollbackEnabled !== false}
                   onChange={(e) => setForm({ ...form, autoWatchdogRollbackEnabled: e.target.checked })}
                 />
-                <span>Watchdog automata rollback</span>
+                <span>{tx('Watchdog automata rollback')}</span>
               </label>
               <label className="flex items-center gap-2 text-xs text-red-950 dark:text-red-200 cursor-pointer pb-1.5">
                 <input
@@ -1067,7 +1068,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.dailyCloudCostFallbackToOllama !== false}
                   onChange={(e) => setForm({ ...form, dailyCloudCostFallbackToOllama: e.target.checked })}
                 />
-                <span>Felhő keret után Ollama váltás</span>
+                <span>{tx('Felhő keret után Ollama váltás')}</span>
               </label>
             </div>
           </div>
@@ -1078,7 +1079,7 @@ export const SettingsView: React.FC<Props> = ({
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-amber-800 dark:text-amber-300" />
                   <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    „Teljes autonómia” Profil (1-kattintásos csomag)
+                    {tx('„Teljes autonómia” Profil (1-kattintásos csomag)')}
                   </h4>
                   <span
                     className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
@@ -1087,12 +1088,12 @@ export const SettingsView: React.FC<Props> = ({
                         : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    {settings.fullAutonomyProfileEnabled ? 'AKTÍV' : 'Kikapcsolva'}
+                    {settings.fullAutonomyProfileEnabled ? tx('AKTÍV') : tx('Inaktív')}
                   </span>
                 </div>
                 <p className="text-xs text-slate-700 dark:text-slate-300 max-w-2xl">
-                  Bekapcsolja együtt a <strong>Host jogosultságot</strong>, a <strong>Teljes autonóm módot</strong> és a <strong>Veszélyes Zónát</strong> (exec jóváhagyás nélkül). Kikapcsoláskor visszaállítja a korábbi egyéni értékeket.
-                  A Telegram engedélylista, a Web operátori jelszó és a <span className="font-mono">/stop</span> vészleállító ezalatt is aktív marad.
+                  {tx('Bekapcsolja együtt a')} <strong>{tx('Host jogosultságot')}</strong>, a <strong>{tx('Teljes autonóm módot')}</strong> {tx('és a')} <strong>{tx('Veszélyes Zónát')}</strong> {tx('(exec jóváhagyás nélkül). Kikapcsoláskor visszaállítja a korábbi egyéni értékeket. A Telegram engedélylista, a Web operátori jelszó és a')}{' '}
+                  <span className="font-mono">/stop</span> {tx('vészleállító ezalatt is aktív marad.')}
                 </p>
               </div>
               {settings.fullAutonomyProfileEnabled ? (
@@ -1102,7 +1103,7 @@ export const SettingsView: React.FC<Props> = ({
                   onClick={() => void handleToggleAutonomyProfile(false)}
                   className="px-3.5 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
                 >
-                  Teljes autonómia Kikapcsolása
+                  {tx('Teljes autonómia Kikapcsolása')}
                 </button>
               ) : (
                 <button
@@ -1114,7 +1115,7 @@ export const SettingsView: React.FC<Props> = ({
                   }}
                   className="px-3.5 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 whitespace-nowrap"
                 >
-                  Teljes autonómia Bekapcsolása...
+                  {tx('Teljes autonómia Bekapcsolása...')}
                 </button>
               )}
             </div>
@@ -1126,7 +1127,7 @@ export const SettingsView: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 items-end">
               <div>
                 <label htmlFor="set-exec-timeout" className="block text-xs font-medium text-slate-800 dark:text-slate-200 mb-1">
-                  Exec Parancs Időkorlát (mp, 5–3600)
+                  {tx('Exec Parancs Időkorlát (mp, 5–3600)')}
                 </label>
                 <input
                   id="set-exec-timeout"
@@ -1140,7 +1141,7 @@ export const SettingsView: React.FC<Props> = ({
               </div>
               <div>
                 <label htmlFor="set-long-exec-timeout" className="block text-xs font-medium text-slate-800 dark:text-slate-200 mb-1">
-                  Hosszú Parancs (apt/npm/build) Időkorlát (mp, 30–7200)
+                  {tx('Hosszú Parancs (apt/npm/build) Időkorlát (mp, 30–7200)')}
                 </label>
                 <input
                   id="set-long-exec-timeout"
@@ -1156,15 +1157,15 @@ export const SettingsView: React.FC<Props> = ({
                 <span>
                   Sudo NOPASSWD:{' '}
                   <strong className={sudoStatus?.hasNopasswd ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
-                    {sudoStatus ? (sudoStatus.hasNopasswd ? 'Rendben' : 'HIÁNYZIK') : '—'}
+                    {sudoStatus ? (sudoStatus.hasNopasswd ? tx('AKTÍV') : tx('HIÁNYZIK')) : '—'}
                   </strong>
                 </span>
                 <span>
-                  Phoenix mentés:{' '}
+                  {tx('Phoenix mentés:')}{' '}
                   <strong className={phoenixAutonomy?.staleWarning ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}>
                     {phoenixAutonomy?.lastSnapshotAt
-                      ? `${phoenixAutonomy.ageHours ?? 0} órája`
-                      : 'még nincs'}
+                      ? tx('{0} órája', phoenixAutonomy.ageHours ?? 0)
+                      : tx('még nincs')}
                   </strong>
                 </span>
               </div>
@@ -1175,7 +1176,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.autoPhoenixSnapshotInFullAutonomy !== false}
                 onChange={(e) => setForm({ ...form, autoPhoenixSnapshotInFullAutonomy: e.target.checked })}
               />
-              <span>Napi automatikus Phoenix pillanatkép készítése Teljes autonómia alatt (24 óránként figyelmeztet, ha hiányzik)</span>
+              <span>{tx('Napi automatikus Phoenix pillanatkép készítése Teljes autonómia alatt (24 óránként figyelmeztet, ha hiányzik)')}</span>
             </label>
           </div>
 
@@ -1187,11 +1188,11 @@ export const SettingsView: React.FC<Props> = ({
                   checked={Boolean(form.fullAutonomousMode)}
                   onChange={(e) => setForm({ ...form, fullAutonomousMode: e.target.checked })}
                 />
-                <span>Teljesen Önálló Mód — jóváhagyás kérése nélkül hajtsa végre a feladatokat (haladó, alapból KI)</span>
+                <span>{tx('Teljesen Önálló Mód — jóváhagyás kérése nélkül hajtsa végre a feladatokat (haladó, alapból KI)')}</span>
               </label>
               <InfoHint
-                label="Teljesen önálló mód"
-                text="Alapértelmezés szerint kikapcsolva van a biztonságod érdekében. A parancssori (shell) futtatások ettől függetlenül továbbra is jóváhagyást kérnek — azt csak a lenti Veszélyes Zóna kapcsolóval lehet feloldani."
+                label={tx('Teljesen önálló mód')}
+                text={tx('Alapértelmezés szerint kikapcsolva van a biztonságod érdekében. A parancssori (shell) futtatások ettől függetlenül továbbra is jóváhagyást kérnek — azt csak a lenti Veszélyes Zóna kapcsolóval lehet feloldani.')}
               />
             </div>
             <div className="p-3 rounded-lg border border-red-200 bg-red-50/70 dark:bg-red-950/30 dark:border-red-900 space-y-1.5">
@@ -1202,11 +1203,11 @@ export const SettingsView: React.FC<Props> = ({
                     checked={Boolean(form.dangerousExecAutoApprove)}
                     onChange={(e) => setForm({ ...form, dangerousExecAutoApprove: e.target.checked })}
                   />
-                  <span>Veszélyes Zóna: Parancssor jóváhagyás nélküli futtatása (alapból KI — szigorúan naplózva)</span>
+                  <span>{tx('Veszélyes Zóna: Parancssor jóváhagyás nélküli futtatása (alapból KI — szigorúan naplózva)')}</span>
                 </label>
                 <InfoHint
-                  label="Veszélyes Zóna (exec jóváhagyás nélkül)"
-                  text="Figyelem: ha bekapcsolod, az engedélylistán (ls, cat, df, uptime) kívüli rendszerparancsok is Telegram/UI jóváhagyás nélkül futhatnak, teljes biztonsági naplózás mellett. Éles gépen hagyd kikapcsolva!"
+                  label={tx('Veszélyes Zóna (exec jóváhagyás nélkül)')}
+                  text={tx('Figyelem: ha bekapcsolod, az engedélylistán (ls, cat, df, uptime) kívüli rendszerparancsok is Telegram/UI jóváhagyás nélkül futhatnak, teljes biztonsági naplózás mellett. Éles gépen hagyd kikapcsolva!')}
                 />
               </div>
             </div>
@@ -1215,11 +1216,11 @@ export const SettingsView: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                    Sandbox Izolációs Állapot (<code>sandbox_js</code> &amp; Supervisor)
+                    {tx('Sandbox Izolációs Állapot (')}<code>sandbox_js</code> &amp; Supervisor)
                   </span>
                   <InfoHint
-                    label="JS Sandbox izoláció"
-                    text="A megbízhatatlan dinamikus JS eszközök (sandbox_js) kizárólag Docker (--network=none) vagy Bubblewrap (bwrap --tmpfs / --unshare-all) konténerben futhatnak. Ha egyik sincs telepítve, a sandbox_js biztonsági okból letiltva marad (nem esik vissza unshare-re)."
+                    label={tx('JS Sandbox izoláció')}
+                    text={tx('A megbízhatatlan dinamikus JS eszközök (sandbox_js) kizárólag Docker (--network=none) vagy Bubblewrap (bwrap --tmpfs / --unshare-all) konténerben futhatnak. Ha egyik sincs telepítve, a sandbox_js biztonsági okból letiltva marad (nem esik vissza unshare-re).')}
                   />
                 </div>
                 <span
@@ -1232,8 +1233,8 @@ export const SettingsView: React.FC<Props> = ({
                   {sandboxCapabilities
                     ? sandboxCapabilities.jsSandboxAvailable
                       ? `sandbox_js: ${sandboxCapabilities.jsSandboxBackend}`
-                      : 'sandbox_js: letiltva (nincs Docker/bwrap)'
-                    : 'sandbox_js: ellenőrzés...'}
+                      : tx('sandbox_js: letiltva (nincs Docker/bwrap)')
+                    : tx('sandbox_js: ellenőrzés...')}
                 </span>
               </div>
               <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-4 gap-y-1">
@@ -1246,14 +1247,14 @@ export const SettingsView: React.FC<Props> = ({
                     {sandboxCapabilities
                       ? sandboxCapabilities.nodePermissionSupported
                         ? `${sandboxCapabilities.nodePermissionFlag} (Node ${sandboxCapabilities.nodeVersion})`
-                        : `nem támogatott (${sandboxCapabilities.nodeVersion})`
+                        : tx('nem támogatott ({0})', sandboxCapabilities.nodeVersion)
                       : '—'}
                   </strong>
                 </span>
               </div>
               {sandboxCapabilities && !sandboxCapabilities.jsSandboxAvailable && (
                 <div className="text-[11px] text-amber-900 dark:text-amber-200">
-                  Telepítés Raspberry Pi / Debian rendszeren: <code>sudo apt update &amp;&amp; sudo apt install -y bubblewrap</code>
+                  {tx('Telepítés Raspberry Pi / Debian rendszeren:')} <code>sudo apt update &amp;&amp; sudo apt install -y bubblewrap</code>
                 </div>
               )}
             </div>
@@ -1264,11 +1265,11 @@ export const SettingsView: React.FC<Props> = ({
                   checked={Boolean(form.sendAuditAnchorToTelegram)}
                   onChange={(e) => setForm({ ...form, sendAuditAnchorToTelegram: e.target.checked })}
                 />
-                <span>Napi Audit Fej-Hash küldése Telegramra (külső hamisítás-horgony)</span>
+                <span>{tx('Napi Audit Fej-Hash küldése Telegramra (külső hamisítás-horgony)')}</span>
               </label>
               <InfoHint
-                label="Külső audit horgony"
-                text="Naponta egyszer elküldi az audit napló HMAC-SHA256 zárólenyomatát Telegramra, így utólag sem módosíthatók észrevétlenül a helyi naplók."
+                label={tx('Külső audit horgony')}
+                text={tx('Naponta egyszer elküldi az audit napló HMAC-SHA256 zárólenyomatát Telegramra, így utólag sem módosíthatók észrevétlenül a helyi naplók.')}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -1278,11 +1279,11 @@ export const SettingsView: React.FC<Props> = ({
                   checked={Boolean(form.privacyMaskEnabled)}
                   onChange={(e) => setForm({ ...form, privacyMaskEnabled: e.target.checked })}
                 />
-                <span>Kávézó Mód (Privacy Mask) — költések és érzékeny összegek elrejtése a képernyőn</span>
+                <span>{tx('Kávézó Mód (Privacy Mask) — költések és érzékeny összegek elrejtése a képernyőn')}</span>
               </label>
               <InfoHint
-                label="Kávézó mód"
-                text="Ha nyilvános helyen dolgozol vagy képernyőt osztasz meg, elhomályosítja az érzékeny összegeket és adatokat."
+                label={tx('Kávézó mód')}
+                text={tx('Ha nyilvános helyen dolgozol vagy képernyőt osztasz meg, elhomályosítja az érzékeny összegeket és adatokat.')}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -1292,11 +1293,11 @@ export const SettingsView: React.FC<Props> = ({
                   checked={Boolean(form.nightShiftEnabled)}
                   onChange={(e) => setForm({ ...form, nightShiftEnabled: e.target.checked })}
                 />
-                <span>Éjszakai Automata Műszak engedélyezve (alapból KI)</span>
+                <span>{tx('Éjszakai Automata Műszak engedélyezve (alapból KI)')}</span>
               </label>
               <InfoHint
-                label="Éjszakai műszak"
-                text="Ha bekapcsolod, az asszisztens éjszaka automatikusan átnézi a várólistát és jelentést készít."
+                label={tx('Éjszakai műszak')}
+                text={tx('Ha bekapcsolod, az asszisztens éjszaka automatikusan átnézi a várólistát és jelentést készít.')}
               />
             </div>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -1305,7 +1306,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.softDowngradeOnBudget !== false}
                 onChange={(e) => setForm({ ...form, softDowngradeOnBudget: e.target.checked })}
               />
-              <span>Költséglimitnél automatikus váltás ingyenes helyi Ollama modellre leállás helyett</span>
+              <span>{tx('Költséglimitnél automatikus váltás ingyenes helyi Ollama modellre leállás helyett')}</span>
             </label>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -1322,11 +1323,11 @@ export const SettingsView: React.FC<Props> = ({
                     })
                   }
                 />
-                <span>Biztonsági Védőkorlátok (személyes adatok, jelszavak és injekciók szűrése — ajánlott: BE)</span>
+                <span>{tx('Biztonsági Védőkorlátok (személyes adatok, jelszavak és injekciók szűrése — ajánlott: BE)')}</span>
               </label>
               <InfoHint
-                label="Biztonsági védőkorlátok"
-                text="Megakadályozza, hogy véletlenül jelszavak vagy titkos kulcsok szivárogjanak ki az AI válaszokban, és szűri a gyanús utasításokat."
+                label={tx('Biztonsági védőkorlátok')}
+                text={tx('Megakadályozza, hogy véletlenül jelszavak vagy titkos kulcsok szivárogjanak ki az AI válaszokban, és szűri a gyanús utasításokat.')}
               />
             </div>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
@@ -1335,7 +1336,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.telegramInlineButtons !== false}
                 onChange={(e) => setForm({ ...form, telegramInlineButtons: e.target.checked })}
               />
-              <span>Telegram gyorsgombok megjelenítése a válaszokban</span>
+              <span>{tx('Telegram gyorsgombok megjelenítése a válaszokban')}</span>
             </label>
           </div>
         </div>
@@ -1344,21 +1345,21 @@ export const SettingsView: React.FC<Props> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Hardver-Optimalizáló, Pi Védelem &amp; Napi Összefoglalók
+                {tx('Hardver-Optimalizáló, Pi Védelem & Napi Összefoglalók')}
               </h3>
               <InfoHint
-                label="Hardver és napi összefoglalók"
-                text="Automatikusan figyeli a gép memóriáját (különösen Raspberry Pi-n), valamint reggeli és esti rövid áttekintést küld."
+                label={tx('Hardver és napi összefoglalók')}
+                text={tx('Automatikusan figyeli a gép memóriáját (különösen Raspberry Pi-n), valamint reggeli és esti rövid áttekintést küld.')}
               />
             </div>
             <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
-              Profil: {form.detectedHardwareTier || 'auto'}
+              {tx('Profil:')} {form.detectedHardwareTier || 'auto'}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label htmlFor="set-ram-wd" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                RAM/OOM Őrszem Küszöb (%)
+                {tx('RAM/OOM Őrszem Küszöb (%)')}
               </label>
               <input
                 id="set-ram-wd"
@@ -1372,7 +1373,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-morning-brief" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Reggeli Brief Időpont (HH:MM)
+                {tx('Reggeli Brief Időpont (HH:MM)')}
               </label>
               <input
                 id="set-morning-brief"
@@ -1384,7 +1385,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-evening-brief" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Esti Összefoglaló Időpont (HH:MM)
+                {tx('Esti Összefoglaló Időpont (HH:MM)')}
               </label>
               <input
                 id="set-evening-brief"
@@ -1396,7 +1397,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-gpio-fan" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                GPIO Termikus Ventilátor Pin (opc.)
+                {tx('GPIO Termikus Ventilátor Pin (opc.)')}
               </label>
               <input
                 id="set-gpio-fan"
@@ -1404,7 +1405,7 @@ export const SettingsView: React.FC<Props> = ({
                 min="0"
                 max="53"
                 value={form.gpioFanPin ?? ''}
-                placeholder="pl. 17"
+                placeholder={tx('pl. 17')}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -1423,7 +1424,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.hardwareAutoOptimize !== false}
                 onChange={(e) => setForm({ ...form, hardwareAutoOptimize: e.target.checked })}
               />
-              <span>Hardver-Adaptív Auto-Optimalizáló aktív induláskor (CPU/RAM/GPU alapú finomhangolás)</span>
+              <span>{tx('Hardver-Adaptív Auto-Optimalizáló aktív induláskor (CPU/RAM/GPU alapú finomhangolás)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1431,7 +1432,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={Boolean(form.sdCardSparingMode)}
                 onChange={(e) => setForm({ ...form, sdCardSparingMode: e.target.checked })}
               />
-              <span>SD-kártya Kímélő Mód (gyors telemetria pufferelése memóriában íráscsökkentéssel)</span>
+              <span>{tx('SD-kártya Kímélő Mód (gyors telemetria pufferelése memóriában íráscsökkentéssel)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1439,7 +1440,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.hybridLocalFirst !== false}
                 onChange={(e) => setForm({ ...form, hybridLocalFirst: e.target.checked })}
               />
-              <span>Hibrid Kontextus Routing (egyszerű feladatok helyi Ollama modellen, nehéz kódolás felhőben)</span>
+              <span>{tx('Hibrid Kontextus Routing (egyszerű feladatok helyi Ollama modellen, nehéz kódolás felhőben)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1447,7 +1448,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.telegramVoiceReplyEnabled !== false}
                 onChange={(e) => setForm({ ...form, telegramVoiceReplyEnabled: e.target.checked })}
               />
-              <span>Telegram Walkie-Talkie (hangüzenetre automatikus Opus hangválasz küldése)</span>
+              <span>{tx('Telegram Walkie-Talkie (hangüzenetre automatikus Opus hangválasz küldése)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1455,7 +1456,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.selfHealingDaemonEnabled !== false}
                 onChange={(e) => setForm({ ...form, selfHealingDaemonEnabled: e.target.checked })}
               />
-              <span>Eseményvezérelt Öngyógyító Démon + Automatikus Inbox Triage</span>
+              <span>{tx('Eseményvezérelt Öngyógyító Démon + Automatikus Inbox Triage')}</span>
             </label>
           </div>
         </div>
@@ -1463,12 +1464,12 @@ export const SettingsView: React.FC<Props> = ({
         {/* LAN Sentinel, Docker Auto-Heal & Mesh Offload */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Hálózat-Őrszem, Konténer-újraindító &amp; Gép-megosztás
+            {tx('Hálózat-Őrszem, Konténer-újraindító & Gép-megosztás')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="set-speed-int" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                LAN & Sebességmérés Intervallum (perc)
+                {tx('LAN & Sebességmérés Intervallum (perc)')}
               </label>
               <input
                 id="set-speed-int"
@@ -1488,7 +1489,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.lanSentinelAutoAlert !== false}
                 onChange={(e) => setForm({ ...form, lanSentinelAutoAlert: e.target.checked })}
               />
-              <span>LAN Őrszem azonnali Telegram riasztás ismeretlen MAC-cím csatlakozásakor</span>
+              <span>{tx('LAN Őrszem azonnali Telegram riasztás ismeretlen MAC-cím csatlakozásakor')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1496,7 +1497,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.dockerAutoHealEnabled !== false}
                 onChange={(e) => setForm({ ...form, dockerAutoHealEnabled: e.target.checked })}
               />
-              <span>Docker Watchtower automatikus leállt / hibás konténer újraindítás</span>
+              <span>{tx('Docker Watchtower automatikus leállt / hibás konténer újraindítás')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1504,7 +1505,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.meshOffloadEnabled !== false}
                 onChange={(e) => setForm({ ...form, meshOffloadEnabled: e.target.checked })}
               />
-              <span>Swarm Mesh automatikus GPU / workstation node feladat-kiosztás engedélyezve</span>
+              <span>{tx('Swarm Mesh automatikus GPU / workstation node feladat-kiosztás engedélyezve')}</span>
             </label>
           </div>
         </div>
@@ -1512,12 +1513,12 @@ export const SettingsView: React.FC<Props> = ({
         {/* Universal OS, Local LLM Tuning & UI Density */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Üzemmódok, Helyi AI Hangolás &amp; Felület Sűrűsége
+            {tx('Üzemmódok, Helyi AI Hangolás & Felület Sűrűsége')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label htmlFor="set-op-mode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Üzemmód Profil
+                {tx('Üzemmód Profil')}
               </label>
               <select
                 id="set-op-mode"
@@ -1525,16 +1526,16 @@ export const SettingsView: React.FC<Props> = ({
                 onChange={(e) => setForm({ ...form, operatingMode: e.target.value as Settings['operatingMode'] })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               >
-                <option value="normal">Normál</option>
-                <option value="focus">Mély Fókusz</option>
-                <option value="travel">Utazás / Távoli</option>
-                <option value="emergency">Vészhelyzeti</option>
-                <option value="chill">Pihenő / Hétvége</option>
+                <option value="normal">{tx('Normál')}</option>
+                <option value="focus">{tx('Mély Fókusz')}</option>
+                <option value="travel">{tx('Utazás / Távoli')}</option>
+                <option value="emergency">{tx('Vészhelyzeti')}</option>
+                <option value="chill">{tx('Pihenő / Hétvége')}</option>
               </select>
             </div>
             <div>
               <label htmlFor="set-timezone" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Időzóna (IANA)
+                {tx('Időzóna (IANA)')}
               </label>
               <input
                 id="set-timezone"
@@ -1546,7 +1547,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <div>
               <label htmlFor="set-fx-alert" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                EUR/HUF Riasztási Küszöb
+                {tx('EUR/HUF Riasztási Küszöb')}
               </label>
               <input
                 id="set-fx-alert"
@@ -1582,7 +1583,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={Boolean(form.compactUiMode)}
                 onChange={(e) => setForm({ ...form, compactUiMode: e.target.checked })}
               />
-              <span>Kompakt UI sűrűség (kisebb margók laptopon és mobilon)</span>
+              <span>{tx('Kompakt UI sűrűség (kisebb margók laptopon és mobilon)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1590,7 +1591,7 @@ export const SettingsView: React.FC<Props> = ({
                 checked={Boolean(form.compactLocalPrompt)}
                 onChange={(e) => setForm({ ...form, compactLocalPrompt: e.target.checked })}
               />
-              <span>Tömör helyi 1.5B–3B Ollama rendszerprompt (gyorsabb válasz kisebb kontextusban)</span>
+              <span>{tx('Tömör helyi 1.5B–3B Ollama rendszerprompt (gyorsabb válasz kisebb kontextusban)')}</span>
             </label>
             <label className="flex items-center gap-2.5 text-sm cursor-pointer">
               <input
@@ -1598,19 +1599,19 @@ export const SettingsView: React.FC<Props> = ({
                 checked={form.telegramStreamEdit !== false}
                 onChange={(e) => setForm({ ...form, telegramStreamEdit: e.target.checked })}
               />
-              <span>Telegram élő szerkesztett streaming (válasz fokozatos frissítése)</span>
+              <span>{tx('Telegram élő szerkesztett streaming (válasz fokozatos frissítése)')}</span>
             </label>
           </div>
 
           {/* Agent Personalization & Behavior */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
             <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Ágens Személyre Szabás &amp; Válaszstílus
+              {tx('Ágens Személyre Szabás & Válaszstílus')}
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label htmlFor="set-default-tone" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Alapértelmezett Válaszstílus
+                  {tx('Alapértelmezett Válaszstílus')}
                 </label>
                 <select
                   id="set-default-tone"
@@ -1618,16 +1619,16 @@ export const SettingsView: React.FC<Props> = ({
                   onChange={(e) => setForm({ ...form, defaultResponseTone: e.target.value as Settings['defaultResponseTone'] })}
                   className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
                 >
-                  <option value="balanced">Kiegyensúlyozott (Balanced)</option>
-                  <option value="concise">Tömör, lényegre törő (Concise)</option>
-                  <option value="executive">Vezetői összefoglaló (Executive / BLUF)</option>
-                  <option value="technical">Mély technikai (Technical)</option>
-                  <option value="didactic">Tanító / magyarázó (Didactic)</option>
+                  <option value="balanced">{tx('Kiegyensúlyozott (Balanced)')}</option>
+                  <option value="concise">{tx('Tömör, lényegre törő (Concise)')}</option>
+                  <option value="executive">{tx('Vezetői összefoglaló (Executive / BLUF)')}</option>
+                  <option value="technical">{tx('Mély technikai (Technical)')}</option>
+                  <option value="didactic">{tx('Tanító / magyarázó (Didactic)')}</option>
                 </select>
               </div>
               <div>
                 <label htmlFor="set-adaptive-verbosity" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Válasz Részletessége (Adaptív Mélység)
+                  {tx('Válasz Részletessége (Adaptív Mélység)')}
                 </label>
                 <select
                   id="set-adaptive-verbosity"
@@ -1635,14 +1636,14 @@ export const SettingsView: React.FC<Props> = ({
                   onChange={(e) => setForm({ ...form, adaptiveVerbosity: e.target.value as Settings['adaptiveVerbosity'] })}
                   className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
                 >
-                  <option value="concise">Tömör (Concise)</option>
-                  <option value="balanced">Kiegyensúlyozott (Balanced)</option>
-                  <option value="exhaustive">Kimerítő, mély (Exhaustive)</option>
+                  <option value="concise">{tx('Tömör (Concise)')}</option>
+                  <option value="balanced">{tx('Kiegyensúlyozott (Balanced)')}</option>
+                  <option value="exhaustive">{tx('Kimerítő, mély (Exhaustive)')}</option>
                 </select>
               </div>
               <div className="flex flex-col justify-end text-xs text-slate-500 dark:text-slate-400">
-                <span>Aktív Persona ID: <span className="font-mono">{form.activePersonaId || 'nincs'}</span></span>
-                <span>Aktív Kontextus ID: <span className="font-mono">{form.activeUserContextId || 'nincs'}</span></span>
+                <span>{tx('Aktív Persona ID:')} <span className="font-mono">{form.activePersonaId || '-'}</span></span>
+                <span>{tx('Aktív Kontextus ID:')} <span className="font-mono">{form.activeUserContextId || '-'}</span></span>
               </div>
             </div>
             <div className="space-y-2">
@@ -1652,7 +1653,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.autoInjectFactVault !== false}
                   onChange={(e) => setForm({ ...form, autoInjectFactVault: e.target.checked })}
                 />
-                <span>Személyes Ténybank (Fact Vault) automatikus betöltése az ágensek rendszerpromptjába</span>
+                <span>{tx('Személyes Ténybank (Fact Vault) automatikus betöltése az ágensek rendszerpromptjába')}</span>
               </label>
               <label className="flex items-center gap-2.5 text-sm cursor-pointer">
                 <input
@@ -1660,7 +1661,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.agentSelfCritiquePass !== false}
                   onChange={(e) => setForm({ ...form, agentSelfCritiquePass: e.target.checked })}
                 />
-                <span>Ágens önellenőrző kritikai menet válaszadás előtt (pontosság és biztonság)</span>
+                <span>{tx('Ágens önellenőrző kritikai menet válaszadás előtt (pontosság és biztonság)')}</span>
               </label>
               <label className="flex items-center gap-2.5 text-sm cursor-pointer">
                 <input
@@ -1668,7 +1669,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.proactiveFollowUpSuggestions !== false}
                   onChange={(e) => setForm({ ...form, proactiveFollowUpSuggestions: e.target.checked })}
                 />
-                <span>Proaktív következő lépési javaslatok felajánlása válaszok végén</span>
+                <span>{tx('Proaktív következő lépési javaslatok felajánlása válaszok végén')}</span>
               </label>
               <label className="flex items-center gap-2.5 text-sm cursor-pointer">
                 <input
@@ -1676,7 +1677,7 @@ export const SettingsView: React.FC<Props> = ({
                   checked={form.autoExtractActionItems !== false}
                   onChange={(e) => setForm({ ...form, autoExtractActionItems: e.target.checked })}
                 />
-                <span>Akciópontok automatikus felismerése megbeszélés- és chat-jegyzetekből</span>
+                <span>{tx('Akciópontok automatikus felismerése megbeszélés- és chat-jegyzetekből')}</span>
               </label>
             </div>
           </div>
@@ -1691,7 +1692,7 @@ export const SettingsView: React.FC<Props> = ({
                 }}
                 className="px-3.5 py-2 text-xs font-medium border border-amber-300 text-amber-800 bg-amber-50 rounded-lg hover:bg-amber-100"
               >
-                Adatok Törlése (Beállítások &amp; Titkok Megtartásával)
+                {tx('Adatok Törlése (Beállítások & Titkok Megtartásával)')}
               </button>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
@@ -1705,20 +1706,20 @@ export const SettingsView: React.FC<Props> = ({
                     });
                     setConfirmReset(false);
                     if (r.ok) {
-                      setResetMsg('Futásidejű adatok törölve; az API kulcsok, Telegram token és beállítások megmaradtak.');
+                      setResetMsg(tx('Futásidejű adatok törölve; az API kulcsok, Telegram token és beállítások megmaradtak.'));
                       await onRefreshState();
                     }
                   }}
                   className="px-3.5 py-2 text-xs font-medium bg-red-700 text-white rounded-lg hover:bg-red-800"
                 >
-                  Megerősítem: Adatok Visszaállítása
+                  {tx('Megerősítem: Adatok Visszaállítása')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmReset(false)}
                   className="px-3 py-2 text-xs font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
                 >
-                  Mégse
+                  {tx('Mégse')}
                 </button>
               </div>
             )}
@@ -1732,19 +1733,19 @@ export const SettingsView: React.FC<Props> = ({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-slate-700" />
-            <h3 className="text-base font-semibold text-slate-900">Hálózati Operátori Jelszó Zár</h3>
-            <InfoHint theme="light" label="Operátori jelszó zár" description="Ha helyi hálózaton (LAN) vagy internetről is elérhető a gép, ez a jelszó védi meg a teljes vezérlőpultot idegenektől." />
+            <h3 className="text-base font-semibold text-slate-900">{tx('Hálózati Operátori Jelszó Zár')}</h3>
+            <InfoHint theme="light" label={tx('Operátori jelszó zár')} description={tx('Ha helyi hálózaton (LAN) vagy internetről is elérhető a gép, ez a jelszó védi meg a teljes vezérlőpultot idegenektől.')} />
           </div>
           <span
             className={`text-xs font-mono font-semibold ${
               settings.webAuthEnabled ? 'text-emerald-700' : 'text-amber-700'
             }`}
           >
-            {settings.webAuthEnabled ? 'VÉDELEM AKTÍV' : 'Nyitott (Jelszó nélküli LAN mód)'}
+            {settings.webAuthEnabled ? tx('VÉDELEM AKTÍV') : tx('Nyitott (Jelszó nélküli LAN mód)')}
           </span>
         </div>
         <p className="text-xs text-slate-600">
-          Titkosított munkamenet-sütivel védi a felületet és minden API-hívást (min. 8 karakteres, erős jelszó javasolt).
+          {tx('Titkosított munkamenet-sütivel védi a felületet és minden API-hívást (min. 8 karakteres, erős jelszó javasolt).')}
         </p>
         {authMsg && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800">
@@ -1757,8 +1758,8 @@ export const SettingsView: React.FC<Props> = ({
               type="text"
               value={setupCode}
               onChange={(e) => setSetupCode(e.target.value)}
-              placeholder="Egyszeri Setup-Kód (konzol / .novaswarm-setup.log)"
-              aria-label="One-time setup code"
+              placeholder={tx('Egyszeri Setup-Kód (konzol / .novaswarm-setup.log)')}
+              aria-label={tx('Egyszeri Setup-Kód (konzol / .novaswarm-setup.log)')}
               className="w-60 px-3 py-2 text-sm font-mono uppercase border border-amber-300 bg-amber-50 rounded-lg"
             />
           )}
@@ -1769,10 +1770,10 @@ export const SettingsView: React.FC<Props> = ({
             onChange={(e) => setOperatorPassword(e.target.value)}
             placeholder={
               settings.webAuthHasPassword
-                ? 'Új operátori jelszó (vagy hagyd üresen a kapcsoláshoz)...'
-                : 'Új operátori jelszó (min. 8 karakter)...'
+                ? tx('Új operátori jelszó (vagy hagyd üresen a kapcsoláshoz)...')
+                : tx('Új operátori jelszó (min. 8 karakter)...')
             }
-            aria-label="New operator password"
+            aria-label={tx('Új operátori jelszó')}
             className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-slate-300 rounded-lg"
           />
           <button
@@ -1780,7 +1781,7 @@ export const SettingsView: React.FC<Props> = ({
             onClick={() => void handleSaveOperatorAuth(true)}
             className="px-3.5 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 whitespace-nowrap"
           >
-            Jelszó mentése és Zár BE
+            {tx('Jelszó mentése és Zár BE')}
           </button>
           {settings.webAuthEnabled && (
             <button
@@ -1788,7 +1789,7 @@ export const SettingsView: React.FC<Props> = ({
               onClick={() => void handleSaveOperatorAuth(false)}
               className="px-3.5 py-2 text-xs font-medium border border-slate-300 bg-white text-slate-800 rounded-lg hover:bg-slate-50 whitespace-nowrap"
             >
-              LAN Zár KI
+              {tx('LAN Zár KI')}
             </button>
           )}
         </div>
@@ -1798,9 +1799,9 @@ export const SettingsView: React.FC<Props> = ({
       <div className="border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-2 bg-slate-50">
         <div className="text-xs text-slate-600 flex items-center gap-2">
           <span>
-            <span className="font-semibold text-slate-800">{tr(language, 'killSwitchTitle')}</span> — vészhelyzetben minden AI folyamat azonnali leállítása (Telegramról: <span className="font-mono">/stop</span>).
+            <span className="font-semibold text-slate-800">{t('killSwitchTitle')}</span> {tx('— vészhelyzetben minden AI folyamat azonnali leállítása (Telegramról:')} <span className="font-mono">/stop</span>).
           </span>
-          <InfoHint theme="light" label="Vészleállító" description="Egyetlen gombnyomással megállítja az összes háttérben futó ágenst és automatikus műveletet." />
+          <InfoHint theme="light" label={tx('Vészleállító')} description={tx('Egyetlen gombnyomással megállítja az összes háttérben futó ágenst és automatikus műveletet.')} />
         </div>
         <button
           type="button"
@@ -1813,8 +1814,8 @@ export const SettingsView: React.FC<Props> = ({
         >
           <OctagonAlert className="h-3.5 w-3.5" />
           {settings.killSwitchActive
-            ? tr(language, 'killSwitchDeactivate')
-            : tr(language, 'killSwitchActivate')}
+            ? t('killSwitchDeactivate')
+            : t('killSwitchActivate')}
         </button>
       </div>
 
@@ -1829,26 +1830,26 @@ export const SettingsView: React.FC<Props> = ({
             <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
               <AlertTriangle className="h-5 w-5 shrink-0" />
               <h3 id="autonomy-modal-title" className="text-base font-bold">
-                Teljes autonómia profil megerősítése
+                {tx('Teljes autonómia profil megerősítése')}
               </h3>
             </div>
             <div className="text-xs text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
               <p>
-                A profil bekapcsolása egyszerre engedélyezi a géphez való hozzáférést, a jóváhagyás nélküli
-                önálló feladatvégrehajtást és a parancssori <strong>Veszélyes Zónát</strong>.
+                {tx('A profil bekapcsolása egyszerre engedélyezi a géphez való hozzáférést, a jóváhagyás nélküli önálló feladatvégrehajtást és a parancssori')}{' '}
+                <strong>{tx('Veszélyes Zónát')}</strong>.
               </p>
               <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-900 dark:text-red-200">
-                <strong>Kockázati figyelmeztetés:</strong> külső weboldalból, e-mailből vagy üzenetből származó
-                prompt injection esetén az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat!
+                <strong>{tx('Kockázati figyelmeztetés:')}</strong>{' '}
+                {tx('külső weboldalból, e-mailből vagy üzenetből származó prompt injection esetén az ágensek jóváhagyás nélkül futtathatnak rendszerparancsokat!')}
               </div>
               <p>
-                A Telegram chat-ID engedélylista, a webes jelszózár, a napi Phoenix mentés és a{' '}
-                <span className="font-mono">/stop</span> vészleállító ezalatt is aktív marad.
+                {tx('A Telegram chat-ID engedélylista, a webes jelszózár, a napi Phoenix mentés és a')}{' '}
+                <span className="font-mono">/stop</span> {tx('vészleállító ezalatt is aktív marad.')}
               </p>
             </div>
             {!settings.webAuthHasPassword && (
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-900">
-                Előbb állíts be egy operátori jelszót lent a „Hálózati Operátori Jelszó Zár” szekcióban!
+                {tx('Előbb állíts be egy operátori jelszót lent a „Hálózati Operátori Jelszó Zár” szekcióban!')}
               </div>
             )}
             {autonomyErr && (
@@ -1858,14 +1859,14 @@ export const SettingsView: React.FC<Props> = ({
             )}
             <div>
               <label htmlFor="autonomy-confirm-pw" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Operátori jelszó megerősítése
+                {tx('Operátori jelszó megerősítése')}
               </label>
               <input
                 id="autonomy-confirm-pw"
                 type="password"
                 value={autonomyPassword}
                 onChange={(e) => setAutonomyPassword(e.target.value)}
-                placeholder="Add meg az operátori jelszót..."
+                placeholder={tx('Add meg az operátori jelszót...')}
                 autoFocus
                 className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
               />
@@ -1876,7 +1877,7 @@ export const SettingsView: React.FC<Props> = ({
                 onClick={() => setAutonomyModalOpen(false)}
                 className="px-3.5 py-2 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
               >
-                Mégse
+                {tx('Mégse')}
               </button>
               <button
                 type="button"
@@ -1884,7 +1885,7 @@ export const SettingsView: React.FC<Props> = ({
                 onClick={() => void handleToggleAutonomyProfile(true)}
                 className="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {autonomyBusy ? 'Aktiválás...' : 'Értem a kockázatot, Bekapcsolás'}
+                {autonomyBusy ? tx('Aktiválás...') : tx('Értem a kockázatot, Bekapcsolás')}
               </button>
             </div>
           </div>
@@ -1901,18 +1902,18 @@ export const SettingsView: React.FC<Props> = ({
             <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
               <OctagonAlert className="h-5 w-5 shrink-0" />
               <h3 id="total-autonomy-modal-title" className="text-base font-bold">
-                Totális autonómia bekapcsolása
+                {tx('Totális autonómia bekapcsolása')}
               </h3>
             </div>
             <div className="text-xs text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
               <p>
-                A Totális autonómia engedélyezi az ágenseknek az önálló célciklust, a LAN felderítést/eszközvezérlést,
-                a <span className="font-mono">settings_admin</span> módosításokat és a teljes gazdagép-parancsok futtatását.
+                {tx('A Totális autonómia engedélyezi az ágenseknek az önálló célciklust, a LAN felderítést/eszközvezérlést, a')}{' '}
+                <span className="font-mono">settings_admin</span> {tx('módosításokat és a teljes gazdagép-parancsok futtatását.')}
               </p>
               <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-900 dark:text-red-200">
-                <strong>Sérthetetlen garanciák:</strong> az ágens sem tudja kikapcsolni az append-only auditot,
-                a napi Telegram hash-horgonyt, a <span className="font-mono">/stop</span> LOCKDOWN vészleállítót és
-                az automatikus biztonsági visszaállítási pontokat.
+                <strong>{tx('Sérthetetlen garanciák:')}</strong>{' '}
+                {tx('az ágens sem tudja kikapcsolni az append-only auditot, a napi Telegram hash-horgonyt, a')}{' '}
+                <span className="font-mono">/stop</span> {tx('LOCKDOWN vészleállítót és az automatikus biztonsági visszaállítási pontokat.')}
               </div>
             </div>
             {totalErr && (
@@ -1923,14 +1924,14 @@ export const SettingsView: React.FC<Props> = ({
             {settings.webAuthHasPassword && (
               <div>
                 <label htmlFor="total-confirm-pw" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Operátori jelszó megerősítése
+                  {tx('Operátori jelszó megerősítése')}
                 </label>
                 <input
                   id="total-confirm-pw"
                   type="password"
                   value={totalPassword}
                   onChange={(e) => setTotalPassword(e.target.value)}
-                  placeholder="Add meg az operátori jelszót..."
+                  placeholder={tx('Add meg az operátori jelszót...')}
                   autoFocus
                   className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800"
                 />
@@ -1942,7 +1943,7 @@ export const SettingsView: React.FC<Props> = ({
                 onClick={() => setTotalModalOpen(false)}
                 className="px-3.5 py-2 text-xs font-medium border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
               >
-                Mégse
+                {tx('Mégse')}
               </button>
               <button
                 type="button"
@@ -1950,7 +1951,7 @@ export const SettingsView: React.FC<Props> = ({
                 onClick={() => void handleToggleTotalAutonomy(true)}
                 className="px-4 py-2 text-xs font-semibold bg-red-700 text-white rounded-lg hover:bg-red-800 disabled:opacity-50"
               >
-                {totalBusy ? 'Aktiválás...' : 'Saját felelősségre Bekapcsolom'}
+                {totalBusy ? tx('Aktiválás...') : tx('Saját felelősségre Bekapcsolom')}
               </button>
             </div>
           </div>
